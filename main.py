@@ -340,7 +340,7 @@ async def query_dashboard(queues: list[str], date_from: str = "", date_to: str =
                     end_d = date.fromisoformat(end[:10])
                 else:
                     end_d = date.fromisoformat(today)
-                days = max(0, (end_d - start_d).days)
+                days = max(0, (end_d - start_d).days + 1)
             except ValueError:
                 days = 0
 
@@ -564,9 +564,9 @@ async def status_analysis(
             b.queue,
             CASE
                 WHEN b.status = 'closed' AND b.start_date != '' AND b.end_date != ''
-                    THEN CAST(julianday(b.end_date) - julianday(b.start_date) AS INTEGER)
+                    THEN CAST(julianday(b.end_date) - julianday(b.start_date) AS INTEGER) + 1
                 WHEN b.status != 'closed' AND b.start_date != ''
-                    THEN CAST(julianday(date('now')) - julianday(b.start_date) AS INTEGER)
+                    THEN CAST(julianday(date('now')) - julianday(b.start_date) AS INTEGER) + 1
                 ELSE 0
             END AS days_val
         FROM blockings b
@@ -652,9 +652,9 @@ async def downtime_analysis(
             reason,
             SUM(CASE
                 WHEN status = 'closed' AND start_date != '' AND end_date != ''
-                    THEN CAST(julianday(end_date) - julianday(start_date) AS INTEGER)
+                    THEN CAST(julianday(end_date) - julianday(start_date) AS INTEGER) + 1
                 WHEN status != 'closed' AND start_date != ''
-                    THEN CAST(julianday(date('now')) - julianday(start_date) AS INTEGER)
+                    THEN CAST(julianday(date('now')) - julianday(start_date) AS INTEGER) + 1
                 ELSE 0
             END) AS total_days,
             COUNT(*) as cnt
