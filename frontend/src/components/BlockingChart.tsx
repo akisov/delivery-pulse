@@ -55,7 +55,7 @@ function YAxisTick({ x, y, payload, tasksMap }: any) {
   const color  = queueText[queue]   ?? "hsl(252,87%,65%)"
 
   return (
-    <foreignObject x={x - 124} y={y - 11} width={122} height={22}>
+    <foreignObject x={x - 154} y={y - 11} width={152} height={22}>
       <a
         href={task?.url ?? `https://tracker.yandex.ru/${key}`}
         target="_blank"
@@ -223,7 +223,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
           <BarChart
             data={chartData}
             layout="vertical"
-            margin={{ top: 8, right: 60, left: 0, bottom: 8 }}
+            margin={{ top: 8, right: 60, left: 8, bottom: 8 }}
             barSize={20}
           >
             <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
@@ -236,7 +236,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
             <YAxis
               type="category"
               dataKey="key"
-              width={120}
+              width={155}
               axisLine={false}
               tickLine={false}
               tick={<YAxisTick tasksMap={tasksMap} />}
