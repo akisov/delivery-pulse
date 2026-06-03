@@ -371,7 +371,9 @@ async def run_sync_job(selected: list[str], full: bool):
                 if full or queue not in info or not info[queue]:
                     updated_from = (date.today() - timedelta(days=730)).isoformat()
                 else:
-                    updated_from = info[queue]
+                    # Конвертируем "2026-06-03 14:35" → "2026-06-03T14:35:00"
+                    raw = info[queue]
+                    updated_from = raw.replace(" ", "T") + ":00" if " " in raw else raw
 
                 base_pct = qi * (90 // len(selected))
 
@@ -396,7 +398,7 @@ async def _sync_queue_from(client, queue, updated_from, send):
         data = await tracker_request(client, "POST",
             f"/v2/issues/_search?perPage=100&page={page}",
             {"filter": {"queue": queue,
-                        "updatedAt": {"from": f"{updated_from}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+                        "updatedAt": {"from": updated_from if "T" in updated_from else f"{updated_from}T00:00:00", "to": "2099-01-01T00:00:00"}}})
         chunk = data if isinstance(data, list) else []
         issues.extend(chunk)
         if len(chunk) < 100:
