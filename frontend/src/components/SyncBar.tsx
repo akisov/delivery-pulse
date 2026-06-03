@@ -1,5 +1,4 @@
-import { Database, Circle } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Database } from "lucide-react"
 import type { SyncInfo } from "@/lib/types"
 
 interface SyncBarProps {
@@ -8,9 +7,6 @@ interface SyncBarProps {
 }
 
 export function SyncBar({ info, loading }: SyncBarProps) {
-  const queues = ["POOLING", "DOSTAVKAPIKO", "UDOSTAVKA"]
-  const today = new Date().toISOString().slice(0, 10)
-
   if (loading || !info) {
     return (
       <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-card text-xs text-muted-foreground">
@@ -20,34 +16,22 @@ export function SyncBar({ info, loading }: SyncBarProps) {
     )
   }
 
-  const hasAny = queues.some(q => info[q])
+  const dates = Object.values(info).filter(Boolean) as string[]
+  const hasAny = dates.length > 0
+
+  // Самая старая дата синка
+  const oldest = hasAny ? [...dates].sort()[0] : null
 
   return (
-    <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border border-border bg-card flex-wrap">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Database className="w-3.5 h-3.5" />
-        <span className="font-medium">База данных:</span>
-      </div>
+    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-card text-xs text-muted-foreground">
+      <Database className="w-3.5 h-3.5 shrink-0" />
       {!hasAny ? (
-        <span className="text-xs text-destructive font-semibold flex items-center gap-1.5">
-          <Circle className="w-2 h-2 fill-destructive text-destructive" />
-          Данных нет — запустите Полный синк
-        </span>
+        <span className="text-destructive font-semibold">Данных нет — запустите синк</span>
       ) : (
-        queues.map(q => {
-          const d = info[q]
-          const stale = d && d < today
-          return (
-            <span key={q} className="flex items-center gap-1.5 text-xs">
-              <Circle className={cn("w-2 h-2", d
-                ? (stale ? "fill-amber-400 text-amber-400" : "fill-emerald-400 text-emerald-400")
-                : "fill-destructive text-destructive"
-              )} />
-              <span className="text-muted-foreground">{q}:</span>
-              <span className="font-semibold text-foreground">{d || "—"}</span>
-            </span>
-          )
-        })
+        <>
+          <span>База данных:</span>
+          <span className="font-semibold text-foreground">{oldest} МСК</span>
+        </>
       )}
     </div>
   )

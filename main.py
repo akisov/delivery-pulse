@@ -251,7 +251,7 @@ async def sync_queue(client, queue, send):
     await turso_execute([stmt(
         "INSERT INTO sync_log(queue,last_synced) VALUES(?,?) "
         "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
-        [queue, datetime.now().strftime("%Y-%m-%d %H:%M")]
+        [queue, (datetime.utcnow() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")]
     )])
     print(f"[{queue}] done. Blockings found: {blocking_keys_found}")
 
@@ -480,7 +480,7 @@ async def _sync_queue_from(client, queue, updated_from, send):
     await turso_execute([stmt(
         "INSERT INTO sync_log(queue,last_synced) VALUES(?,?) "
         "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
-        [queue, datetime.now().strftime("%Y-%m-%d %H:%M")]
+        [queue, (datetime.utcnow() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")]
     )])
 
 # ── FastAPI ───────────────────────────────────────────────────────────────────
