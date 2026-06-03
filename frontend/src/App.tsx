@@ -89,10 +89,32 @@ export default function App() {
 
   useEffect(() => { load() }, [])
 
+  // Тихое авто-обновление раз в час — только за сегодня, лёгкий запрос
   useEffect(() => {
-    const t = setInterval(() => { if (!syncing) load() }, 30 * 60 * 1000)
+    const t = setInterval(async () => {
+      const today = fmt(new Date())
+      try {
+        const fresh = await fetchDashboard(today, today)
+        setData(prev => {
+          if (!prev) return fresh
+          // мержим свежие задачи поверх существующих
+          const freshKeys = new Set(fresh.tasks.map(t => t.key))
+          const merged = [
+            ...prev.tasks.filter(t => !freshKeys.has(t.key)),
+            ...fresh.tasks,
+          ].sort((a, b) => b.totalDays - a.totalDays)
+          const queues = { ...prev.queues }
+          for (const q of Object.keys(queues)) {
+            const freshQ = fresh.queues[q]?.tasks ?? []
+            const freshQKeys = new Set(freshQ.map((t: any) => t.key))
+            queues[q] = { tasks: [...(queues[q]?.tasks ?? []).filter(t => !freshQKeys.has(t.key)), ...freshQ] }
+          }
+          return { ...prev, tasks: merged, queues }
+        })
+      } catch {}
+    }, 60 * 60 * 1000)
     return () => clearInterval(t)
-  }, [syncing, load])
+  }, [])
 
   // Фильтрация по очереди
   const queueTasks: BlockedTask[] = !data ? [] :
@@ -140,13 +162,6 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => doSync(false)} disabled={syncing}>
-              <RefreshCw className="w-3.5 h-3.5" /> Синк
-            </Button>
-            <Button variant="ghost" size="sm" disabled={syncing}
-              onClick={() => { if (confirm("Полный синк перезагрузит все блокировки. Продолжить?")) doSync(true) }}>
-              <RotateCcw className="w-3.5 h-3.5" /> Полный
-            </Button>
             <ThemeToggle />
           </div>
         </div>
