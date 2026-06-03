@@ -27,33 +27,61 @@ function getReasonColor(reason: string, allReasons: string[]): string {
   return FALLBACK_COLORS[idx % FALLBACK_COLORS.length]
 }
 
-// Кастомный тик по оси Y — ключ задачи как ссылка с тултипом названия
+// Кастомный тик по оси Y — ключ задачи как badge-ссылка
 function YAxisTick({ x, y, payload, tasksMap }: any) {
   const key = payload?.value
   const task = tasksMap[key]
   if (!key) return null
+
+  // Цвет по очереди
+  const queueColor: Record<string, string> = {
+    POOLING:      "rgba(108,99,255,0.15)",
+    DOSTAVKAPIKO: "rgba(52,211,153,0.15)",
+    UDOSTAVKA:    "rgba(56,189,248,0.15)",
+  }
+  const queueBorder: Record<string, string> = {
+    POOLING:      "rgba(108,99,255,0.5)",
+    DOSTAVKAPIKO: "rgba(52,211,153,0.5)",
+    UDOSTAVKA:    "rgba(56,189,248,0.5)",
+  }
+  const queueText: Record<string, string> = {
+    POOLING:      "hsl(252,87%,65%)",
+    DOSTAVKAPIKO: "hsl(166,76%,40%)",
+    UDOSTAVKA:    "hsl(199,89%,55%)",
+  }
+  const queue = task?.queue ?? ""
+  const bg     = queueColor[queue]  ?? "rgba(108,99,255,0.1)"
+  const border = queueBorder[queue] ?? "rgba(108,99,255,0.4)"
+  const color  = queueText[queue]   ?? "hsl(252,87%,65%)"
+
   return (
-    <foreignObject x={x - 118} y={y - 9} width={116} height={18}>
+    <foreignObject x={x - 124} y={y - 11} width={122} height={22}>
       <a
         href={task?.url ?? `https://tracker.yandex.ru/${key}`}
         target="_blank"
         rel="noopener noreferrer"
         title={task?.title ?? key}
         style={{
-          display: "block",
-          textAlign: "right",
-          fontSize: 11,
-          color: "hsl(var(--primary))",
-          textDecoration: "none",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          lineHeight: "18px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          height: "22px",
         }}
-        onMouseOver={e => (e.currentTarget.style.textDecoration = "underline")}
-        onMouseOut={e => (e.currentTarget.style.textDecoration = "none")}
       >
-        {key}
+        <span style={{
+          fontSize: 11,
+          fontWeight: 700,
+          color,
+          background: bg,
+          border: `1px solid ${border}`,
+          borderRadius: 6,
+          padding: "1px 6px",
+          whiteSpace: "nowrap",
+          textDecoration: "none",
+          letterSpacing: "0.01em",
+        }}>
+          {key}
+        </span>
       </a>
     </foreignObject>
   )

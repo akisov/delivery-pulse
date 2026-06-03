@@ -42,6 +42,7 @@ export default function App() {
   const [dates, setDates] = useState(initDates)
   const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
+  const [view, setView] = useState<"chart" | "table">("chart")
 
   const [data, setData] = useState<DashboardData | null>(null)
   const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null)
@@ -333,20 +334,33 @@ export default function App() {
               <Skeleton className="h-96 rounded-xl" />
             ) : data && (
               <div className="animate-fade-in-up" style={{ animationDelay: "0.25s" }}>
-                <BlockingChart
-                  tasks={queueTasks}
-                  onTaskClick={setSelectedTask}
-                  activeReasons={activeReasons}
-                  onToggleReason={handleToggleReason}
-                />
-              </div>
-            )}
+                {/* Переключатель вид */}
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
+                    {([["chart", "📊 График"], ["table", "📋 Таблица"]] as const).map(([v, label]) => (
+                      <button key={v} onClick={() => setView(v)}
+                        className={cn(
+                          "px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
+                          view === v
+                            ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]"
+                            : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                        )}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            {loading ? (
-              <Skeleton className="h-96 rounded-xl" />
-            ) : data && (
-              <div className="animate-fade-in-up" style={{ animationDelay: "0.35s" }}>
-                <BlockingTable tasks={queueTasks} />
+                {view === "chart" ? (
+                  <BlockingChart
+                    tasks={queueTasks}
+                    onTaskClick={setSelectedTask}
+                    activeReasons={activeReasons}
+                    onToggleReason={handleToggleReason}
+                  />
+                ) : (
+                  <BlockingTable tasks={queueTasks} />
+                )}
               </div>
             )}
           </>

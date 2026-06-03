@@ -1,7 +1,7 @@
 import os
 import asyncio
 import httpx
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
@@ -251,7 +251,7 @@ async def sync_queue(client, queue, send):
     await turso_execute([stmt(
         "INSERT INTO sync_log(queue,last_synced) VALUES(?,?) "
         "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
-        [queue, date.today().isoformat()]
+        [queue, datetime.now().strftime("%Y-%m-%d %H:%M")]
     )])
     print(f"[{queue}] done. Blockings found: {blocking_keys_found}")
 
@@ -478,7 +478,7 @@ async def _sync_queue_from(client, queue, updated_from, send):
     await turso_execute([stmt(
         "INSERT INTO sync_log(queue,last_synced) VALUES(?,?) "
         "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
-        [queue, date.today().isoformat()]
+        [queue, datetime.now().strftime("%Y-%m-%d %H:%M")]
     )])
 
 # ── FastAPI ───────────────────────────────────────────────────────────────────
