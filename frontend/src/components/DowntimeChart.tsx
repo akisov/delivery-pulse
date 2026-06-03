@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from "recharts"
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 const REASON_COLORS: Record<string, string> = {
   "Блок другой нашей задачей":       "#7C6FF7",
@@ -47,6 +48,16 @@ export function DowntimeChart({ dateFrom, dateTo, queue }: Props) {
   const [items, setItems] = useState<Item[] | null>(null)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
+
+  const toggleReason = (reason: string) => {
+    setActiveReasons(prev => {
+      const next = new Set(prev ?? [])
+      if (next.size === 0) return new Set([reason])
+      if (next.has(reason)) { next.delete(reason); return next.size === 0 ? null : next }
+      next.add(reason); return next
+    })
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -64,30 +75,48 @@ export function DowntimeChart({ dateFrom, dateTo, queue }: Props) {
   if (loading) return <Card><CardContent className="pt-6"><Skeleton className="h-48 w-full rounded-xl" /></CardContent></Card>
   if (!items?.length) return null
 
-  // Один составной горизонтальный бар — каждый item = сегмент
-  // Используем обычный stacked bar с одной категорией
-  const chartData = [{ name: "Итого", ...Object.fromEntries(items.map(i => [i.reason, i.totalDays])) }]
+  const visibleItems = activeReasons && activeReasons.size > 0
+    ? items.filter(i => activeReasons.has(i.reason))
+    : items
+  const visibleTotal = visibleItems.reduce((s, i) => s + i.totalDays, 0)
+  const chartData = [{ name: "Итого", ...Object.fromEntries(visibleItems.map(i => [i.reason, i.totalDays])) }]
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle>Общее время простоя по причинам</CardTitle>
-          <span className="text-xs text-muted-foreground font-semibold text-foreground">{total} дн. суммарно</span>
+          <span className="text-xs font-semibold text-foreground">{visibleTotal} дн. суммарно</span>
         </div>
         <p className="text-xs text-muted-foreground mt-1">
           Сколько дней суммарно заняла каждая причина блокировки
         </p>
-        {/* Легенда */}
+        {/* Кликабельные чипы как в BlockingChart */}
         <div className="flex flex-wrap gap-2 mt-2">
-          {items.map((item, i) => (
-            <span key={item.reason} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: getColor(item.reason, i) }} />
-              {item.reason}
-              <span className="font-semibold text-foreground">{item.totalDays}д</span>
-              <span className="text-muted-foreground/60">({item.pct}%)</span>
-            </span>
-          ))}
+          {items.map((item, i) => {
+            const isActive = !activeReasons || activeReasons.size === 0 || activeReasons.has(item.reason)
+            return (
+              <button key={item.reason} onClick={() => toggleReason(item.reason)}
+                className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-all",
+                  isActive ? "text-foreground bg-secondary" : "text-muted-foreground/40 bg-secondary/30 line-through"
+                )}>
+                <span className="w-2.5 h-2.5 rounded-sm shrink-0 transition-opacity"
+                  style={{ background: getColor(item.reason, i), opacity: isActive ? 1 : 0.3 }} />
+                {item.reason}
+                <span className={cn("font-semibold", isActive ? "text-foreground" : "text-muted-foreground/40")}>
+                  {item.totalDays}д
+                </span>
+                <span className="text-muted-foreground/50">({item.pct}%)</span>
+              </button>
+            )
+          })}
+          {activeReasons && activeReasons.size > 0 && (
+            <button onClick={() => setActiveReasons(null)}
+              className="px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground transition-colors">
+              Сбросить
+            </button>
+          )}
         </div>
       </CardHeader>
       <CardContent className="pt-2">
@@ -96,15 +125,15 @@ export function DowntimeChart({ dateFrom, dateTo, queue }: Props) {
             <XAxis type="number" hide />
             <YAxis type="category" dataKey="name" hide />
             <Tooltip content={<CustomTooltip />} cursor={false} />
-            {items.map((item, i) => (
+            {visibleItems.map((item, i) => (
               <Bar key={item.reason} dataKey={item.reason} stackId="a"
-                fill={getColor(item.reason, i)}
-                radius={i === items.length - 1 ? [0,4,4,0] : 0}
+                fill={getColor(item.reason, items.indexOf(item))}
+                radius={i === visibleItems.length - 1 ? [0,4,4,0] : 0}
               >
-                {i === items.length - 1 && (
+                {i === visibleItems.length - 1 && (
                   <LabelList dataKey={item.reason} position="right"
                     style={{ fontSize: 12, fontWeight: 800, fill: "hsl(var(--foreground))" }}
-                    formatter={() => `${total}д`} />
+                    formatter={() => `${visibleTotal}д`} />
                 )}
               </Bar>
             ))}
