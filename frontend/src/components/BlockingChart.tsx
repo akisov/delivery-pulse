@@ -2,7 +2,7 @@ import { useState, useMemo } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, LabelList, ReferenceLine
+  ResponsiveContainer, LabelList
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { BlockedTask } from "@/lib/types"
@@ -123,6 +123,30 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] 
         <span className="font-black text-primary">{task.totalDays} дн.</span>
       </div>
     </div>
+  )
+}
+
+// Вертикальная линия перцентиля поверх баров (только в области баров, не на весь chart)
+function PercentileLine({ xAxisMap, yAxisMap, p, color, label }: any) {
+  if (!p || !xAxisMap || !yAxisMap) return null
+  const xAxis = Object.values(xAxisMap)[0] as any
+  const yAxis = Object.values(yAxisMap)[0] as any
+  if (!xAxis || !yAxis) return null
+  const { x: x0, width: w, scale } = xAxis
+  const { y: y0, height: h } = yAxis
+  if (!scale) return null
+  const xPos = x0 + scale(p)
+  if (xPos < x0 || xPos > x0 + w) return null
+  return (
+    <g>
+      <line x1={xPos} x2={xPos} y1={y0} y2={y0 + h}
+        stroke={color} strokeDasharray="4 3" strokeWidth={1.5} />
+      <rect x={xPos - 1} y={y0 - 18} width={52} height={16} rx={3}
+        fill={color} opacity={0.15} />
+      <text x={xPos + 3} y={y0 - 6} fontSize={10} fontWeight={700} fill={color}>
+        {label}: {p}д
+      </text>
+    </g>
   )
 }
 
@@ -255,7 +279,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
           <BarChart
             data={chartData}
             layout="vertical"
-            margin={{ top: 24, right: 60, left: 8, bottom: 8 }}
+            margin={{ top: 8, right: 60, left: 8, bottom: 8 }}
             barSize={20}
           >
             <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
@@ -274,14 +298,8 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
               tick={<YAxisTick tasksMap={tasksMap} />}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: "hsl(var(--accent))", opacity: 0.4 }} />
-            {p70 > 0 && (
-              <ReferenceLine x={p70} stroke="#EAB308" strokeDasharray="4 3" strokeWidth={1.5}
-                label={{ value: `P70: ${p70}д`, position: "insideTop", offset: 4, fontSize: 10, fill: "#EAB308", fontWeight: 700 }} />
-            )}
-            {p85 > 0 && (
-              <ReferenceLine x={p85} stroke="#EF4444" strokeDasharray="4 3" strokeWidth={1.5}
-                label={{ value: `P85: ${p85}д`, position: "insideTop", offset: 4, fontSize: 10, fill: "#EF4444", fontWeight: 700 }} />
-            )}
+            {p70 > 0 && <PercentileLine p={p70} color="#EAB308" label="P70" />}
+            {p85 > 0 && <PercentileLine p={p85} color="#EF4444" label="P85" />}
             {visibleReasons.map((reason, ri) => (
               <Bar
                 key={reason}
