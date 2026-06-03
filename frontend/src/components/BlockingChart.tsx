@@ -220,7 +220,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
                 dataKey={reason}
                 stackId="a"
                 fill={getReasonColor(reason, allReasons)}
-                radius={ri === visibleReasons.length - 1 ? [0, 4, 4, 0] : [0, 0, 0, 0]}
+                radius={[0, 4, 4, 0]}
                 onClick={(data) => {
                   const task = tasks.find(t => t.key === data.key)
                   if (task) onTaskClick(task)
