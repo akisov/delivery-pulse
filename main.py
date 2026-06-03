@@ -50,6 +50,14 @@ def rows_to_dicts(result: dict) -> list[dict]:
 
 # ── DB init ───────────────────────────────────────────────────────────────────
 
+WORK_STATUSES = {
+    "vRazrabotke":              "В разработке",
+    "testing":                  "Тестирование",
+    "analyticalstudy":          "Аналит. проработка",
+    "pomesenieVProduktiv":      "Помещение в продуктив",
+    "atthecustomersinspection": "На проверке у заказчика",
+}
+
 async def init_db():
     await turso_execute([
         stmt("""CREATE TABLE IF NOT EXISTS parent_tasks (
@@ -75,6 +83,21 @@ async def init_db():
         stmt("""CREATE TABLE IF NOT EXISTS sync_log (
             queue TEXT PRIMARY KEY,
             last_synced TEXT
+        )"""),
+        stmt("""CREATE TABLE IF NOT EXISTS status_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_key TEXT NOT NULL,
+            status_key TEXT NOT NULL,
+            status_display TEXT,
+            started_at TEXT NOT NULL,
+            ended_at TEXT
+        )"""),
+        stmt("CREATE INDEX IF NOT EXISTS idx_sh_key ON status_history(issue_key)"),
+        stmt("""CREATE TABLE IF NOT EXISTS blocking_status (
+            blocking_key TEXT PRIMARY KEY,
+            parent_key TEXT NOT NULL,
+            status_key TEXT,
+            status_display TEXT
         )"""),
     ])
 
@@ -508,6 +531,84 @@ async def sync_start(full: bool = Query(False), queues: str = Query("POOLING,DOS
 @app.get("/sync-status")
 async def sync_status_endpoint():
     return JSONResponse(_sync_status)
+
+@app.get("/status-analysis")
+async def status_analysis(
+    queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA"),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+):
+    selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    q_ph = ",".join("?" * len(selected))
+    args: list = [*selected]
+
+    date_filter = ""
+    if date_from:
+        date_filter += " AND b.start_date >= ?"
+        args.append(date_from)
+    if date_to:
+        date_filter += " AND b.start_date <= ?"
+        args.append(date_to)
+
+    results = await turso_execute([stmt(f"""
+        SELECT
+            bs.status_key,
+            bs.status_display,
+            b.days_val
+        FROM blockings b
+        JOIN blocking_status bs ON bs.blocking_key = b.key
+        JOIN (
+            SELECT key,
+                CASE
+                    WHEN status = 'closed' AND start_date != '' AND end_date != ''
+                        THEN CAST(julianday(end_date) - julianday(start_date) AS INTEGER)
+                    WHEN status != 'closed' AND start_date != ''
+                        THEN CAST(julianday('now') - julianday(start_date) AS INTEGER)
+                    ELSE 0
+                END AS days_val
+            FROM blockings
+        ) d ON d.key = b.key
+        WHERE b.queue IN ({q_ph}){date_filter}
+          AND bs.status_key IS NOT NULL
+          AND d.days_val > 0
+    """, args)])
+
+    rows = rows_to_dicts(results[0]) if results else []
+
+    # Группируем по статусу
+    by_status: dict[str, list[int]] = {}
+    for row in rows:
+        sk = row["status_key"]
+        if sk not in WORK_STATUSES:
+            continue
+        days = int(row["days_val"] or 0)
+        if days > 0:
+            by_status.setdefault(sk, []).append(days)
+
+    def p90(values: list[int]) -> float:
+        if not values: return 0
+        s = sorted(values)
+        idx = int(len(s) * 0.9)
+        return round(s[min(idx, len(s)-1)], 1)
+
+    def avg(values: list[int]) -> float:
+        return round(sum(values) / len(values), 1) if values else 0
+
+    # Порядок статусов по воронке
+    order = ["analyticalstudy", "vRazrabotke", "testing", "pomesenieVProduktiv", "atthecustomersinspection"]
+    data_out = []
+    for sk in order:
+        vals = by_status.get(sk, [])
+        data_out.append({
+            "statusKey":     sk,
+            "statusDisplay": WORK_STATUSES[sk],
+            "count":         len(vals),
+            "avg":           avg(vals),
+            "p90":           p90(vals),
+            "values":        vals,
+        })
+
+    return JSONResponse({"statuses": data_out})
 
 @app.get("/data")
 async def data(

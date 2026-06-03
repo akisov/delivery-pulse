@@ -8,6 +8,7 @@ import { SyncBar } from "@/components/SyncBar"
 import { SyncProgress } from "@/components/SyncProgress"
 import { BlockingChart } from "@/components/BlockingChart"
 import { BlockingTable } from "@/components/BlockingTable"
+import { StatusChart } from "@/components/StatusChart"
 import { TaskDetailModal } from "@/components/TaskDetailModal"
 import { TaskListModal, type StatFilter } from "@/components/TaskListModal"
 import { fetchDashboard, fetchSyncInfo, fetchSyncStatus, startSync } from "@/lib/api"
@@ -329,6 +330,13 @@ export default function App() {
                 <div className="animate-fade-in-up stagger-2"><StatCard label="Активных блокировок"   value={activeTasks.length} sub="ещё не закрыты"               icon="⏳" color="rose"   onClick={() => setStatModal("active")} /></div>
                 <div className="animate-fade-in-up stagger-3"><StatCard label="Всего блокировок"      value={totalBlockings}      sub="суммарно по задачам"           icon="🔢" color="sky"    onClick={() => setStatModal("blocked")} /></div>
                 <div className="animate-fade-in-up stagger-4"><StatCard label="Среднее время"         value={`${avgDays}д`}        sub="на одну заблок. задачу"        icon="📊" color="amber"  onClick={() => setStatModal("avg")} /></div>
+              </div>
+            )}
+
+            {/* Status analysis */}
+            {!loading && data && (
+              <div className="animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
+                <StatusChart dateFrom={dates.from} dateTo={dates.to} queue={queue} />
               </div>
             )}
 
