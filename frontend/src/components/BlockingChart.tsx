@@ -146,10 +146,11 @@ interface Props {
   onTaskClick: (task: BlockedTask) => void
   activeReasons: Set<string> | null
   onToggleReason: (reason: string) => void
+  p70?: number
   p85?: number
 }
 
-export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReason, p85 = 0 }: Props) {
+export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReason, p70 = 0, p85 = 0 }: Props) {
   const [expanded, setExpanded] = useState(false)
 
   const allReasons = useMemo(() => {
@@ -254,7 +255,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
           <BarChart
             data={chartData}
             layout="vertical"
-            margin={{ top: 8, right: 60, left: 8, bottom: 8 }}
+            margin={{ top: 24, right: 60, left: 8, bottom: 8 }}
             barSize={20}
           >
             <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
@@ -273,9 +274,13 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
               tick={<YAxisTick tasksMap={tasksMap} />}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: "hsl(var(--accent))", opacity: 0.4 }} />
+            {p70 > 0 && (
+              <ReferenceLine x={p70} stroke="#EAB308" strokeDasharray="4 3" strokeWidth={1.5}
+                label={{ value: `P70: ${p70}д`, position: "insideTop", offset: 4, fontSize: 10, fill: "#EAB308", fontWeight: 700 }} />
+            )}
             {p85 > 0 && (
               <ReferenceLine x={p85} stroke="#EF4444" strokeDasharray="4 3" strokeWidth={1.5}
-                label={{ value: `P85: ${p85}д`, position: "insideTopRight", fontSize: 10, fill: "#EF4444", fontWeight: 700 }} />
+                label={{ value: `P85: ${p85}д`, position: "insideTop", offset: 4, fontSize: 10, fill: "#EF4444", fontWeight: 700 }} />
             )}
             {visibleReasons.map((reason, ri) => (
               <Bar
