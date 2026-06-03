@@ -235,8 +235,8 @@ export default function App() {
                       "flex flex-col text-left px-4 py-3 rounded-xl border transition-all duration-200 min-w-[140px]",
                       "hover:-translate-y-[3px] hover:scale-[1.01] active:scale-[0.98]",
                       isActive
-                        ? "border-primary bg-card shadow-[0_4px_20px_rgba(108,99,255,0.3)]"
-                        : "border-border bg-card hover:border-primary/50 hover:shadow-[0_6px_24px_rgba(108,99,255,0.15)]"
+                        ? "border-primary bg-card shadow-[0_4px_24px_rgba(108,99,255,0.35),0_0_0_1px_rgba(108,99,255,0.3)]"
+                        : "border-border bg-card hover:border-primary/60 hover:shadow-[0_6px_28px_rgba(108,99,255,0.25),0_0_0_1px_rgba(108,99,255,0.15)]"
                     )}>
                     <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">
                       {q === "ALL" ? "Все очереди" : q}

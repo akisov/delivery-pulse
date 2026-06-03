@@ -57,20 +57,11 @@ export function StatCard({ label, value, sub, icon, color = "purple" }: Props) {
         transition: "transform 0.2s ease, box-shadow 0.2s ease",
         transform: hovered ? "translateY(-3px) scale(1.01)" : "translateY(0) scale(1)",
         boxShadow: hovered
-          ? `0 8px 32px ${c.glow}, 0 0 0 1px ${c.border}`
+          ? "0 6px 20px rgba(0,0,0,0.15)"
           : "0 4px 24px rgba(0,0,0,0.4)",
       }}
       className="rounded-xl border border-border bg-card p-5 flex flex-col gap-3 cursor-default overflow-hidden relative"
     >
-      {/* Фоновый градиент при ховере */}
-      <div
-        style={{
-          position: "absolute", inset: 0, opacity: hovered ? 1 : 0,
-          transition: "opacity 0.3s ease",
-          background: `radial-gradient(ellipse at top right, ${c.glow.replace("0.4", "0.08")} 0%, transparent 70%)`,
-          pointerEvents: "none",
-        }}
-      />
 
       <div className="flex items-center justify-between relative">
         <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
@@ -83,7 +74,7 @@ export function StatCard({ label, value, sub, icon, color = "purple" }: Props) {
       </div>
 
       <div className="relative">
-        <p className={cn("text-3xl font-black tracking-tighter leading-none transition-colors duration-200", hovered ? c.text : "text-foreground")}>
+        <p className="text-3xl font-black tracking-tighter leading-none text-foreground">
           <AnimatedNumber value={value} />
         </p>
         {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
