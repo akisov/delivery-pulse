@@ -27,10 +27,10 @@ function plural(n: number) {
 }
 
 const PRESETS = [
-  { label: "Янв–Мар",   getDates: () => ({ from: "2026-01-01", to: "2026-03-31" }) },
-  { label: "Апр–Июн",   getDates: () => ({ from: "2026-04-01", to: "2026-06-30" }) },
-  { label: "Июл–Сен",   getDates: () => ({ from: "2026-07-01", to: "2026-09-30" }) },
-  { label: "Весь 2026", getDates: () => ({ from: "2026-01-01", to: fmt(new Date()) }) },
+  { label: "7 дней",   getDates: () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 7);  return { from: fmt(s), to: fmt(e) } } },
+  { label: "Месяц",    getDates: () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 30); return { from: fmt(s), to: fmt(e) } } },
+  { label: "Пр. месяц", getDates: () => { const n = new Date(), s = new Date(n.getFullYear(), n.getMonth() - 1, 1), e = new Date(n.getFullYear(), n.getMonth(), 0); return { from: fmt(s), to: fmt(e) } } },
+  { label: "Квартал",  getDates: () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 90); return { from: fmt(s), to: fmt(e) } } },
 ] as const
 
 function initDates() {
@@ -40,7 +40,7 @@ function initDates() {
 export default function App() {
   const [queue, setQueue] = useState<Queue>("ALL")
   const [dates, setDates] = useState(initDates)
-  const [activePreset, setActivePreset] = useState("Весь 2026")
+  const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
 
   const [data, setData] = useState<DashboardData | null>(null)
