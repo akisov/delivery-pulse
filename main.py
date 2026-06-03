@@ -554,34 +554,30 @@ async def status_analysis(
         SELECT
             bs.status_key,
             bs.status_display,
-            b.days_val
+            CASE
+                WHEN b.status = 'closed' AND b.start_date != '' AND b.end_date != ''
+                    THEN CAST(julianday(b.end_date) - julianday(b.start_date) AS INTEGER)
+                WHEN b.status != 'closed' AND b.start_date != ''
+                    THEN CAST(julianday(date('now')) - julianday(b.start_date) AS INTEGER)
+                ELSE 0
+            END AS days_val
         FROM blockings b
         JOIN blocking_status bs ON bs.blocking_key = b.key
-        JOIN (
-            SELECT key,
-                CASE
-                    WHEN status = 'closed' AND start_date != '' AND end_date != ''
-                        THEN CAST(julianday(end_date) - julianday(start_date) AS INTEGER)
-                    WHEN status != 'closed' AND start_date != ''
-                        THEN CAST(julianday('now') - julianday(start_date) AS INTEGER)
-                    ELSE 0
-                END AS days_val
-            FROM blockings
-        ) d ON d.key = b.key
         WHERE b.queue IN ({q_ph}){date_filter}
           AND bs.status_key IS NOT NULL
-          AND d.days_val > 0
     """, args)])
 
     rows = rows_to_dicts(results[0]) if results else []
 
-    # Группируем по статусу
     by_status: dict[str, list[int]] = {}
     for row in rows:
         sk = row["status_key"]
         if sk not in WORK_STATUSES:
             continue
-        days = int(row["days_val"] or 0)
+        try:
+            days = int(float(row["days_val"] or 0))
+        except (ValueError, TypeError):
+            days = 0
         if days > 0:
             by_status.setdefault(sk, []).append(days)
 
