@@ -333,13 +333,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Status analysis */}
-            {!loading && data && (
-              <div className="animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
-                <StatusChart dateFrom={dates.from} dateTo={dates.to} queue={queue} />
-              </div>
-            )}
-
             {loading ? (
               <Skeleton className="h-96 rounded-xl" />
             ) : data && (
@@ -371,6 +364,13 @@ export default function App() {
                 ) : (
                   <BlockingTable tasks={queueTasks} />
                 )}
+              </div>
+            )}
+
+            {/* Блокировки по этапам */}
+            {!loading && data && (
+              <div className="animate-fade-in-up" style={{ animationDelay: "0.4s" }}>
+                <StatusChart dateFrom={dates.from} dateTo={dates.to} queue={queue} />
               </div>
             )}
           </>
