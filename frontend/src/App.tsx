@@ -27,23 +27,20 @@ function plural(n: number) {
 }
 
 const PRESETS = [
-  { label: "7 дней",    getDates: () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 7);  return { from: fmt(s), to: fmt(e) } } },
-  { label: "Месяц",     getDates: () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 30); return { from: fmt(s), to: fmt(e) } } },
-  { label: "Квартал",   getDates: () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 90); return { from: fmt(s), to: fmt(e) } } },
-  { label: "Весь год",  getDates: () => { const e = new Date(); return { from: `${e.getFullYear()}-01-01`, to: fmt(e) } } },
-  { label: "Всё время", getDates: () => ({ from: "", to: "" }) },
+  { label: "Янв–Мар",   getDates: () => ({ from: "2026-01-01", to: "2026-03-31" }) },
+  { label: "Апр–Июн",   getDates: () => ({ from: "2026-04-01", to: "2026-06-30" }) },
+  { label: "Июл–Сен",   getDates: () => ({ from: "2026-07-01", to: "2026-09-30" }) },
+  { label: "Весь 2026", getDates: () => ({ from: "2026-01-01", to: fmt(new Date()) }) },
 ] as const
 
 function initDates() {
-  const e = new Date(), s = new Date()
-  s.setFullYear(s.getFullYear(), 0, 1) // с начала года
-  return { from: fmt(s), to: fmt(e) }
+  return { from: "2026-01-01", to: fmt(new Date()) }
 }
 
 export default function App() {
   const [queue, setQueue] = useState<Queue>("ALL")
   const [dates, setDates] = useState(initDates)
-  const [activePreset, setActivePreset] = useState("Весь год")
+  const [activePreset, setActivePreset] = useState("Весь 2026")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
 
   const [data, setData] = useState<DashboardData | null>(null)
