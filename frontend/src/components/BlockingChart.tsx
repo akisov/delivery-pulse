@@ -125,10 +125,23 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] 
   )
 }
 
+// Кастомный shape — скругляет правый край только если этот бар последний ненулевой для задачи
+function RoundedBar(props: any) {
+  const { x, y, width, height, fill, isLast } = props
+  if (!width || width <= 0 || !height || height <= 0) return null
+  const r = isLast ? 4 : 0
+  return (
+    <path
+      d={`M${x},${y} h${width - r} a${r},${r} 0 0 1 ${r},${r} v${height - 2 * r} a${r},${r} 0 0 1 -${r},${r} H${x} Z`}
+      fill={fill}
+    />
+  )
+}
+
 interface Props {
   tasks: BlockedTask[]
   onTaskClick: (task: BlockedTask) => void
-  activeReasons: Set<string> | null // null = все активны
+  activeReasons: Set<string> | null
   onToggleReason: (reason: string) => void
 }
 
@@ -258,7 +271,12 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
                 dataKey={reason}
                 stackId="a"
                 fill={getReasonColor(reason, allReasons)}
-                radius={0}
+                shape={(props: any) => {
+                  // isLast = нет ненулевых причин после этой для данной задачи
+                  const entry = props.root?.props?.data?.find((d: any) => d.key === props.key) ?? props
+                  const isLast = visibleReasons.slice(ri + 1).every(r => !entry[r] || entry[r] <= 0)
+                  return <RoundedBar {...props} isLast={isLast} />
+                }}
                 onClick={(data) => {
                   const task = tasks.find(t => t.key === data.key)
                   if (task) onTaskClick(task)
