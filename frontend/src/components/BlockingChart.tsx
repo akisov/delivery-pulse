@@ -1,12 +1,12 @@
 import { useState, useMemo } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, LabelList
+  ResponsiveContainer, LabelList
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { BlockedTask } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
-// Цветовая палитра по причинам блокировки
 const REASON_COLORS: Record<string, string> = {
   "Блок другой нашей задачей": "hsl(252,87%,70%)",
   "Ждем дату или событие":     "hsl(38,92%,50%)",
@@ -27,28 +27,55 @@ function getReasonColor(reason: string, allReasons: string[]): string {
   return FALLBACK_COLORS[idx % FALLBACK_COLORS.length]
 }
 
-interface CustomTooltipProps {
-  active?: boolean
-  payload?: any[]
-  label?: string
+// Кастомный тик по оси Y — ключ задачи как ссылка с тултипом названия
+function YAxisTick({ x, y, payload, tasksMap }: any) {
+  const key = payload?.value
+  const task = tasksMap[key]
+  if (!key) return null
+  return (
+    <foreignObject x={x - 118} y={y - 9} width={116} height={18}>
+      <a
+        href={task?.url ?? `https://tracker.yandex.ru/${key}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={task?.title ?? key}
+        style={{
+          display: "block",
+          textAlign: "right",
+          fontSize: 11,
+          color: "hsl(var(--primary))",
+          textDecoration: "none",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          lineHeight: "18px",
+        }}
+        onMouseOver={e => (e.currentTarget.style.textDecoration = "underline")}
+        onMouseOut={e => (e.currentTarget.style.textDecoration = "none")}
+      >
+        {key}
+      </a>
+    </foreignObject>
+  )
 }
 
-function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
   if (!active || !payload?.length) return null
   const task = payload[0]?.payload
   if (!task) return null
+  const allReasons = payload.map((p: any) => p.name)
 
   return (
     <div className="bg-card border border-border rounded-xl p-3 shadow-2xl max-w-xs">
-      <p className="text-xs font-bold text-foreground mb-1">{task.key}</p>
+      <p className="text-xs font-bold text-foreground mb-0.5">{task.key}</p>
       <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{task.title}</p>
       <div className="space-y-1">
         {task.blockings?.map((b: any, i: number) => (
           <div key={i} className="flex items-center gap-2 text-xs">
             <span className="w-2 h-2 rounded-full shrink-0"
-              style={{ background: getReasonColor(b.reason, []) }} />
-            <span className="text-muted-foreground">{b.reason}</span>
-            <span className="font-semibold text-foreground ml-auto">{b.days}д</span>
+              style={{ background: getReasonColor(b.reason, allReasons) }} />
+            <span className="text-muted-foreground truncate">{b.reason}</span>
+            <span className="font-semibold text-foreground ml-auto shrink-0">{b.days}д</span>
           </div>
         ))}
       </div>
@@ -63,34 +90,48 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
 interface Props {
   tasks: BlockedTask[]
   onTaskClick: (task: BlockedTask) => void
+  activeReasons: Set<string> | null // null = все активны
+  onToggleReason: (reason: string) => void
 }
 
-export function BlockingChart({ tasks, onTaskClick }: Props) {
-  // Собираем все уникальные причины для легенды
+export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReason }: Props) {
   const allReasons = useMemo(() => {
     const set = new Set<string>()
     tasks.forEach(t => t.blockings.forEach(b => set.add(b.reason)))
     return Array.from(set)
   }, [tasks])
 
-  // Данные для графика: каждая задача — стек из сегментов по причинам
-  const chartData = useMemo(() => {
-    return tasks.map(task => {
-      const byReason: Record<string, number> = {}
-      task.blockings.forEach(b => {
-        byReason[b.reason] = (byReason[b.reason] ?? 0) + b.days
-      })
-      return {
-        key: task.key,
-        title: task.title,
-        totalDays: task.totalDays,
-        blockings: task.blockings,
-        queue: task.queue,
-        url: task.url,
-        ...byReason,
-      }
-    })
+  // tasksMap для YAxisTick
+  const tasksMap = useMemo(() => {
+    const m: Record<string, BlockedTask> = {}
+    tasks.forEach(t => { m[t.key] = t })
+    return m
   }, [tasks])
+
+  // Фильтруем по активным причинам
+  const filteredTasks = useMemo(() => {
+    if (!activeReasons || activeReasons.size === 0) return tasks
+    return tasks
+      .map(t => ({
+        ...t,
+        blockings: t.blockings.filter(b => activeReasons.has(b.reason)),
+        totalDays: t.blockings.filter(b => activeReasons.has(b.reason)).reduce((s, b) => s + b.days, 0),
+      }))
+      .filter(t => t.totalDays > 0)
+      .sort((a, b) => b.totalDays - a.totalDays)
+  }, [tasks, activeReasons])
+
+  const chartData = useMemo(() => {
+    return filteredTasks.map(task => {
+      const byReason: Record<string, number> = {}
+      task.blockings.forEach(b => { byReason[b.reason] = (byReason[b.reason] ?? 0) + b.days })
+      return { key: task.key, title: task.title, totalDays: task.totalDays, blockings: task.blockings, url: task.url, ...byReason }
+    })
+  }, [filteredTasks])
+
+  const visibleReasons = activeReasons && activeReasons.size > 0
+    ? allReasons.filter(r => activeReasons.has(r))
+    : allReasons
 
   if (!tasks.length) {
     return (
@@ -105,28 +146,50 @@ export function BlockingChart({ tasks, onTaskClick }: Props) {
     )
   }
 
-  // Адаптивная высота
-  const barHeight = 32
-  const chartHeight = Math.max(300, tasks.length * barHeight + 60)
+  const chartHeight = Math.max(300, filteredTasks.length * 32 + 60)
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle>Время разрешения блокировок</CardTitle>
-          <span className="text-xs text-muted-foreground">{tasks.length} задач</span>
+          <span className="text-xs text-muted-foreground">{filteredTasks.length} задач</span>
         </div>
-        {/* Легенда */}
-        <div className="flex flex-wrap gap-3 mt-2">
-          {allReasons.map(r => (
-            <span key={r} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="w-2.5 h-2.5 rounded-sm shrink-0"
-                style={{ background: getReasonColor(r, allReasons) }} />
-              {r}
-            </span>
-          ))}
+
+        {/* Кликабельная легенда */}
+        <div className="flex flex-wrap gap-2 mt-2">
+          {allReasons.map(r => {
+            const isActive = !activeReasons || activeReasons.size === 0 || activeReasons.has(r)
+            return (
+              <button
+                key={r}
+                onClick={() => onToggleReason(r)}
+                className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-all",
+                  isActive
+                    ? "text-foreground bg-secondary"
+                    : "text-muted-foreground/40 bg-secondary/30 line-through"
+                )}
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-sm shrink-0 transition-opacity"
+                  style={{ background: getReasonColor(r, allReasons), opacity: isActive ? 1 : 0.3 }}
+                />
+                {r}
+              </button>
+            )
+          })}
+          {activeReasons && activeReasons.size > 0 && (
+            <button
+              onClick={() => onToggleReason("__clear__")}
+              className="px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Сбросить
+            </button>
+          )}
         </div>
       </CardHeader>
+
       <CardContent className="p-0 pb-4 pr-4">
         <ResponsiveContainer width="100%" height={chartHeight}>
           <BarChart
@@ -141,32 +204,30 @@ export function BlockingChart({ tasks, onTaskClick }: Props) {
               tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
               axisLine={false}
               tickLine={false}
-              label={{ value: "дней", position: "insideRight", offset: -4, fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
             />
             <YAxis
               type="category"
               dataKey="key"
               width={120}
-              tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(v) => v}
+              tick={<YAxisTick tasksMap={tasksMap} />}
             />
-            <Tooltip content={<CustomTooltip />} cursor={{ fill: "hsl(var(--accent))", opacity: 0.5 }} />
-            {allReasons.map((reason, ri) => (
+            <Tooltip content={<CustomTooltip />} cursor={{ fill: "hsl(var(--accent))", opacity: 0.4 }} />
+            {visibleReasons.map((reason, ri) => (
               <Bar
                 key={reason}
                 dataKey={reason}
                 stackId="a"
                 fill={getReasonColor(reason, allReasons)}
-                radius={ri === allReasons.length - 1 ? [0, 4, 4, 0] : [0, 0, 0, 0]}
+                radius={ri === visibleReasons.length - 1 ? [0, 4, 4, 0] : [0, 0, 0, 0]}
                 onClick={(data) => {
                   const task = tasks.find(t => t.key === data.key)
                   if (task) onTaskClick(task)
                 }}
                 style={{ cursor: "pointer" }}
               >
-                {ri === allReasons.length - 1 && (
+                {ri === visibleReasons.length - 1 && (
                   <LabelList
                     dataKey="totalDays"
                     position="right"

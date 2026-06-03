@@ -257,9 +257,19 @@ async def sync_queue(client, queue, send):
 
 # ── Query ─────────────────────────────────────────────────────────────────────
 
-async def query_dashboard(queues: list[str]):
+async def query_dashboard(queues: list[str], date_from: str = "", date_to: str = ""):
     today = date.today().isoformat()
     q_ph = ",".join("?" * len(queues))
+
+    # Фильтр по дате начала блокировки
+    date_filter = ""
+    args = [*queues]
+    if date_from:
+        date_filter += " AND b.start_date >= ?"
+        args.append(date_from)
+    if date_to:
+        date_filter += " AND b.start_date <= ?"
+        args.append(date_to)
 
     results = await turso_execute([stmt(f"""
         SELECT
@@ -274,9 +284,9 @@ async def query_dashboard(queues: list[str]):
             p.title AS parent_title
         FROM blockings b
         JOIN parent_tasks p ON p.key = b.parent_key
-        WHERE b.queue IN ({q_ph})
+        WHERE b.queue IN ({q_ph}){date_filter}
         ORDER BY b.parent_key, b.start_date
-    """, [*queues])])
+    """, args)])
 
     rows = rows_to_dicts(results[0]) if results else []
 
@@ -387,9 +397,13 @@ async def sync(full: bool = Query(False), queues: str = Query("POOLING,DOSTAVKAP
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @app.get("/data")
-async def data(queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
+async def data(
+    queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA"),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+):
     selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
-    return JSONResponse(await query_dashboard(selected))
+    return JSONResponse(await query_dashboard(selected, date_from, date_to))
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 

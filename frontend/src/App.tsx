@@ -16,6 +16,8 @@ import { cn } from "@/lib/utils"
 const QUEUES = ["ALL", "POOLING", "DOSTAVKAPIKO", "UDOSTAVKA"] as const
 type Queue = typeof QUEUES[number]
 
+function fmt(d: Date) { return d.toISOString().slice(0, 10) }
+
 function plural(n: number) {
   const m10 = n % 10, m100 = n % 100
   if (m100 >= 11 && m100 <= 19) return "задач"
@@ -24,8 +26,26 @@ function plural(n: number) {
   return "задач"
 }
 
+const PRESETS = [
+  { label: "7 дней",    getDates: () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 7);  return { from: fmt(s), to: fmt(e) } } },
+  { label: "Месяц",     getDates: () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 30); return { from: fmt(s), to: fmt(e) } } },
+  { label: "Квартал",   getDates: () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 90); return { from: fmt(s), to: fmt(e) } } },
+  { label: "Весь год",  getDates: () => { const e = new Date(); return { from: `${e.getFullYear()}-01-01`, to: fmt(e) } } },
+  { label: "Всё время", getDates: () => ({ from: "", to: "" }) },
+] as const
+
+function initDates() {
+  const e = new Date(), s = new Date()
+  s.setFullYear(s.getFullYear(), 0, 1) // с начала года
+  return { from: fmt(s), to: fmt(e) }
+}
+
 export default function App() {
   const [queue, setQueue] = useState<Queue>("ALL")
+  const [dates, setDates] = useState(initDates)
+  const [activePreset, setActivePreset] = useState("Весь год")
+  const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
+
   const [data, setData] = useState<DashboardData | null>(null)
   const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null)
   const [loading, setLoading] = useState(false)
@@ -38,65 +58,77 @@ export default function App() {
   const [selectedTask, setSelectedTask] = useState<BlockedTask | null>(null)
 
   const loadSyncInfo = useCallback(async () => {
-    try {
-      const info = await fetchSyncInfo()
-      setSyncInfo(info)
-      return info
-    } catch { return null }
+    try { const info = await fetchSyncInfo(); setSyncInfo(info); return info }
+    catch { return null }
   }, [])
 
-  const load = useCallback(async () => {
-    setError(null)
-    setEmptyDb(false)
+  const load = useCallback(async (from = dates.from, to = dates.to) => {
+    setError(null); setEmptyDb(false)
     const info = await loadSyncInfo()
-    const hasDb = info && Object.values(info).some(v => v)
-    if (!hasDb) { setEmptyDb(true); setData(null); return }
+    if (!info || !Object.values(info).some(v => v)) { setEmptyDb(true); setData(null); return }
     setLoading(true)
     try {
-      const d = await fetchDashboard()
+      const d = await fetchDashboard(from || undefined, to || undefined)
       setData(d)
+      setActiveReasons(null)
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [loadSyncInfo])
+  }, [dates, loadSyncInfo])
 
   const doSync = useCallback((full: boolean) => {
-    setSyncing(true)
-    setSyncPct(2)
+    setSyncing(true); setSyncPct(2)
     setSyncTitle(full ? "Полная синхронизация…" : "Инкрементальный синк…")
     setSyncMsg("Подключаемся к Трекеру…")
-    const es = startSync(full, (msg: { type: string; msg?: string; pct?: number }) => {
+    const es = startSync(full, (msg) => {
       if (msg.type === "progress") { setSyncTitle(msg.msg ?? ""); setSyncPct(msg.pct ?? 0) }
-      else if (msg.type === "done") {
-        es.close(); setSyncing(false)
-        loadSyncInfo().then(() => load())
-      } else if (msg.type === "error") {
-        es.close(); setSyncing(false)
-        setError(msg.msg ?? "Ошибка синхронизации")
-      }
+      else if (msg.type === "done") { es.close(); setSyncing(false); loadSyncInfo().then(() => load()) }
+      else if (msg.type === "error") { es.close(); setSyncing(false); setError(msg.msg ?? "Ошибка") }
     })
-    es.onerror = () => { es.close(); setSyncing(false); setError("Ошибка соединения при синхронизации") }
+    es.onerror = () => { es.close(); setSyncing(false); setError("Ошибка соединения") }
   }, [load, loadSyncInfo])
 
   useEffect(() => { load() }, [])
 
-  // Авто-обновление каждые 30 мин
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (!syncing) load()
-    }, 30 * 60 * 1000)
-    return () => clearInterval(interval)
+    const t = setInterval(() => { if (!syncing) load() }, 30 * 60 * 1000)
+    return () => clearInterval(t)
   }, [syncing, load])
 
-  const viewTasks: BlockedTask[] = !data ? [] :
+  // Фильтрация по очереди
+  const queueTasks: BlockedTask[] = !data ? [] :
     queue === "ALL" ? data.tasks : (data.queues[queue]?.tasks ?? [])
 
-  const totalDays = viewTasks.reduce((s, t) => s + t.totalDays, 0)
-  const activeTasks = viewTasks.filter(t => t.blockings.some(b => b.isActive))
-  const totalBlockings = viewTasks.reduce((s, t) => s + t.blockings.length, 0)
-  const avgDays = viewTasks.length ? Math.round(totalDays / viewTasks.length) : 0
+  // Переключение причины в легенде
+  const handleToggleReason = (reason: string) => {
+    if (reason === "__clear__") { setActiveReasons(null); return }
+    setActiveReasons(prev => {
+      const next = new Set(prev ?? [])
+      if (next.size === 0) {
+        // первый клик — включаем только эту
+        // сначала собираем все причины
+        const all = new Set<string>()
+        queueTasks.forEach(t => t.blockings.forEach(b => all.add(b.reason)))
+        all.forEach(r => { if (r !== reason) next.add(r) })
+        // инвертируем: оставляем только выбранную
+        return new Set([reason])
+      }
+      if (next.has(reason)) {
+        next.delete(reason)
+        return next.size === 0 ? null : next
+      } else {
+        next.add(reason)
+        return next
+      }
+    })
+  }
+
+  const totalDays = queueTasks.reduce((s, t) => s + t.totalDays, 0)
+  const activeTasks = queueTasks.filter(t => t.blockings.some(b => b.isActive))
+  const totalBlockings = queueTasks.reduce((s, t) => s + t.blockings.length, 0)
+  const avgDays = queueTasks.length ? Math.round(totalDays / queueTasks.length) : 0
 
   return (
     <div className="min-h-screen bg-background">
@@ -124,41 +156,74 @@ export default function App() {
       </header>
 
       <main className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
-        {/* Page header */}
         <div>
           <h1 className="text-3xl font-black tracking-tight text-foreground">Время разрешения блокировок</h1>
           <p className="text-sm text-muted-foreground mt-1">Длительность и причины блокировок по задачам трёх очередей</p>
         </div>
 
-        {/* Sync info */}
+        {/* Фильтр по периоду */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
+            {PRESETS.map(p => (
+              <button key={p.label}
+                onClick={() => {
+                  const d = p.getDates()
+                  setDates(d); setActivePreset(p.label); load(d.from, d.to)
+                }}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap",
+                  activePreset === p.label
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                )}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-6 w-px bg-border" />
+
+          <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-3 h-9">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">с</span>
+            <input type="date" value={dates.from}
+              onChange={e => { setDates(d => ({ ...d, from: e.target.value })); setActivePreset("") }}
+              className="bg-transparent border-none text-sm text-foreground outline-none w-[110px] [color-scheme:light] dark:[color-scheme:dark]" />
+            <span className="text-muted-foreground text-xs">—</span>
+            <span className="text-xs text-muted-foreground whitespace-nowrap">по</span>
+            <input type="date" value={dates.to}
+              onChange={e => { setDates(d => ({ ...d, to: e.target.value })); setActivePreset("") }}
+              className="bg-transparent border-none text-sm text-foreground outline-none w-[110px] [color-scheme:light] dark:[color-scheme:dark]" />
+          </div>
+
+          <Button onClick={() => load(dates.from, dates.to)} disabled={loading || syncing} size="sm">
+            {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+            Показать
+          </Button>
+        </div>
+
         <SyncBar info={syncInfo} loading={!syncInfo} />
 
-        {/* Error */}
         {error && (
           <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             ⚠️ {error}
           </div>
         )}
 
-        {/* Sync progress */}
         {syncing && <SyncProgress title={syncTitle} msg={syncMsg} pct={syncPct} hint="Загружаем блокировки из Трекера…" />}
 
-        {/* Empty DB */}
         {!syncing && emptyDb && (
           <div className="rounded-xl border border-border bg-card p-16 text-center">
             <div className="text-5xl mb-5">🗄️</div>
             <h2 className="text-2xl font-black tracking-tight mb-3">База данных пустая</h2>
             <p className="text-sm text-muted-foreground mb-8 max-w-md mx-auto leading-relaxed">
-              Данные о блокировках ещё не загружены. Запустите полный синк — он загрузит все задачи и их подзадачи-блокировки.
+              Данные о блокировках ещё не загружены. Запустите полный синк.
             </p>
             <Button size="lg" onClick={() => doSync(true)} className="text-base h-12 px-8">
               <RotateCcw className="w-4 h-4" /> Запустить полный синк
             </Button>
-            <p className="text-xs text-muted-foreground mt-4">Займёт несколько минут</p>
           </div>
         )}
 
-        {/* Dashboard */}
         {!syncing && !emptyDb && (
           <>
             {/* Queue tabs */}
@@ -167,7 +232,7 @@ export default function App() {
                 const tasks = q === "ALL" ? (data?.tasks ?? []) : (data?.queues[q]?.tasks ?? [])
                 const isActive = queue === q
                 return (
-                  <button key={q} onClick={() => setQueue(q)}
+                  <button key={q} onClick={() => { setQueue(q); setActiveReasons(null) }}
                     className={cn(
                       "flex flex-col text-left px-4 py-3 rounded-xl border transition-all duration-200 min-w-[140px]",
                       "hover:-translate-y-0.5 active:scale-[0.98]",
@@ -206,10 +271,10 @@ export default function App() {
               </div>
             ) : data && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard label="Заблокированных задач" value={viewTasks.length} sub="с хотя бы одной блокировкой" icon="🔒" color="purple" />
-                <StatCard label="Активных блокировок"   value={activeTasks.length} sub="ещё не закрыты"              icon="⏳" color="rose" />
-                <StatCard label="Всего блокировок"      value={totalBlockings}      sub="суммарно по задачам"          icon="🔢" color="sky" />
-                <StatCard label="Среднее время"         value={`${avgDays}д`}        sub="на одну заблок. задачу"       icon="📊" color="amber" />
+                <StatCard label="Заблокированных задач" value={queueTasks.length}  sub="с хотя бы одной блокировкой" icon="🔒" color="purple" />
+                <StatCard label="Активных блокировок"   value={activeTasks.length} sub="ещё не закрыты"               icon="⏳" color="rose" />
+                <StatCard label="Всего блокировок"      value={totalBlockings}      sub="суммарно по задачам"           icon="🔢" color="sky" />
+                <StatCard label="Среднее время"         value={`${avgDays}д`}        sub="на одну заблок. задачу"        icon="📊" color="amber" />
               </div>
             )}
 
@@ -217,20 +282,24 @@ export default function App() {
             {loading ? (
               <Skeleton className="h-96 rounded-xl" />
             ) : data && (
-              <BlockingChart tasks={viewTasks} onTaskClick={setSelectedTask} />
+              <BlockingChart
+                tasks={queueTasks}
+                onTaskClick={setSelectedTask}
+                activeReasons={activeReasons}
+                onToggleReason={handleToggleReason}
+              />
             )}
 
             {/* Table */}
             {loading ? (
               <Skeleton className="h-96 rounded-xl" />
             ) : data && (
-              <BlockingTable tasks={viewTasks} />
+              <BlockingTable tasks={queueTasks} />
             )}
           </>
         )}
       </main>
 
-      {/* Task detail modal */}
       <TaskDetailModal task={selectedTask} onClose={() => setSelectedTask(null)} />
     </div>
   )

@@ -1,7 +1,10 @@
 import type { DashboardData, SyncInfo } from "./types"
 
-export async function fetchDashboard(): Promise<DashboardData> {
-  const r = await fetch(`/data`)
+export async function fetchDashboard(dateFrom?: string, dateTo?: string): Promise<DashboardData> {
+  const params = new URLSearchParams()
+  if (dateFrom) params.set("date_from", dateFrom)
+  if (dateTo)   params.set("date_to", dateTo)
+  const r = await fetch(`/data?${params}`)
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const d = await r.json()
   if (d.error) throw new Error(d.error)
