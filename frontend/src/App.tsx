@@ -268,10 +268,10 @@ export default function App() {
               </div>
             ) : data && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard label="Заблокированных задач" value={queueTasks.length}  sub="с хотя бы одной блокировкой" icon="🔒" color="purple" />
-                <StatCard label="Активных блокировок"   value={activeTasks.length} sub="ещё не закрыты"               icon="⏳" color="rose" />
-                <StatCard label="Всего блокировок"      value={totalBlockings}      sub="суммарно по задачам"           icon="🔢" color="sky" />
-                <StatCard label="Среднее время"         value={`${avgDays}д`}        sub="на одну заблок. задачу"        icon="📊" color="amber" />
+                <div className="animate-fade-in-up stagger-1"><StatCard label="Заблокированных задач" value={queueTasks.length}  sub="с хотя бы одной блокировкой" icon="🔒" color="purple" /></div>
+                <div className="animate-fade-in-up stagger-2"><StatCard label="Активных блокировок"   value={activeTasks.length} sub="ещё не закрыты"               icon="⏳" color="rose" /></div>
+                <div className="animate-fade-in-up stagger-3"><StatCard label="Всего блокировок"      value={totalBlockings}      sub="суммарно по задачам"           icon="🔢" color="sky" /></div>
+                <div className="animate-fade-in-up stagger-4"><StatCard label="Среднее время"         value={`${avgDays}д`}        sub="на одну заблок. задачу"        icon="📊" color="amber" /></div>
               </div>
             )}
 
@@ -279,19 +279,23 @@ export default function App() {
             {loading ? (
               <Skeleton className="h-96 rounded-xl" />
             ) : data && (
-              <BlockingChart
-                tasks={queueTasks}
-                onTaskClick={setSelectedTask}
-                activeReasons={activeReasons}
-                onToggleReason={handleToggleReason}
-              />
+              <div className="animate-fade-in-up" style={{ animationDelay: "0.25s" }}>
+                <BlockingChart
+                  tasks={queueTasks}
+                  onTaskClick={setSelectedTask}
+                  activeReasons={activeReasons}
+                  onToggleReason={handleToggleReason}
+                />
+              </div>
             )}
 
             {/* Table */}
             {loading ? (
               <Skeleton className="h-96 rounded-xl" />
             ) : data && (
-              <BlockingTable tasks={queueTasks} />
+              <div className="animate-fade-in-up" style={{ animationDelay: "0.35s" }}>
+                <BlockingTable tasks={queueTasks} />
+              </div>
             )}
           </>
         )}

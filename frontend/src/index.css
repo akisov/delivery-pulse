@@ -59,3 +59,27 @@
 ::-webkit-scrollbar-track { background: hsl(var(--background)); }
 ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInLeft {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease both;
+}
+
+.animate-fade-in-left {
+  animation: fadeInLeft 0.3s ease both;
+}
+
+/* Stagger delays для карточек */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.10s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.20s; }
