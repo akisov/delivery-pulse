@@ -331,10 +331,14 @@ async def query_dashboard(queues: list[str], date_from: str = "", date_to: str =
             "days": days,
             "isActive": status != "closed",
         }
-        tasks_map[parent_key]["blockings"].append(blocking)
-        tasks_map[parent_key]["totalDays"] += days
+        if days > 0:
+            tasks_map[parent_key]["blockings"].append(blocking)
+            tasks_map[parent_key]["totalDays"] += days
 
-    tasks = sorted(tasks_map.values(), key=lambda t: t["totalDays"], reverse=True)
+    tasks = sorted(
+        [t for t in tasks_map.values() if t["totalDays"] > 0],
+        key=lambda t: t["totalDays"], reverse=True
+    )
 
     queues_out = {q: {"tasks": []} for q in queues}
     for t in tasks:
