@@ -9,6 +9,7 @@ import { SyncProgress } from "@/components/SyncProgress"
 import { BlockingChart } from "@/components/BlockingChart"
 import { BlockingTable } from "@/components/BlockingTable"
 import { StatusChart } from "@/components/StatusChart"
+import { DowntimeChart } from "@/components/DowntimeChart"
 import { TaskDetailModal } from "@/components/TaskDetailModal"
 import { TaskListModal, type StatFilter } from "@/components/TaskListModal"
 import { fetchDashboard, fetchSyncInfo, fetchSyncStatus, startSync } from "@/lib/api"
@@ -367,9 +368,16 @@ export default function App() {
               </div>
             )}
 
-            {/* Блокировки по этапам */}
+            {/* Общее время простоя по причинам */}
             {!loading && data && (
               <div className="animate-fade-in-up" style={{ animationDelay: "0.4s" }}>
+                <DowntimeChart dateFrom={dates.from} dateTo={dates.to} queue={queue} />
+              </div>
+            )}
+
+            {/* Блокировки по этапам работы */}
+            {!loading && data && (
+              <div className="animate-fade-in-up" style={{ animationDelay: "0.45s" }}>
                 <StatusChart dateFrom={dates.from} dateTo={dates.to} queue={queue} />
               </div>
             )}

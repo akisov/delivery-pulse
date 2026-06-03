@@ -554,6 +554,14 @@ async def status_analysis(
         SELECT
             bs.status_key,
             bs.status_display,
+            b.key AS blocking_key,
+            b.parent_key,
+            b.reason,
+            b.start_date,
+            b.end_date,
+            b.status AS b_status,
+            p.title AS parent_title,
+            b.queue,
             CASE
                 WHEN b.status = 'closed' AND b.start_date != '' AND b.end_date != ''
                     THEN CAST(julianday(b.end_date) - julianday(b.start_date) AS INTEGER)
@@ -563,13 +571,22 @@ async def status_analysis(
             END AS days_val
         FROM blockings b
         JOIN blocking_status bs ON bs.blocking_key = b.key
+        JOIN parent_tasks p ON p.key = b.parent_key
         WHERE b.queue IN ({q_ph}){date_filter}
           AND bs.status_key IS NOT NULL
     """, args)])
 
     rows = rows_to_dicts(results[0]) if results else []
 
-    by_status: dict[str, list[int]] = {}
+    def p90(values: list[int]) -> float:
+        if not values: return 0
+        s = sorted(values)
+        return round(s[min(int(len(s) * 0.9), len(s)-1)], 1)
+
+    def avg(values: list[int]) -> float:
+        return round(sum(values) / len(values), 1) if values else 0
+
+    by_status: dict[str, dict] = {}
     for row in rows:
         sk = row["status_key"]
         if sk not in WORK_STATUSES:
@@ -578,33 +595,89 @@ async def status_analysis(
             days = int(float(row["days_val"] or 0))
         except (ValueError, TypeError):
             days = 0
-        if days > 0:
-            by_status.setdefault(sk, []).append(days)
+        if days <= 0:
+            continue
+        if sk not in by_status:
+            by_status[sk] = {"values": [], "tasks": []}
+        by_status[sk]["values"].append(days)
+        by_status[sk]["tasks"].append({
+            "blockingKey": row["blocking_key"],
+            "parentKey":   row["parent_key"],
+            "parentTitle": row["parent_title"] or "—",
+            "url":         f"https://tracker.yandex.ru/{row['parent_key']}",
+            "queue":       row["queue"],
+            "reason":      row["reason"] or "Не указана",
+            "startDate":   (row["start_date"] or "")[:10],
+            "endDate":     (row["end_date"] or "")[:10],
+            "isActive":    row["b_status"] != "closed",
+            "days":        days,
+        })
 
-    def p90(values: list[int]) -> float:
-        if not values: return 0
-        s = sorted(values)
-        idx = int(len(s) * 0.9)
-        return round(s[min(idx, len(s)-1)], 1)
-
-    def avg(values: list[int]) -> float:
-        return round(sum(values) / len(values), 1) if values else 0
-
-    # Порядок статусов по воронке
     order = ["analyticalstudy", "vRazrabotke", "testing", "pomesenieVProduktiv", "atthecustomersinspection"]
     data_out = []
     for sk in order:
-        vals = by_status.get(sk, [])
+        d = by_status.get(sk, {"values": [], "tasks": []})
+        vals = d["values"]
+        tasks = sorted(d["tasks"], key=lambda t: t["days"], reverse=True)
         data_out.append({
             "statusKey":     sk,
             "statusDisplay": WORK_STATUSES[sk],
             "count":         len(vals),
             "avg":           avg(vals),
             "p90":           p90(vals),
-            "values":        vals,
+            "tasks":         tasks,
         })
 
     return JSONResponse({"statuses": data_out})
+
+@app.get("/downtime-analysis")
+async def downtime_analysis(
+    queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA"),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+):
+    selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    q_ph = ",".join("?" * len(selected))
+    args: list = [*selected]
+    date_filter = ""
+    if date_from:
+        date_filter += " AND start_date >= ?"
+        args.append(date_from)
+    if date_to:
+        date_filter += " AND start_date <= ?"
+        args.append(date_to)
+
+    results = await turso_execute([stmt(f"""
+        SELECT
+            reason,
+            SUM(CASE
+                WHEN status = 'closed' AND start_date != '' AND end_date != ''
+                    THEN CAST(julianday(end_date) - julianday(start_date) AS INTEGER)
+                WHEN status != 'closed' AND start_date != ''
+                    THEN CAST(julianday(date('now')) - julianday(start_date) AS INTEGER)
+                ELSE 0
+            END) AS total_days,
+            COUNT(*) as cnt
+        FROM blockings
+        WHERE queue IN ({q_ph}){date_filter}
+        GROUP BY reason
+        ORDER BY total_days DESC
+    """, args)])
+
+    rows = rows_to_dicts(results[0]) if results else []
+    total = sum(int(float(r["total_days"] or 0)) for r in rows)
+    items = []
+    for r in rows:
+        d = int(float(r["total_days"] or 0))
+        if d > 0:
+            items.append({
+                "reason":     r["reason"] or "Не указана",
+                "totalDays":  d,
+                "count":      int(r["cnt"] or 0),
+                "pct":        round(d / total * 100, 1) if total else 0,
+            })
+
+    return JSONResponse({"items": items, "totalDays": total})
 
 @app.get("/data")
 async def data(
