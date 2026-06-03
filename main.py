@@ -381,10 +381,25 @@ async def query_dashboard(queues: list[str], date_from: str = "", date_to: str =
         if q in queues_out:
             queues_out[q]["tasks"].append(t)
 
+    # Считаем перцентили по всем задачам
+    all_days = [t["totalDays"] for t in tasks if t["totalDays"] > 0]
+    def _pct(vals, p):
+        if not vals: return 0
+        s = sorted(vals)
+        return round(s[min(int(len(s) * p), len(s)-1)], 1)
+    p85v = _pct(all_days, 0.85)
+
+    # Помечаем outliers
+    for t in tasks:
+        t["isOutlier"] = t["totalDays"] >= p85v
+
     return {
-        "tasks": tasks,
+        "tasks":  tasks,
         "queues": queues_out,
-        "today": today,
+        "today":  today,
+        "p70":    _pct(all_days, 0.70),
+        "p85":    p85v,
+        "p90":    _pct(all_days, 0.90),
     }
 
 async def get_sync_info():
@@ -590,13 +605,16 @@ async def status_analysis(
 
     rows = rows_to_dicts(results[0]) if results else []
 
-    def p90(values: list[int]) -> float:
+    def pct(values: list[int], p: float) -> float:
         if not values: return 0
         s = sorted(values)
-        return round(s[min(int(len(s) * 0.9), len(s)-1)], 1)
+        return round(s[min(int(len(s) * p), len(s)-1)], 1)
 
     def avg(values: list[int]) -> float:
         return round(sum(values) / len(values), 1) if values else 0
+
+    def p85_threshold(values: list[int]) -> float:
+        return pct(values, 0.85)
 
     by_status: dict[str, dict] = {}
     for row in rows:
@@ -631,13 +649,16 @@ async def status_analysis(
         d = by_status.get(sk, {"values": [], "tasks": []})
         vals = d["values"]
         tasks = sorted(d["tasks"], key=lambda t: t["days"], reverse=True)
+        p85v = pct(vals, 0.85)
         data_out.append({
             "statusKey":     sk,
             "statusDisplay": WORK_STATUSES[sk],
             "count":         len(vals),
             "avg":           avg(vals),
-            "p90":           p90(vals),
-            "tasks":         tasks,
+            "p70":           pct(vals, 0.70),
+            "p85":           p85v,
+            "p90":           pct(vals, 0.90),
+            "tasks":         [dict(t, isOutlier=t["days"] >= p85v) for t in tasks],
         })
 
     return JSONResponse({"statuses": data_out})
@@ -736,6 +757,14 @@ async def insights(
         }
 
     # Группируем задачи по ключу
+    def ipct(values: list[int], p: float) -> float:
+        if not values: return 0
+        s = sorted(values)
+        return round(s[min(int(len(s) * p), len(s)-1)], 1)
+
+    def iavg(values: list[int]) -> float:
+        return round(sum(values) / len(values), 1) if values else 0
+
     def group_tasks(rows, key_field):
         groups: dict[str, list] = {}
         for r in rows:
@@ -745,34 +774,55 @@ async def insights(
             groups[k] = sorted(groups[k], key=lambda t: t["days"], reverse=True)
         return groups
 
-    stage_tasks   = group_tasks(to_rows(4), "status_key")
-    reason_tasks  = group_tasks(to_rows(5), "reason")
+    def with_outliers(tasks: list, p85v: float) -> list:
+        return [dict(t, isOutlier=t["days"] >= p85v) for t in tasks]
+
+    stage_tasks    = group_tasks(to_rows(4), "status_key")
+    reason_tasks   = group_tasks(to_rows(5), "reason")
     type_tasks_raw = group_tasks(to_rows(6), "issue_type_display")
 
     # Этапы в порядке воронки
     stages_raw = {r["status_key"]: r for r in to_rows(0)}
-    stages = [{"key": sk, "label": WORK_STATUSES[sk],
-               "count": int(stages_raw[sk]["cnt"] or 0),
-               "tasks": stage_tasks.get(sk, [])}
-              for sk in stage_order if sk in stages_raw]
+    stages = []
+    for sk in stage_order:
+        if sk not in stages_raw: continue
+        tasks = stage_tasks.get(sk, [])
+        vals = [t["days"] for t in tasks]
+        p85v = ipct(vals, 0.85)
+        stages.append({"key": sk, "label": WORK_STATUSES[sk],
+                        "count": int(stages_raw[sk]["cnt"] or 0),
+                        "avg": iavg(vals), "p70": ipct(vals,0.70), "p85": p85v, "p90": ipct(vals,0.90),
+                        "tasks": with_outliers(tasks, p85v)})
 
-    reasons_count = [{"reason": r["reason"], "count": int(r["cnt"] or 0),
-                      "tasks": reason_tasks.get(r["reason"], [])} for r in to_rows(1)]
+    reasons_count = []
+    for r in to_rows(1):
+        tasks = reason_tasks.get(r["reason"], [])
+        vals = [t["days"] for t in tasks]
+        p85v = ipct(vals, 0.85)
+        reasons_count.append({"reason": r["reason"], "count": int(r["cnt"] or 0),
+                               "tasks": with_outliers(tasks, p85v)})
 
     reasons_avg = []
     for r in to_rows(2):
         try: avg_d = round(float(r["avg_days"] or 0), 1)
         except: avg_d = 0
-        if avg_d > 0:
-            reasons_avg.append({"reason": r["reason"], "avg": avg_d,
-                                 "count": int(r["cnt"] or 0),
-                                 "tasks": reason_tasks.get(r["reason"], [])})
+        if avg_d <= 0: continue
+        tasks = reason_tasks.get(r["reason"], [])
+        vals = [t["days"] for t in tasks]
+        p85v = ipct(vals, 0.85)
+        reasons_avg.append({"reason": r["reason"], "avg": avg_d,
+                             "p70": ipct(vals,0.70), "p85": p85v, "p90": ipct(vals,0.90),
+                             "count": int(r["cnt"] or 0),
+                             "tasks": with_outliers(tasks, p85v)})
 
     issue_types = []
     for r in to_rows(3):
         label = r["issue_type_display"] or r["issue_type"] or "Не указан"
+        tasks = type_tasks_raw.get(label, [])
+        vals = [t["days"] for t in tasks]
+        p85v = ipct(vals, 0.85)
         issue_types.append({"type": label, "count": int(r["cnt"] or 0),
-                             "tasks": type_tasks_raw.get(label, [])})
+                             "tasks": with_outliers(tasks, p85v)})
 
     return JSONResponse({
         "stages":       stages,

@@ -81,6 +81,9 @@ function TaskRow({ task, rank }: TaskRowProps) {
                 {activeCount} активн.
               </Badge>
             )}
+            {task.isOutlier && (
+              <Badge className="text-[10px] shrink-0 bg-red-500/15 text-red-400 border border-red-500/30">P85+</Badge>
+            )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{task.title}</p>
         </div>

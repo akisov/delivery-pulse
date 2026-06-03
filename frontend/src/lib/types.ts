@@ -16,6 +16,7 @@ export interface BlockedTask {
   queue: string
   blockings: Blocking[]
   totalDays: number
+  isOutlier?: boolean
 }
 
 export interface QueueData {
@@ -26,6 +27,9 @@ export interface DashboardData {
   tasks: BlockedTask[]
   queues: Record<string, QueueData>
   today: string
+  p70: number
+  p85: number
+  p90: number
 }
 
 export interface SyncInfo {

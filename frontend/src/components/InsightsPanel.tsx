@@ -43,12 +43,12 @@ const TYPE_COLORS = ["#7C6FF7","#3B82F6","#10B981","#F97316","#EF4444","#EAB308"
 interface InsightTask {
   blockingKey: string; parentKey: string; parentTitle: string
   url: string; queue: string; reason: string
-  startDate: string; endDate: string; isActive: boolean; days: number
+  startDate: string; endDate: string; isActive: boolean; days: number; isOutlier?: boolean
 }
 
-interface StageItem    { key: string; label: string; count: number; tasks: InsightTask[] }
+interface StageItem    { key: string; label: string; count: number; avg: number; p70: number; p85: number; p90: number; tasks: InsightTask[] }
 interface ReasonItem   { reason: string; count: number; tasks: InsightTask[] }
-interface ReasonAvgItem{ reason: string; avg: number; count: number; tasks: InsightTask[] }
+interface ReasonAvgItem{ reason: string; avg: number; p70: number; p85: number; p90: number; count: number; tasks: InsightTask[] }
 interface TypeItem     { type: string; count: number; tasks: InsightTask[] }
 
 interface InsightsData {
@@ -92,6 +92,7 @@ function DrillModal({ data, onClose }: { data: DrillDown | null; onClose: () => 
                 <Badge variant={t.isActive ? "destructive" : "success"} className="text-[10px]">
                   {t.isActive ? "Активна" : "Закрыта"}
                 </Badge>
+                {t.isOutlier && <Badge className="text-[10px] bg-red-500/15 text-red-400 border border-red-500/30">P85+</Badge>}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5 truncate">{t.parentTitle}</p>
               <p className="text-xs text-muted-foreground/70 mt-0.5">
@@ -114,12 +115,16 @@ function DrillModal({ data, onClose }: { data: DrillDown | null; onClose: () => 
 function MiniTooltip({ active, payload, valueLabel = "кол-во" }: any) {
   if (!active || !payload?.length) return null
   const d = payload[0]
-  const name = d.payload?.reason ?? d.payload?.label ?? d.payload?.type ?? d.name
+  const item = d.payload as any
+  const name = item?.reason ?? item?.label ?? item?.type ?? d.name
   return (
     <div className="bg-card border border-border rounded-xl px-3 py-2 shadow-2xl text-xs space-y-0.5">
       <p className="font-bold text-foreground max-w-[200px] whitespace-normal">{name}</p>
       <p className="text-muted-foreground">{valueLabel}: <span className="font-semibold text-foreground">{d.value}</span></p>
-      <p className="text-muted-foreground/70">нажми для деталей</p>
+      {item?.p70 > 0 && <p className="text-muted-foreground">P70: <span className="font-semibold text-amber-400">{item.p70}д</span></p>}
+      {item?.p85 > 0 && <p className="text-muted-foreground">P85: <span className="font-semibold text-red-400">{item.p85}д</span></p>}
+      {item?.p90 > 0 && <p className="text-muted-foreground">P90: <span className="font-semibold text-red-500">{item.p90}д</span></p>}
+      <p className="text-muted-foreground/70 pt-0.5">нажми для деталей</p>
     </div>
   )
 }

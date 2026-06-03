@@ -1,8 +1,8 @@
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, LabelList
+  ResponsiveContainer, LabelList, ReferenceLine
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { BlockedTask } from "@/lib/types"
@@ -146,9 +146,10 @@ interface Props {
   onTaskClick: (task: BlockedTask) => void
   activeReasons: Set<string> | null
   onToggleReason: (reason: string) => void
+  p85?: number
 }
 
-export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReason }: Props) {
+export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReason, p85 = 0 }: Props) {
   const [expanded, setExpanded] = useState(false)
 
   const allReasons = useMemo(() => {
@@ -272,6 +273,10 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
               tick={<YAxisTick tasksMap={tasksMap} />}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: "hsl(var(--accent))", opacity: 0.4 }} />
+            {p85 > 0 && (
+              <ReferenceLine x={p85} stroke="#EF4444" strokeDasharray="4 3" strokeWidth={1.5}
+                label={{ value: `P85: ${p85}д`, position: "insideTopRight", fontSize: 10, fill: "#EF4444", fontWeight: 700 }} />
+            )}
             {visibleReasons.map((reason, ri) => (
               <Bar
                 key={reason}

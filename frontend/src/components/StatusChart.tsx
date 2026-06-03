@@ -21,6 +21,7 @@ interface StatusTask {
   endDate: string
   isActive: boolean
   days: number
+  isOutlier?: boolean
 }
 
 interface StatusData {
@@ -28,6 +29,8 @@ interface StatusData {
   statusDisplay: string
   count: number
   avg: number
+  p70: number
+  p85: number
   p90: number
   tasks: StatusTask[]
 }
@@ -63,6 +66,7 @@ function StatusTaskModal({ status, onClose }: { status: StatusData | null; onClo
                 <Badge variant={t.isActive ? "destructive" : "success"} className="text-[10px]">
                   {t.isActive ? "Активна" : "Закрыта"}
                 </Badge>
+                {t.isOutlier && <Badge className="text-[10px] bg-red-500/15 text-red-400 border border-red-500/30">P85+</Badge>}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5 truncate">{t.parentTitle}</p>
               <p className="text-xs text-muted-foreground/70 mt-0.5">{t.reason} · {t.startDate}{t.endDate ? ` → ${t.endDate}` : " → сегодня"}</p>
@@ -90,9 +94,19 @@ function CustomTooltip({ active, payload }: any) {
         <span className="font-semibold text-foreground">{d.avg} дн.</span>
       </div>
       <div className="flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#EAB308" }} />
+        <span className="text-muted-foreground">P70:</span>
+        <span className="font-semibold text-amber-400">{d.p70} дн.</span>
+      </div>
+      <div className="flex items-center gap-2">
         <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#F97316" }} />
+        <span className="text-muted-foreground">P85:</span>
+        <span className="font-semibold text-orange-400">{d.p85} дн.</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#EF4444" }} />
         <span className="text-muted-foreground">P90:</span>
-        <span className="font-semibold text-foreground">{d.p90} дн.</span>
+        <span className="font-semibold text-red-400">{d.p90} дн.</span>
       </div>
       <div className="pt-1 border-t border-border text-muted-foreground">
         {d.count} блокировок · нажми для списка
