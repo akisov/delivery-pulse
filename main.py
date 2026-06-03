@@ -64,7 +64,9 @@ async def init_db():
             key TEXT PRIMARY KEY,
             title TEXT,
             queue TEXT,
-            created_at TEXT
+            created_at TEXT,
+            issue_type TEXT,
+            issue_type_display TEXT
         )"""),
         stmt("""CREATE TABLE IF NOT EXISTS blockings (
             key TEXT PRIMARY KEY,
@@ -100,6 +102,15 @@ async def init_db():
             status_display TEXT
         )"""),
     ])
+    # Миграция: добавляем колонки если не существуют (игнорируем ошибку если уже есть)
+    for col_sql in [
+        "ALTER TABLE parent_tasks ADD COLUMN issue_type TEXT",
+        "ALTER TABLE parent_tasks ADD COLUMN issue_type_display TEXT",
+    ]:
+        try:
+            await turso_execute([stmt(col_sql)])
+        except Exception:
+            pass
 
 # ── Tracker API ───────────────────────────────────────────────────────────────
 
@@ -192,9 +203,10 @@ async def sync_queue(client, queue, send):
     parent_stmts = []
     for iss in issues:
         parent_stmts.append(stmt(
-            "INSERT INTO parent_tasks(key,title,queue,created_at) VALUES(?,?,?,?) "
-            "ON CONFLICT(key) DO UPDATE SET title=excluded.title",
-            [iss["key"], iss.get("summary", "—"), queue, iss.get("createdAt", "")]
+            "INSERT INTO parent_tasks(key,title,queue,created_at,issue_type,issue_type_display) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET title=excluded.title, issue_type=excluded.issue_type, issue_type_display=excluded.issue_type_display",
+            [iss["key"], iss.get("summary","—"), queue, iss.get("createdAt",""),
+             iss.get("type",{}).get("key",""), iss.get("type",{}).get("display","")]
         ))
     if parent_stmts:
         await turso_execute(parent_stmts)
@@ -629,6 +641,85 @@ async def status_analysis(
         })
 
     return JSONResponse({"statuses": data_out})
+
+@app.get("/insights")
+async def insights(
+    queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA"),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+):
+    selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    q_ph = ",".join("?" * len(selected))
+    args_base: list = [*selected]
+    date_filter = ""
+    if date_from:
+        date_filter += " AND b.start_date >= ?"
+        args_base.append(date_from)
+    if date_to:
+        date_filter += " AND b.start_date <= ?"
+        args_base.append(date_to)
+
+    days_expr = """CASE
+        WHEN b.status='closed' AND b.start_date!='' AND b.end_date!=''
+            THEN CAST(julianday(b.end_date)-julianday(b.start_date) AS INTEGER)+1
+        WHEN b.status!='closed' AND b.start_date!=''
+            THEN CAST(julianday(date('now'))-julianday(b.start_date) AS INTEGER)+1
+        ELSE 0 END"""
+
+    results = await turso_execute([
+        # 1. Этапы — кол-во блокировок
+        stmt(f"""SELECT bs.status_key, bs.status_display, COUNT(*) as cnt
+            FROM blockings b JOIN blocking_status bs ON bs.blocking_key=b.key
+            WHERE b.queue IN ({q_ph}){date_filter} AND bs.status_key IS NOT NULL
+              AND bs.status_key IN ('vRazrabotke','testing','analyticalstudy','pomesenieVProduktiv','atthecustomersinspection')
+            GROUP BY bs.status_key, bs.status_display ORDER BY cnt DESC""", args_base),
+        # 2. Причины — кол-во блокировок
+        stmt(f"""SELECT b.reason, COUNT(*) as cnt
+            FROM blockings b WHERE b.queue IN ({q_ph}){date_filter} AND b.reason IS NOT NULL
+            GROUP BY b.reason ORDER BY cnt DESC LIMIT 15""", args_base),
+        # 3. Причины — среднее время на задачу (avg days per blocking)
+        stmt(f"""SELECT b.reason,
+                AVG({days_expr}) as avg_days,
+                COUNT(*) as cnt
+            FROM blockings b WHERE b.queue IN ({q_ph}){date_filter}
+              AND b.reason IS NOT NULL AND {days_expr} > 0
+            GROUP BY b.reason ORDER BY avg_days DESC LIMIT 15""", args_base),
+        # 4. Типы задач — кол-во заблокированных
+        stmt(f"""SELECT p.issue_type_display, p.issue_type, COUNT(DISTINCT b.parent_key) as cnt
+            FROM blockings b JOIN parent_tasks p ON p.key=b.parent_key
+            WHERE b.queue IN ({q_ph}){date_filter}
+              AND p.issue_type IS NOT NULL AND p.issue_type != ''
+            GROUP BY p.issue_type, p.issue_type_display ORDER BY cnt DESC""", args_base),
+    ])
+
+    stage_order = ["analyticalstudy","vRazrabotke","testing","pomesenieVProduktiv","atthecustomersinspection"]
+
+    def to_rows(idx):
+        return rows_to_dicts(results[idx]) if results and len(results) > idx else []
+
+    # Этапы в порядке воронки
+    stages_raw = {r["status_key"]: r for r in to_rows(0)}
+    stages = [{"key": sk, "label": WORK_STATUSES[sk], "count": int(stages_raw[sk]["cnt"] or 0)}
+              for sk in stage_order if sk in stages_raw]
+
+    reasons_count = [{"reason": r["reason"], "count": int(r["cnt"] or 0)} for r in to_rows(1)]
+
+    reasons_avg = []
+    for r in to_rows(2):
+        try: avg_d = round(float(r["avg_days"] or 0), 1)
+        except: avg_d = 0
+        if avg_d > 0:
+            reasons_avg.append({"reason": r["reason"], "avg": avg_d, "count": int(r["cnt"] or 0)})
+
+    issue_types = [{"type": r["issue_type_display"] or r["issue_type"] or "Не указан",
+                    "count": int(r["cnt"] or 0)} for r in to_rows(3)]
+
+    return JSONResponse({
+        "stages":       stages,
+        "reasonsCount": reasons_count,
+        "reasonsAvg":   reasons_avg,
+        "issueTypes":   issue_types,
+    })
 
 @app.get("/downtime-analysis")
 async def downtime_analysis(
