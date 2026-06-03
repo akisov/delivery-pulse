@@ -55,7 +55,7 @@ export function StatCard({ label, value, sub, icon, color = "purple" }: Props) {
       onMouseLeave={() => setHovered(false)}
       style={{
         transition: "transform 0.2s ease, box-shadow 0.2s ease",
-        transform: hovered ? "translateY(-4px) scale(1.02)" : "translateY(0) scale(1)",
+        transform: hovered ? "translateY(-3px) scale(1.01)" : "translateY(0) scale(1)",
         boxShadow: hovered
           ? `0 8px 32px ${c.glow}, 0 0 0 1px ${c.border}`
           : "0 4px 24px rgba(0,0,0,0.4)",

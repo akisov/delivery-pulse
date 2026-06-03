@@ -159,8 +159,9 @@ export default function App() {
         </div>
 
         {/* Фильтр по периоду */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
+        <div className="flex items-center gap-2 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground mr-1">Период</span>
+          <div className="flex gap-1 bg-secondary/60 rounded-lg p-1">
             {PRESETS.map(p => (
               <button key={p.label}
                 onClick={() => {
@@ -170,8 +171,8 @@ export default function App() {
                 className={cn(
                   "px-3 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap",
                   activePreset === p.label
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]"
+                    : "text-muted-foreground hover:text-foreground hover:bg-card"
                 )}>
                 {p.label}
               </button>
@@ -180,7 +181,7 @@ export default function App() {
 
           <div className="h-6 w-px bg-border" />
 
-          <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-3 h-9">
+          <div className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-lg px-3 h-9 focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_rgba(108,99,255,0.15)] transition-all">
             <span className="text-xs text-muted-foreground whitespace-nowrap">с</span>
             <input type="date" value={dates.from}
               onChange={e => { setDates(d => ({ ...d, from: e.target.value })); setActivePreset("") }}
@@ -232,10 +233,10 @@ export default function App() {
                   <button key={q} onClick={() => { setQueue(q); setActiveReasons(null) }}
                     className={cn(
                       "flex flex-col text-left px-4 py-3 rounded-xl border transition-all duration-200 min-w-[140px]",
-                      "hover:-translate-y-0.5 active:scale-[0.98]",
+                      "hover:-translate-y-[3px] hover:scale-[1.01] active:scale-[0.98]",
                       isActive
                         ? "border-primary bg-card shadow-[0_4px_20px_rgba(108,99,255,0.3)]"
-                        : "border-border bg-card hover:border-primary/50 hover:shadow-[0_4px_16px_rgba(108,99,255,0.12)]"
+                        : "border-border bg-card hover:border-primary/50 hover:shadow-[0_6px_24px_rgba(108,99,255,0.15)]"
                     )}>
                     <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">
                       {q === "ALL" ? "Все очереди" : q}
