@@ -56,11 +56,9 @@ export function StatCard({ label, value, sub, icon, color = "purple" }: Props) {
       style={{
         transition: "transform 0.2s ease, box-shadow 0.2s ease",
         transform: hovered ? "translateY(-3px) scale(1.01)" : "translateY(0) scale(1)",
-        boxShadow: hovered
-          ? "0 6px 20px rgba(0,0,0,0.15)"
-          : "0 4px 24px rgba(0,0,0,0.4)",
+        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.08)" : "none",
       }}
-      className="rounded-xl border border-border bg-card p-5 flex flex-col gap-3 cursor-default overflow-hidden relative"
+      className="rounded-xl border border-border bg-card p-5 flex flex-col gap-3 cursor-default overflow-hidden relative shadow-none"
     >
 
       <div className="flex items-center justify-between relative">
