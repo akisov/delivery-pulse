@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
+import { ChevronDown, ChevronUp } from "lucide-react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LabelList
@@ -138,6 +139,8 @@ function RoundedBar(props: any) {
   )
 }
 
+const COLLAPSED_COUNT = 10
+
 interface Props {
   tasks: BlockedTask[]
   onTaskClick: (task: BlockedTask) => void
@@ -146,6 +149,8 @@ interface Props {
 }
 
 export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReason }: Props) {
+  const [expanded, setExpanded] = useState(false)
+
   const allReasons = useMemo(() => {
     const set = new Set<string>()
     tasks.forEach(t => t.blockings.forEach(b => set.add(b.reason)))
@@ -172,8 +177,10 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
       .sort((a, b) => b.totalDays - a.totalDays)
   }, [tasks, activeReasons])
 
+  const displayedTasks = expanded ? filteredTasks : filteredTasks.slice(0, COLLAPSED_COUNT)
+
   const chartData = useMemo(() => {
-    return filteredTasks.map(task => {
+    return displayedTasks.map(task => {
       const byReason: Record<string, number> = {}
       task.blockings.forEach(b => { byReason[b.reason] = (byReason[b.reason] ?? 0) + b.days })
       return { key: task.key, title: task.title, totalDays: task.totalDays, blockings: task.blockings, url: task.url, ...byReason }
@@ -197,7 +204,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
     )
   }
 
-  const chartHeight = Math.max(300, filteredTasks.length * 32 + 60)
+  const chartHeight = Math.max(300, displayedTasks.length * 32 + 60)
 
   return (
     <Card>
@@ -241,7 +248,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
         </div>
       </CardHeader>
 
-      <CardContent className="p-0 pb-4 pr-4">
+      <CardContent className="p-0 pr-4">
         <ResponsiveContainer width="100%" height={chartHeight}>
           <BarChart
             data={chartData}
@@ -295,6 +302,20 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
             ))}
           </BarChart>
         </ResponsiveContainer>
+
+        {/* Кнопка развернуть/свернуть */}
+        {filteredTasks.length > COLLAPSED_COUNT && (
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground border-t border-border transition-colors"
+          >
+            {expanded ? (
+              <><ChevronUp className="w-3.5 h-3.5" /> Свернуть</>
+            ) : (
+              <><ChevronDown className="w-3.5 h-3.5" /> Показать все {filteredTasks.length} задач</>
+            )}
+          </button>
+        )}
       </CardContent>
     </Card>
   )

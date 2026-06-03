@@ -1,5 +1,7 @@
 import { useState } from "react"
-import { ExternalLink, ChevronDown, ChevronUp, Clock, CheckCircle } from "lucide-react"
+import { ExternalLink, ChevronDown, ChevronUp, Clock, CheckCircle, ChevronsDown, ChevronsUp } from "lucide-react"
+
+const COLLAPSED_COUNT = 10
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import type { BlockedTask, Blocking } from "@/lib/types"
@@ -110,6 +112,7 @@ interface Props {
 
 export function BlockingTable({ tasks }: Props) {
   const [sortBy, setSortBy] = useState<"days" | "active">("days")
+  const [expanded, setExpanded] = useState(false)
 
   const sorted = [...tasks].sort((a, b) => {
     if (sortBy === "days") return b.totalDays - a.totalDays
@@ -118,6 +121,8 @@ export function BlockingTable({ tasks }: Props) {
     return bActive - aActive || b.totalDays - a.totalDays
   })
 
+  const displayed = expanded ? sorted : sorted.slice(0, COLLAPSED_COUNT)
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -125,16 +130,11 @@ export function BlockingTable({ tasks }: Props) {
           <CardTitle>Задачи по блокировкам</CardTitle>
           <div className="flex gap-1 bg-secondary rounded-lg p-1">
             {([["days", "По длительности"], ["active", "По активным"]] as const).map(([v, label]) => (
-              <button
-                key={v}
-                onClick={() => setSortBy(v)}
+              <button key={v} onClick={() => setSortBy(v)}
                 className={cn(
                   "px-2.5 py-1 rounded-md text-xs font-semibold transition-all",
-                  sortBy === v
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
+                  sortBy === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}>
                 {label}
               </button>
             ))}
@@ -147,11 +147,24 @@ export function BlockingTable({ tasks }: Props) {
             Нет заблокированных задач
           </div>
         ) : (
-          <div>
-            {sorted.map((task, i) => (
-              <TaskRow key={task.key} task={task} rank={i + 1} />
-            ))}
-          </div>
+          <>
+            <div>
+              {displayed.map((task, i) => (
+                <TaskRow key={task.key} task={task} rank={i + 1} />
+              ))}
+            </div>
+            {sorted.length > COLLAPSED_COUNT && (
+              <button
+                onClick={() => setExpanded(e => !e)}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground border-t border-border transition-colors"
+              >
+                {expanded
+                  ? <><ChevronsUp className="w-3.5 h-3.5" /> Свернуть</>
+                  : <><ChevronsDown className="w-3.5 h-3.5" /> Показать все {sorted.length} задач</>
+                }
+              </button>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
