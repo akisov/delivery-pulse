@@ -17,10 +17,12 @@ export async function fetchSyncInfo(): Promise<SyncInfo> {
   return r.json()
 }
 
-export function startSync(full: boolean, onMessage: (msg: { type: string; msg?: string; pct?: number }) => void): EventSource {
-  const es = new EventSource(`/sync?full=${full}`)
-  es.onmessage = (e) => {
-    try { onMessage(JSON.parse(e.data)) } catch {}
-  }
-  return es
+export async function startSync(full: boolean): Promise<{ ok: boolean; error?: string }> {
+  const r = await fetch(`/sync?full=${full}`, { method: "POST" })
+  return r.json()
+}
+
+export async function fetchSyncStatus(): Promise<{ running: boolean; pct: number; msg: string; error: string }> {
+  const r = await fetch("/sync-status")
+  return r.json()
 }

@@ -356,6 +356,131 @@ async def get_sync_info():
     results = await turso_execute([stmt("SELECT queue, last_synced FROM sync_log")])
     return {r["queue"]: r["last_synced"] for r in rows_to_dicts(results[0])} if results else {}
 
+# ── Background sync job ───────────────────────────────────────────────────────
+
+_sync_status: dict = {"running": False, "pct": 0, "msg": "", "error": ""}
+
+async def run_sync_job(selected: list[str], full: bool):
+    global _sync_status
+    _sync_status = {"running": True, "pct": 2, "msg": "Подключаемся к Трекеру…", "error": ""}
+    try:
+        info = await get_sync_info()
+        async with httpx.AsyncClient(timeout=60) as client:
+            for qi, queue in enumerate(selected):
+                # Дата с которой грузим: полный = 2 года, инкрементальный = с последнего синка
+                if full or queue not in info or not info[queue]:
+                    updated_from = (date.today() - timedelta(days=730)).isoformat()
+                else:
+                    updated_from = info[queue]
+
+                base_pct = qi * (90 // len(selected))
+
+                async def send(m, _base=base_pct, _total=len(selected)):
+                    if m.get("type") == "progress":
+                        _sync_status["msg"] = m.get("msg", "")
+                        _sync_status["pct"] = _base + (m.get("pct", 0) * (90 // _total) // 100)
+
+                # Переопределяем updated_from в sync_queue через временную замену DATE_FROM
+                await _sync_queue_from(client, queue, updated_from, send)
+
+        _sync_status = {"running": False, "pct": 100, "msg": "Синк завершён", "error": ""}
+    except Exception as e:
+        _sync_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
+
+async def _sync_queue_from(client, queue, updated_from, send):
+    """Синк очереди начиная с updated_from."""
+    await send({"type": "progress", "msg": f"{queue}: загружаем задачи с {updated_from}…", "pct": 5})
+
+    issues, page = [], 1
+    while True:
+        data = await tracker_request(client, "POST",
+            f"/v2/issues/_search?perPage=100&page={page}",
+            {"filter": {"queue": queue,
+                        "updatedAt": {"from": f"{updated_from}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+        chunk = data if isinstance(data, list) else []
+        issues.extend(chunk)
+        if len(chunk) < 100:
+            break
+        page += 1
+        await asyncio.sleep(0.5)
+
+    await send({"type": "progress", "msg": f"{queue}: {len(issues)} задач, ищем блокировки…", "pct": 15})
+
+    # Сохраняем родительские задачи батчами
+    for i in range(0, len(issues), 50):
+        batch = issues[i:i+50]
+        await turso_execute([
+            stmt("INSERT INTO parent_tasks(key,title,queue,created_at) VALUES(?,?,?,?) "
+                 "ON CONFLICT(key) DO UPDATE SET title=excluded.title",
+                 [iss["key"], iss.get("summary","—"), queue, iss.get("createdAt","")])
+            for iss in batch
+        ])
+
+    BATCH = 5
+    found = 0
+    for i in range(0, len(issues), BATCH):
+        chunk = issues[i:i+BATCH]
+        links_list = await asyncio.gather(
+            *[fetch_issue_links(client, iss["key"]) for iss in chunk],
+            return_exceptions=True
+        )
+        await asyncio.sleep(0.5)
+
+        blocking_pairs = []
+        for iss, links in zip(chunk, links_list):
+            if isinstance(links, Exception) or not isinstance(links, list):
+                continue
+            for link in links:
+                obj = link.get("object", {})
+                obj_key = obj.get("key", "")
+                obj_display = obj.get("display", "")
+                if obj_key and "(БЛОК)" in obj_display.upper():
+                    blocking_pairs.append((iss["key"], obj_key))
+
+        if blocking_pairs:
+            BSIZE = 3
+            for j in range(0, len(blocking_pairs), BSIZE):
+                bchunk = blocking_pairs[j:j+BSIZE]
+                bdata = await asyncio.gather(
+                    *[fetch_issue(client, bkey) for _, bkey in bchunk],
+                    return_exceptions=True
+                )
+                await asyncio.sleep(0.3)
+                bstmts = []
+                for (parent_key, bkey), biss in zip(bchunk, bdata):
+                    if isinstance(biss, Exception) or not isinstance(biss, dict):
+                        continue
+                    if biss.get("type", {}).get("key") != "blokirovka":
+                        continue
+                    reasons = biss.get("reasonForBlocking", [])
+                    reason = reasons[0] if reasons else "Не указана"
+                    status = biss.get("status", {}).get("key", "")
+                    start_date = biss.get("start", "") or (biss.get("createdAt","") or "")[:10]
+                    end_date = biss.get("end","") if status == "closed" else ""
+                    bstmts.append(stmt(
+                        "INSERT INTO blockings(key,parent_key,title,queue,reason,start_date,end_date,status,created_at,updated_at) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?) "
+                        "ON CONFLICT(key) DO UPDATE SET title=excluded.title, reason=excluded.reason, "
+                        "start_date=excluded.start_date, end_date=excluded.end_date, "
+                        "status=excluded.status, updated_at=excluded.updated_at",
+                        [bkey, parent_key, biss.get("summary","—"), queue, reason,
+                         start_date, end_date, status,
+                         biss.get("createdAt",""), biss.get("updatedAt","")]
+                    ))
+                    found += 1
+                if bstmts:
+                    await turso_execute(bstmts)
+
+        done = i + len(chunk)
+        pct = 15 + round(done / max(len(issues), 1) * 75)
+        await send({"type": "progress", "msg": f"{queue}: {done}/{len(issues)}, блокировок: {found}", "pct": pct})
+
+    await turso_execute([stmt(
+        "INSERT INTO sync_log(queue,last_synced) VALUES(?,?) "
+        "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
+        [queue, date.today().isoformat()]
+    )])
+
 # ── FastAPI ───────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -367,38 +492,20 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/sync-info")
 async def sync_info():
-    return await get_sync_info()
+    info = await get_sync_info()
+    return {**info, "__status__": _sync_status}
 
-@app.get("/sync")
-async def sync(full: bool = Query(False), queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
+@app.post("/sync")
+async def sync_start(full: bool = Query(False), queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
+    if _sync_status["running"]:
+        return JSONResponse({"ok": False, "error": "Синк уже запущен"})
     selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    asyncio.create_task(run_sync_job(selected, full))
+    return JSONResponse({"ok": True})
 
-    async def generate():
-        async def send(msg):
-            yield f"data: {json.dumps(msg)}\n\n"
-
-        async with httpx.AsyncClient(timeout=60) as client:
-            for qi, queue in enumerate(selected):
-                q_msgs: asyncio.Queue = asyncio.Queue()
-
-                async def _send(m, q=q_msgs):
-                    await q.put(m)
-
-                task = asyncio.create_task(sync_queue(client, queue, _send))
-                while not task.done() or not q_msgs.empty():
-                    try:
-                        m = q_msgs.get_nowait()
-                        yield f"data: {json.dumps(m)}\n\n"
-                    except asyncio.QueueEmpty:
-                        await asyncio.sleep(0.1)
-                await task
-                while not q_msgs.empty():
-                    yield f"data: {json.dumps(q_msgs.get_nowait())}\n\n"
-
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
-
-    return StreamingResponse(generate(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+@app.get("/sync-status")
+async def sync_status_endpoint():
+    return JSONResponse(_sync_status)
 
 @app.get("/data")
 async def data(
