@@ -9,6 +9,7 @@ import { SyncProgress } from "@/components/SyncProgress"
 import { BlockingChart } from "@/components/BlockingChart"
 import { BlockingTable } from "@/components/BlockingTable"
 import { TaskDetailModal } from "@/components/TaskDetailModal"
+import { TaskListModal, type StatFilter } from "@/components/TaskListModal"
 import { fetchDashboard, fetchSyncInfo, fetchSyncStatus, startSync } from "@/lib/api"
 import type { DashboardData, SyncInfo, BlockedTask } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -53,6 +54,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [emptyDb, setEmptyDb] = useState(false)
   const [selectedTask, setSelectedTask] = useState<BlockedTask | null>(null)
+  const [statModal, setStatModal] = useState<StatFilter | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadSyncInfo = useCallback(async () => {
@@ -323,10 +325,10 @@ export default function App() {
               </div>
             ) : data && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="animate-fade-in-up stagger-1"><StatCard label="Заблокированных задач" value={queueTasks.length}  sub="с хотя бы одной блокировкой" icon="🔒" color="purple" /></div>
-                <div className="animate-fade-in-up stagger-2"><StatCard label="Активных блокировок"   value={activeTasks.length} sub="ещё не закрыты"               icon="⏳" color="rose" /></div>
-                <div className="animate-fade-in-up stagger-3"><StatCard label="Всего блокировок"      value={totalBlockings}      sub="суммарно по задачам"           icon="🔢" color="sky" /></div>
-                <div className="animate-fade-in-up stagger-4"><StatCard label="Среднее время"         value={`${avgDays}д`}        sub="на одну заблок. задачу"        icon="📊" color="amber" /></div>
+                <div className="animate-fade-in-up stagger-1"><StatCard label="Заблокированных задач" value={queueTasks.length}  sub="с хотя бы одной блокировкой" icon="🔒" color="purple" onClick={() => setStatModal("all")} /></div>
+                <div className="animate-fade-in-up stagger-2"><StatCard label="Активных блокировок"   value={activeTasks.length} sub="ещё не закрыты"               icon="⏳" color="rose"   onClick={() => setStatModal("active")} /></div>
+                <div className="animate-fade-in-up stagger-3"><StatCard label="Всего блокировок"      value={totalBlockings}      sub="суммарно по задачам"           icon="🔢" color="sky"    onClick={() => setStatModal("blocked")} /></div>
+                <div className="animate-fade-in-up stagger-4"><StatCard label="Среднее время"         value={`${avgDays}д`}        sub="на одну заблок. задачу"        icon="📊" color="amber"  onClick={() => setStatModal("avg")} /></div>
               </div>
             )}
 
@@ -368,6 +370,12 @@ export default function App() {
       </main>
 
       <TaskDetailModal task={selectedTask} onClose={() => setSelectedTask(null)} />
+      <TaskListModal
+        open={!!statModal}
+        onClose={() => setStatModal(null)}
+        tasks={queueTasks}
+        filter={statModal ?? "all"}
+      />
     </div>
   )
 }

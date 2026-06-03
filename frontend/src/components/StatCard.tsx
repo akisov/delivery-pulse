@@ -2,14 +2,13 @@ import { useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 
 const COLOR_MAP = {
-  purple: { text: "text-primary",     bg: "bg-primary/10",     glow: "rgba(108,99,255,0.4)",  border: "rgba(108,99,255,0.6)" },
-  rose:   { text: "text-destructive", bg: "bg-destructive/10", glow: "rgba(255,77,109,0.4)",  border: "rgba(255,77,109,0.6)" },
-  amber:  { text: "text-amber-400",   bg: "bg-amber-400/10",   glow: "rgba(251,191,36,0.4)",  border: "rgba(251,191,36,0.6)" },
-  teal:   { text: "text-emerald-400", bg: "bg-emerald-400/10", glow: "rgba(52,211,153,0.4)",  border: "rgba(52,211,153,0.6)" },
-  sky:    { text: "text-sky-400",     bg: "bg-sky-400/10",     glow: "rgba(56,189,248,0.4)",  border: "rgba(56,189,248,0.6)" },
+  purple: { text: "text-primary",     bg: "bg-primary/10",     glow: "rgba(108,99,255,0.35)", border: "rgba(108,99,255,0.5)" },
+  rose:   { text: "text-destructive", bg: "bg-destructive/10", glow: "rgba(255,77,109,0.35)", border: "rgba(255,77,109,0.5)" },
+  amber:  { text: "text-amber-400",   bg: "bg-amber-400/10",   glow: "rgba(251,191,36,0.35)", border: "rgba(251,191,36,0.5)" },
+  teal:   { text: "text-emerald-400", bg: "bg-emerald-400/10", glow: "rgba(52,211,153,0.35)", border: "rgba(52,211,153,0.5)" },
+  sky:    { text: "text-sky-400",     bg: "bg-sky-400/10",     glow: "rgba(56,189,248,0.35)", border: "rgba(56,189,248,0.5)" },
 }
 
-// Анимированный счётчик
 function AnimatedNumber({ value }: { value: number | string }) {
   const [display, setDisplay] = useState(value)
   const prev = useRef(value)
@@ -43,23 +42,37 @@ interface Props {
   sub?: string
   icon: string
   color?: keyof typeof COLOR_MAP
+  onClick?: () => void
 }
 
-export function StatCard({ label, value, sub, icon, color = "purple" }: Props) {
+export function StatCard({ label, value, sub, icon, color = "purple", onClick }: Props) {
   const c = COLOR_MAP[color]
   const [hovered, setHovered] = useState(false)
 
   return (
     <div
+      onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         transition: "transform 0.2s ease, box-shadow 0.2s ease",
         transform: hovered ? "translateY(-3px) scale(1.01)" : "translateY(0) scale(1)",
-        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.08)" : "none",
+        boxShadow: hovered
+          ? `0 8px 28px ${c.glow}, 0 0 0 1px ${c.border}`
+          : "none",
       }}
-      className="rounded-xl border border-border bg-card p-5 flex flex-col gap-3 cursor-default overflow-hidden relative shadow-none"
+      className={cn(
+        "rounded-xl border border-border bg-card p-5 flex flex-col gap-3 overflow-hidden relative shadow-none",
+        onClick && "cursor-pointer"
+      )}
     >
+      {/* Фоновый градиент при ховере */}
+      <div style={{
+        position: "absolute", inset: 0, opacity: hovered ? 1 : 0,
+        transition: "opacity 0.3s ease",
+        background: `radial-gradient(ellipse at top right, ${c.glow.replace("0.35", "0.07")} 0%, transparent 70%)`,
+        pointerEvents: "none",
+      }} />
 
       <div className="flex items-center justify-between relative">
         <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
@@ -72,11 +85,17 @@ export function StatCard({ label, value, sub, icon, color = "purple" }: Props) {
       </div>
 
       <div className="relative">
-        <p className="text-3xl font-black tracking-tighter leading-none text-foreground">
+        <p className={cn("text-3xl font-black tracking-tighter leading-none transition-colors duration-200", hovered && onClick ? c.text : "text-foreground")}>
           <AnimatedNumber value={value} />
         </p>
         {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
       </div>
+
+      {onClick && (
+        <p className={cn("text-[10px] font-semibold transition-opacity duration-200", c.text, hovered ? "opacity-100" : "opacity-0")}>
+          Показать список →
+        </p>
+      )}
     </div>
   )
 }
