@@ -562,50 +562,63 @@ async def sync_start(full: bool = Query(False), queues: str = Query("POOLING,DOS
 async def sync_status_endpoint():
     return JSONResponse(_sync_status)
 
-@app.post("/backfill-types")
-async def backfill_types(queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
-    """Догружает issue_type/issue_type_display для задач, у которых он пуст.
-    Запрашивает тип строго по ключам, которые уже есть в БД (т.е. только три
-    очереди и уже загруженный период) — лишние данные не тянет.
-    Использует TRACKER_TOKEN и Turso самого Space — отдельные доступы не нужны."""
-    if not TRACKER_TOKEN:
-        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
-    selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
-    q_ph = ",".join("?" * len(selected))
+_backfill_status: dict = {"running": False, "done": 0, "total": 0, "updated": 0, "error": "", "msg": ""}
 
-    # ключи без типа — только по выбранным очередям и тем, что уже в БД
-    res = await turso_execute([stmt(
-        f"SELECT key FROM parent_tasks WHERE (issue_type IS NULL OR issue_type = '') "
-        f"AND queue IN ({q_ph})", [*selected])])
-    need = [r["key"] for r in rows_to_dicts(res[0])] if res else []
-    if not need:
-        return JSONResponse({"ok": True, "updated": 0, "needed": 0, "msg": "Типы уже заполнены"})
-
-    updated = 0
+async def run_backfill_job(selected: list[str]):
+    """Догружает issue_type для задач без типа — строго по ключам из БД
+    (три очереди, уже загруженный период). Тянет каждую задачу точечно
+    через GET /v2/issues/{key}, без обхода всей очереди."""
+    global _backfill_status
     try:
+        q_ph = ",".join("?" * len(selected))
+        res = await turso_execute([stmt(
+            f"SELECT key FROM parent_tasks WHERE (issue_type IS NULL OR issue_type = '') "
+            f"AND queue IN ({q_ph})", [*selected])])
+        need = [r["key"] for r in rows_to_dicts(res[0])] if res else []
+        _backfill_status = {"running": True, "done": 0, "total": len(need), "updated": 0, "error": "", "msg": "Догружаем типы…"}
+        if not need:
+            _backfill_status = {"running": False, "done": 0, "total": 0, "updated": 0, "error": "", "msg": "Типы уже заполнены"}
+            return
+
+        updated = 0
+        BATCH = 10
         async with httpx.AsyncClient(timeout=60) as client:
-            # тянем строго по ключам пачками — без обхода всей очереди
-            for i in range(0, len(need), 50):
-                batch = need[i:i+50]
-                data = await tracker_request(client, "POST",
-                    "/v2/issues/_search?perPage=50", {"keys": batch})
-                issues = data if isinstance(data, list) else []
+            for i in range(0, len(need), BATCH):
+                batch = need[i:i+BATCH]
+                issues = await asyncio.gather(
+                    *[fetch_issue(client, k) for k in batch], return_exceptions=True)
                 upd = []
-                for iss in issues:
-                    k = iss.get("key")
-                    t = iss.get("type", {})
-                    if k and (t.get("key") or t.get("display")):
-                        upd.append(stmt(
-                            "UPDATE parent_tasks SET issue_type=?, issue_type_display=? WHERE key=?",
-                            [t.get("key", ""), t.get("display", ""), k]))
+                for k, iss in zip(batch, issues):
+                    if isinstance(iss, dict):
+                        t = iss.get("type", {})
+                        if t.get("key") or t.get("display"):
+                            upd.append(stmt(
+                                "UPDATE parent_tasks SET issue_type=?, issue_type_display=? WHERE key=?",
+                                [t.get("key", ""), t.get("display", ""), k]))
                 if upd:
                     await turso_execute(upd)
                     updated += len(upd)
-                await asyncio.sleep(0.3)
+                _backfill_status["done"] = min(i + BATCH, len(need))
+                _backfill_status["updated"] = updated
+                await asyncio.sleep(0.2)
+        _backfill_status = {"running": False, "done": len(need), "total": len(need),
+                            "updated": updated, "error": "", "msg": "Готово"}
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e), "updated": updated, "needed": len(need)})
+        _backfill_status = {**_backfill_status, "running": False, "error": str(e), "msg": "Ошибка"}
 
-    return JSONResponse({"ok": True, "updated": updated, "needed": len(need)})
+@app.post("/backfill-types")
+async def backfill_types(queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    if _backfill_status.get("running"):
+        return JSONResponse({"ok": False, "error": "Бэкфилл уже идёт", "status": _backfill_status})
+    selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    asyncio.create_task(run_backfill_job(selected))
+    return JSONResponse({"ok": True, "started": True})
+
+@app.get("/backfill-status")
+async def backfill_status_endpoint():
+    return JSONResponse(_backfill_status)
 
 @app.get("/status-analysis")
 async def status_analysis(
