@@ -205,7 +205,37 @@ export function InsightsPanel({ dateFrom, dateTo, queue }: Props) {
           </CardContent>
         </Card>
 
-        {/* 2. Причины — количество */}
+        {/* 2. Типы задач — рядом с этапами (похожая высота) */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle>Какие типы задач чаще блокируются</CardTitle>
+            <p className="text-xs text-muted-foreground">Уникальных задач с блокировками по типу</p>
+          </CardHeader>
+          <CardContent>
+            {!data.issueTypes.length ? (
+              <div className="flex items-center justify-center h-40 text-sm text-muted-foreground text-center px-4">
+                Нет данных — запустите синк для обновления типов задач
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={chartH(data.issueTypes.length)}>
+                <BarChart data={data.issueTypes} layout="vertical" margin={{ top:4, right:48, left:4, bottom:4 }} barSize={18}>
+                  <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                  <XAxis type="number" tick={{ fontSize:10, fill:"hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="type" width={140}
+                    tick={{ fontSize:11, fill:"hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<MiniTooltip valueLabel="задач" />} cursor={{ fill:"hsl(var(--accent))", opacity:0.4 }} />
+                  <Bar dataKey="count" radius={[0,4,4,0]} style={{ cursor:"pointer" }}
+                    onClick={(d: TypeItem) => open(d.type, `${d.count} задач`, d.tasks)}>
+                    {data.issueTypes.map((t,i) => <Cell key={t.type} fill={TYPE_COLORS[i % TYPE_COLORS.length]} />)}
+                    <LabelList dataKey="count" position="right" style={{ fontSize:11, fontWeight:700, fill:"hsl(var(--foreground))" }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 3. Причины — количество */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle>По каким причинам чаще блокируются</CardTitle>
@@ -232,7 +262,7 @@ export function InsightsPanel({ dateFrom, dateTo, queue }: Props) {
           </CardContent>
         </Card>
 
-        {/* 3. Причины — среднее время */}
+        {/* 4. Причины — среднее время */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle>Среднее время разблокировки по причине</CardTitle>
@@ -254,36 +284,6 @@ export function InsightsPanel({ dateFrom, dateTo, queue }: Props) {
                     <LabelList dataKey="avg" position="right"
                       style={{ fontSize:11, fontWeight:700, fill:"hsl(var(--foreground))" }}
                       formatter={(v:number) => `${v}д`} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* 4. Типы задач */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle>Какие типы задач чаще блокируются</CardTitle>
-            <p className="text-xs text-muted-foreground">Уникальных задач с блокировками по типу</p>
-          </CardHeader>
-          <CardContent>
-            {!data.issueTypes.length ? (
-              <div className="flex items-center justify-center h-40 text-sm text-muted-foreground text-center px-4">
-                Нет данных — запустите синк для обновления типов задач
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={chartH(data.issueTypes.length)}>
-                <BarChart data={data.issueTypes} layout="vertical" margin={{ top:4, right:48, left:4, bottom:4 }} barSize={18}>
-                  <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                  <XAxis type="number" tick={{ fontSize:10, fill:"hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="type" width={140}
-                    tick={{ fontSize:11, fill:"hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<MiniTooltip valueLabel="задач" />} cursor={{ fill:"hsl(var(--accent))", opacity:0.4 }} />
-                  <Bar dataKey="count" radius={[0,4,4,0]} style={{ cursor:"pointer" }}
-                    onClick={(d: TypeItem) => open(d.type, `${d.count} задач`, d.tasks)}>
-                    {data.issueTypes.map((t,i) => <Cell key={t.type} fill={TYPE_COLORS[i % TYPE_COLORS.length]} />)}
-                    <LabelList dataKey="count" position="right" style={{ fontSize:11, fontWeight:700, fill:"hsl(var(--foreground))" }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
