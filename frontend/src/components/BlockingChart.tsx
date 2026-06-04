@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -126,30 +126,6 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] 
   )
 }
 
-// Вертикальная линия перцентиля поверх баров (только в области баров, не на весь chart)
-function PercentileLine({ xAxisMap, yAxisMap, p, color, label }: any) {
-  if (!p || !xAxisMap || !yAxisMap) return null
-  const xAxis = Object.values(xAxisMap)[0] as any
-  const yAxis = Object.values(yAxisMap)[0] as any
-  if (!xAxis || !yAxis) return null
-  const { x: x0, width: w, scale } = xAxis
-  const { y: y0, height: h } = yAxis
-  if (!scale) return null
-  const xPos = x0 + scale(p)
-  if (xPos < x0 || xPos > x0 + w) return null
-  return (
-    <g>
-      <line x1={xPos} x2={xPos} y1={y0} y2={y0 + h}
-        stroke={color} strokeDasharray="4 3" strokeWidth={1.5} />
-      <rect x={xPos - 1} y={y0 - 18} width={52} height={16} rx={3}
-        fill={color} opacity={0.15} />
-      <text x={xPos + 3} y={y0 - 6} fontSize={10} fontWeight={700} fill={color}>
-        {label}: {p}д
-      </text>
-    </g>
-  )
-}
-
 // Кастомный shape — скругляет правый край только если этот бар последний ненулевой для задачи
 function RoundedBar(props: any) {
   const { x, y, width, height, fill, isLast } = props
@@ -170,11 +146,9 @@ interface Props {
   onTaskClick: (task: BlockedTask) => void
   activeReasons: Set<string> | null
   onToggleReason: (reason: string) => void
-  p70?: number
-  p85?: number
 }
 
-export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReason, p70 = 0, p85 = 0 }: Props) {
+export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReason }: Props) {
   const [expanded, setExpanded] = useState(false)
 
   const allReasons = useMemo(() => {
@@ -230,7 +204,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
     )
   }
 
-  const chartHeight = Math.max(300, displayedTasks.length * 34 + 40)
+  const chartHeight = Math.max(300, displayedTasks.length * 32 + 60)
 
   return (
     <Card>
@@ -281,7 +255,6 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
             layout="vertical"
             margin={{ top: 8, right: 60, left: 8, bottom: 8 }}
             barSize={20}
-            barCategoryGap={6}
           >
             <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
             <XAxis

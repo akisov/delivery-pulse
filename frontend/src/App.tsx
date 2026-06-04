@@ -331,13 +331,7 @@ export default function App() {
                 <div className="animate-fade-in-up stagger-1"><StatCard label="Заблокированных задач" value={queueTasks.length}  sub="с хотя бы одной блокировкой" icon="🔒" color="purple" onClick={() => setStatModal("all")} /></div>
                 <div className="animate-fade-in-up stagger-2"><StatCard label="Активных блокировок"   value={activeTasks.length} sub="ещё не закрыты"               icon="⏳" color="rose"   onClick={() => setStatModal("active")} /></div>
                 <div className="animate-fade-in-up stagger-3"><StatCard label="Всего блокировок"      value={totalBlockings}      sub="суммарно по задачам"           icon="🔢" color="sky"    onClick={() => setStatModal("blocked")} /></div>
-                <div className="animate-fade-in-up stagger-4"><StatCard label="Среднее время" value={`${avgDays}д`} sub="на одну заблок. задачу" icon="📊" color="amber" onClick={() => setStatModal("avg")}
-                  chips={data.p70 ? [
-                    { label: `P70: ${data.p70}д`, color: "#B45309", bg: "rgba(234,179,8,0.18)" },
-                    { label: `P85: ${data.p85}д`, color: "#DC2626", bg: "rgba(239,68,68,0.15)" },
-                    { label: `P90: ${data.p90}д`, color: "#9B1C1C", bg: "rgba(239,68,68,0.1)" },
-                  ] : undefined}
-                /></div>
+                <div className="animate-fade-in-up stagger-4"><StatCard label="Среднее время" value={`${avgDays}д`} sub={data.p70 ? `P70 ${data.p70}д · P85 ${data.p85}д` : "на одну заблок. задачу"} icon="📊" color="amber" onClick={() => setStatModal("avg")} /></div>
               </div>
             )}
 
@@ -368,8 +362,6 @@ export default function App() {
                     onTaskClick={setSelectedTask}
                     activeReasons={activeReasons}
                     onToggleReason={handleToggleReason}
-                    p70={data.p70}
-                    p85={data.p85}
                   />
                 ) : (
                   <BlockingTable tasks={queueTasks} />
