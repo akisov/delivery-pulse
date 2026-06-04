@@ -89,7 +89,7 @@ export function InsightInformer({ dateFrom, dateTo, queue }: Props) {
             <>
               <p className="text-sm leading-relaxed text-muted-foreground">{renderBold(data.template)}</p>
               {data.ai && (
-                <p className="mt-2 text-sm leading-relaxed text-foreground">{data.ai}</p>
+                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-foreground">{data.ai}</p>
               )}
             </>
           ) : null}
