@@ -48,7 +48,7 @@ function StatusTaskModal({ status, onClose }: { status: StatusData | null; onClo
   if (!status) return null
   return (
     <Modal open={!!status} onClose={onClose} title={status.statusDisplay}
-      subtitle={`${status.tasks.length} блокировок · avg ${status.avg}д · P90 ${status.p90}д`} wide>
+      subtitle={`${status.tasks.length} блокировок · avg ${status.avg}д · P70 ${status.p70}д · P85 ${status.p85}д`} wide>
       <div className="rounded-xl border border-border overflow-hidden">
         {status.tasks.map(t => (
           <div key={t.blockingKey} className="border-b border-border last:border-0 px-4 py-3 flex items-start gap-3 hover:bg-accent/30 transition-colors">
@@ -104,11 +104,6 @@ function CustomTooltip({ active, payload }: any) {
         <span className="text-muted-foreground">P85:</span>
         <span className="font-semibold text-orange-400">{d.p85} дн.</span>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#EF4444" }} />
-        <span className="text-muted-foreground">P90:</span>
-        <span className="font-semibold text-red-400">{d.p90} дн.</span>
-      </div>
       <div className="pt-1 border-t border-border text-muted-foreground">
         {d.count} блокировок · нажми для списка
       </div>
@@ -150,7 +145,7 @@ export function StatusChart({ dateFrom, dateTo, queue }: Props) {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle>📊 Блокировки по этапам работы</CardTitle>
-            {data && <span className="text-xs text-muted-foreground">среднее и P90 · нажми на столбец</span>}
+            {data && <span className="text-xs text-muted-foreground">среднее, P70 и P85 · нажми на столбец</span>}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
             На каком рабочем статусе задачи чаще всего блокируются и насколько долго
@@ -174,16 +169,22 @@ export function StatusChart({ dateFrom, dateTo, queue }: Props) {
                 <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                   axisLine={false} tickLine={false} />
                 <Tooltip content={<CustomTooltip />} cursor={{ fill: "hsl(var(--accent))", opacity: 0.4 }} />
-                <Legend formatter={(v) => v === "avg" ? "Среднее" : "P90"} wrapperStyle={{ fontSize: 12 }} />
+                <Legend formatter={(v) => v === "avg" ? "Среднее" : v === "p70" ? "P70" : "P85"} wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="avg" name="avg" fill="#7C6FF7" radius={[4,4,0,0]}
                   style={{ cursor: "pointer" }} onClick={(d) => setSelected(d as StatusData)}>
                   <LabelList dataKey="avg" position="top"
                     style={{ fontSize: 10, fontWeight: 700, fill: "#7C6FF7" }}
                     formatter={(v: number) => v > 0 ? `${v}д` : ""} />
                 </Bar>
-                <Bar dataKey="p90" name="p90" fill="#F97316" radius={[4,4,0,0]}
+                <Bar dataKey="p70" name="p70" fill="#EAB308" radius={[4,4,0,0]}
                   style={{ cursor: "pointer" }} onClick={(d) => setSelected(d as StatusData)}>
-                  <LabelList dataKey="p90" position="top"
+                  <LabelList dataKey="p70" position="top"
+                    style={{ fontSize: 10, fontWeight: 700, fill: "#EAB308" }}
+                    formatter={(v: number) => v > 0 ? `${v}д` : ""} />
+                </Bar>
+                <Bar dataKey="p85" name="p85" fill="#F97316" radius={[4,4,0,0]}
+                  style={{ cursor: "pointer" }} onClick={(d) => setSelected(d as StatusData)}>
+                  <LabelList dataKey="p85" position="top"
                     style={{ fontSize: 10, fontWeight: 700, fill: "#F97316" }}
                     formatter={(v: number) => v > 0 ? `${v}д` : ""} />
                 </Bar>
