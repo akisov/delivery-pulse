@@ -462,9 +462,12 @@ async def _sync_queue_from(client, queue, updated_from, send):
     for i in range(0, len(issues), 50):
         batch = issues[i:i+50]
         await turso_execute([
-            stmt("INSERT INTO parent_tasks(key,title,queue,created_at) VALUES(?,?,?,?) "
-                 "ON CONFLICT(key) DO UPDATE SET title=excluded.title",
-                 [iss["key"], iss.get("summary","—"), queue, iss.get("createdAt","")])
+            stmt("INSERT INTO parent_tasks(key,title,queue,created_at,issue_type,issue_type_display) VALUES(?,?,?,?,?,?) "
+                 "ON CONFLICT(key) DO UPDATE SET title=excluded.title, "
+                 "issue_type=CASE WHEN excluded.issue_type != '' THEN excluded.issue_type ELSE parent_tasks.issue_type END, "
+                 "issue_type_display=CASE WHEN excluded.issue_type_display != '' THEN excluded.issue_type_display ELSE parent_tasks.issue_type_display END",
+                 [iss["key"], iss.get("summary","—"), queue, iss.get("createdAt",""),
+                  iss.get("type",{}).get("key",""), iss.get("type",{}).get("display","")])
             for iss in batch
         ])
 
@@ -558,6 +561,53 @@ async def sync_start(full: bool = Query(False), queues: str = Query("POOLING,DOS
 @app.get("/sync-status")
 async def sync_status_endpoint():
     return JSONResponse(_sync_status)
+
+@app.post("/backfill-types")
+async def backfill_types(queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
+    """Догружает issue_type/issue_type_display для задач, у которых он пуст.
+    Тянет только тип задачи через _search по очереди (без перезагрузки блокировок).
+    Использует TRACKER_TOKEN и Turso самого Space — отдельные доступы не нужны."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+
+    # ключи без типа
+    res = await turso_execute([stmt(
+        "SELECT key FROM parent_tasks WHERE issue_type IS NULL OR issue_type = ''")])
+    need = {r["key"] for r in rows_to_dicts(res[0])} if res else set()
+    if not need:
+        return JSONResponse({"ok": True, "updated": 0, "scanned": 0, "msg": "Типы уже заполнены"})
+
+    updated = scanned = 0
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            for queue in selected:
+                page = 1
+                while True:
+                    data = await tracker_request(client, "POST",
+                        f"/v2/issues/_search?perPage=100&page={page}",
+                        {"filter": {"queue": queue}})
+                    chunk = data if isinstance(data, list) else []
+                    scanned += len(chunk)
+                    upd = []
+                    for iss in chunk:
+                        k = iss.get("key")
+                        if k in need:
+                            t = iss.get("type", {})
+                            upd.append(stmt(
+                                "UPDATE parent_tasks SET issue_type=?, issue_type_display=? WHERE key=?",
+                                [t.get("key", ""), t.get("display", ""), k]))
+                    for i in range(0, len(upd), 50):
+                        await turso_execute(upd[i:i+50])
+                    updated += len(upd)
+                    if len(chunk) < 100:
+                        break
+                    page += 1
+                    await asyncio.sleep(0.4)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e), "updated": updated, "scanned": scanned})
+
+    return JSONResponse({"ok": True, "updated": updated, "scanned": scanned, "needed": len(need)})
 
 @app.get("/status-analysis")
 async def status_analysis(
