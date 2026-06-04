@@ -3,3 +3,6 @@ frontend/dist/
 __pycache__/
 *.pyc
 .env
+
+# Бинарники не пушим в HF (нужен Xet/LFS)
+docs/*.pdf

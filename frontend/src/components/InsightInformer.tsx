@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Sparkles, RefreshCw } from "lucide-react"
+import { Sparkles, RefreshCw, BookOpen } from "lucide-react"
 
 interface Facts {
   totalBlockings: number
@@ -10,6 +10,7 @@ interface Summary {
   template: string
   ai: string | null
   hasAI: boolean
+  practiceUrl?: string
 }
 
 interface Props {
@@ -90,6 +91,17 @@ export function InsightInformer({ dateFrom, dateTo, queue }: Props) {
               <p className="text-sm leading-relaxed text-muted-foreground">{renderBold(data.template)}</p>
               {data.ai && (
                 <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-foreground">{data.ai}</p>
+              )}
+              {data.practiceUrl && (
+                <a
+                  href={data.practiceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary transition-colors hover:text-primary/80"
+                >
+                  <BookOpen className="h-3.5 w-3.5" />
+                  Практика «Анализ блокировок»
+                </a>
               )}
             </>
           ) : null}
