@@ -230,7 +230,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
     )
   }
 
-  const chartHeight = Math.max(300, displayedTasks.length * 32 + 60)
+  const chartHeight = Math.max(300, displayedTasks.length * 34 + 40)
 
   return (
     <Card>
@@ -281,6 +281,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
             layout="vertical"
             margin={{ top: 8, right: 60, left: 8, bottom: 8 }}
             barSize={20}
+            barCategoryGap={6}
           >
             <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
             <XAxis
