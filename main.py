@@ -979,14 +979,16 @@ async def compute_facts(selected: list[str], date_from: str, date_to: str) -> di
     stmts = [
         stmt(f"SELECT {days_expr} as d, b.parent_key as pk FROM blockings b "
              f"WHERE b.queue IN ({q_ph}){rng}", rargs),
-        stmt(f"""SELECT bs.status_key as sk, COUNT(*) as cnt FROM blockings b
+        # топ-этап по СУММАРНОМУ времени простоя (приоритет по практике — время, не количество)
+        stmt(f"""SELECT bs.status_key as sk, COUNT(*) as cnt, SUM({days_expr}) as total FROM blockings b
                  JOIN blocking_status bs ON bs.blocking_key=b.key
                  WHERE b.queue IN ({q_ph}){rng} AND bs.status_key IN
                  ('vRazrabotke','testing','analyticalstudy','pomesenieVProduktiv','atthecustomersinspection')
-                 GROUP BY bs.status_key ORDER BY cnt DESC LIMIT 1""", rargs),
-        stmt(f"""SELECT b.reason as reason, COUNT(*) as cnt FROM blockings b
+                 GROUP BY bs.status_key ORDER BY total DESC LIMIT 1""", rargs),
+        # топ-причина по СУММАРНОМУ времени простоя
+        stmt(f"""SELECT b.reason as reason, COUNT(*) as cnt, SUM({days_expr}) as total FROM blockings b
                  WHERE b.queue IN ({q_ph}){rng} AND b.reason IS NOT NULL AND b.reason!=''
-                 GROUP BY b.reason ORDER BY cnt DESC LIMIT 1""", rargs),
+                 GROUP BY b.reason ORDER BY total DESC LIMIT 1""", rargs),
         # самая ранняя дата блокировки — граница реальных данных
         stmt(f"SELECT MIN(b.start_date) as mn FROM blockings b "
              f"WHERE b.queue IN ({q_ph}) AND b.start_date != ''", [*selected]),
@@ -1019,9 +1021,14 @@ async def compute_facts(selected: list[str], date_from: str, date_to: str) -> di
         if data_start and prev[0] >= data_start:
             prev_total, prev_valid = raw_prev, True
 
+    def _int(v):
+        try: return int(float(v or 0))
+        except: return 0
     top_stage = ({"key": stage_rows[0]["sk"], "label": WORK_STATUSES.get(stage_rows[0]["sk"], stage_rows[0]["sk"]),
-                  "count": int(stage_rows[0]["cnt"] or 0)} if stage_rows else None)
-    top_reason = ({"reason": reason_rows[0]["reason"], "count": int(reason_rows[0]["cnt"] or 0),
+                  "count": _int(stage_rows[0]["cnt"]), "totalDays": _int(stage_rows[0].get("total"))}
+                 if stage_rows else None)
+    top_reason = ({"reason": reason_rows[0]["reason"], "count": _int(reason_rows[0]["cnt"]),
+                   "totalDays": _int(reason_rows[0].get("total")),
                    "kind": REASON_KIND.get(reason_rows[0]["reason"])}
                   if reason_rows else None)
     total = len(rows0)
@@ -1049,10 +1056,12 @@ def build_template(f: dict) -> str:
         return "За выбранный период блокировок не найдено."
     parts = []
     if f["topStage"] and f["topReason"]:
-        parts.append(f"Больше всего блокировок — на этапе **{f['topStage']['label']}** "
-                     f"по причине **{f['topReason']['reason']}**.")
+        parts.append(f"Дольше всего время теряется на этапе **{f['topStage']['label']}** "
+                     f"и из-за причины **{f['topReason']['reason']}** "
+                     f"(**{f['topReason']['totalDays']} дн.** суммарно).")
     elif f["topReason"]:
-        parts.append(f"Чаще всего блокируют по причине **{f['topReason']['reason']}**.")
+        parts.append(f"Дольше всего простаивают из-за причины **{f['topReason']['reason']}** "
+                     f"(**{f['topReason']['totalDays']} дн.** суммарно).")
     s = f"Всего за период — **{f['totalBlockings']}** блокировок по **{f['blockedTasks']}** задачам"
     if f["trendPct"] is not None and f.get("prevFrom") and f.get("prevTo"):
         period = f"предыдущий период (**{_ddmm(f['prevFrom'])}–{_ddmm(f['prevTo'])}**)"
@@ -1071,9 +1080,13 @@ async def mistral_insight(f: dict) -> str | None:
     lines = [
         f"Очередь: {f['queue']}. Период: {f['dateFrom']}–{f['dateTo']}.",
         f"Всего блокировок: {f['totalBlockings']} по {f['blockedTasks']} задачам.",
-        f"Чаще всего блокируются на этапе: {f['topStage']['label'] if f['topStage'] else '—'}.",
-        f"Главная причина: {f['topReason']['reason'] if f['topReason'] else '—'}"
-        f" ({f['topReason']['count'] if f['topReason'] else 0} раз).",
+        f"Этап с наибольшим СУММАРНЫМ временем простоя: "
+        f"{f['topStage']['label'] if f['topStage'] else '—'}"
+        f" ({f['topStage']['totalDays'] if f['topStage'] else 0} дн.).",
+        f"Главная причина — по СУММАРНОМУ времени простоя (это и есть приоритет, а не количество): "
+        f"{f['topReason']['reason'] if f['topReason'] else '—'}"
+        f" ({f['topReason']['totalDays'] if f['topReason'] else 0} дн. суммарно, "
+        f"{f['topReason']['count'] if f['topReason'] else 0} блокировок).",
     ]
     if f["topReason"] and f["topReason"].get("kind"):
         lines.append(f"Характер главной причины: {f['topReason']['kind']} (классификация фиксирована — следуй ей).")
