@@ -2,6 +2,7 @@ import { useState } from "react"
 import { ExternalLink, Clock, CheckCircle, ChevronDown, ChevronUp } from "lucide-react"
 import { Modal } from "@/components/ui/modal"
 import { Badge } from "@/components/ui/badge"
+import { OutlierTag } from "@/components/ui/outlier-tag"
 import { cn } from "@/lib/utils"
 import type { BlockedTask } from "@/lib/types"
 
@@ -34,7 +35,7 @@ function TaskRow({ task }: { task: BlockedTask }) {
             </a>
             <Badge variant="outline" className="text-[10px] shrink-0">{task.queue}</Badge>
             {activeCount > 0 && <Badge variant="destructive" className="text-[10px] shrink-0">{activeCount} активн.</Badge>}
-            {task.isOutlier && <span className="text-sm" title="Выше P85">🔥</span>}
+            {task.isOutlier && <OutlierTag />}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 truncate">{task.title}</p>
         </div>

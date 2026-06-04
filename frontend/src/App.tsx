@@ -8,7 +8,6 @@ import { SyncBar } from "@/components/SyncBar"
 import { SyncProgress } from "@/components/SyncProgress"
 import { BlockingChart } from "@/components/BlockingChart"
 import { BlockingTable } from "@/components/BlockingTable"
-import { StatusChart } from "@/components/StatusChart"
 import { DowntimeChart } from "@/components/DowntimeChart"
 import { InsightsPanel } from "@/components/InsightsPanel"
 import { TaskDetailModal } from "@/components/TaskDetailModal"
@@ -376,16 +375,9 @@ export default function App() {
               </div>
             )}
 
-            {/* Блокировки по этапам работы */}
+            {/* Аналитика блокировок — 5 графиков (включая этапы работы) */}
             {!loading && data && (
               <div className="animate-fade-in-up" style={{ animationDelay: "0.45s" }}>
-                <StatusChart dateFrom={dates.from} dateTo={dates.to} queue={queue} />
-              </div>
-            )}
-
-            {/* Аналитика — 4 графика */}
-            {!loading && data && (
-              <div className="animate-fade-in-up" style={{ animationDelay: "0.5s" }}>
                 <InsightsPanel dateFrom={dates.from} dateTo={dates.to} queue={queue} />
               </div>
             )}

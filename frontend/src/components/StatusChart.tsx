@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { Badge } from "@/components/ui/badge"
+import { OutlierTag } from "@/components/ui/outlier-tag"
 import { ExternalLink, Clock, CheckCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -66,7 +67,7 @@ function StatusTaskModal({ status, onClose }: { status: StatusData | null; onClo
                 <Badge variant={t.isActive ? "destructive" : "success"} className="text-[10px]">
                   {t.isActive ? "Активна" : "Закрыта"}
                 </Badge>
-                {t.isOutlier && <span className="text-sm" title="Выше P85">🔥</span>}
+                {t.isOutlier && <OutlierTag />}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5 truncate">{t.parentTitle}</p>
               <p className="text-xs text-muted-foreground/70 mt-0.5">{t.reason} · {t.startDate}{t.endDate ? ` → ${t.endDate}` : " → сегодня"}</p>

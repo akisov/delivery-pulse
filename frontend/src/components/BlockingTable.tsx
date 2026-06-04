@@ -4,6 +4,7 @@ import { ExternalLink, ChevronDown, ChevronUp, Clock, CheckCircle, ChevronsDown,
 const COLLAPSED_COUNT = 10
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { OutlierTag } from "@/components/ui/outlier-tag"
 import type { BlockedTask, Blocking } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -81,7 +82,7 @@ function TaskRow({ task, rank }: TaskRowProps) {
                 {activeCount} активн.
               </Badge>
             )}
-            {task.isOutlier && <span className="text-sm shrink-0" title="Выше P85 — кандидат на анализ">🔥</span>}
+            {task.isOutlier && <OutlierTag />}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{task.title}</p>
         </div>

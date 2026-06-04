@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { Badge } from "@/components/ui/badge"
+import { OutlierTag } from "@/components/ui/outlier-tag"
+import { StatusChart } from "@/components/StatusChart"
 import { ExternalLink, Clock, CheckCircle } from "lucide-react"
 
 const REASON_COLORS: Record<string, string> = {
@@ -92,7 +94,7 @@ function DrillModal({ data, onClose }: { data: DrillDown | null; onClose: () => 
                 <Badge variant={t.isActive ? "destructive" : "success"} className="text-[10px]">
                   {t.isActive ? "Активна" : "Закрыта"}
                 </Badge>
-                {t.isOutlier && <span className="text-sm" title="Выше P85">🔥</span>}
+                {t.isOutlier && <OutlierTag />}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5 truncate">{t.parentTitle}</p>
               <p className="text-xs text-muted-foreground/70 mt-0.5">
@@ -160,6 +162,7 @@ export function InsightsPanel({ dateFrom, dateTo, queue }: Props) {
     <div className="space-y-4">
       <div className="h-6 w-48 bg-muted animate-pulse rounded" />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Skeleton className="h-72 rounded-xl md:col-span-2" />
         {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-64 rounded-xl" />)}
       </div>
     </div>
@@ -170,6 +173,11 @@ export function InsightsPanel({ dateFrom, dateTo, queue }: Props) {
     <div className="space-y-4">
       <h2 className="text-lg font-black tracking-tight text-foreground">Аналитика блокировок</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {/* 0. Этапы работы — время (avg / P90), во всю ширину */}
+        <div className="md:col-span-2">
+          <StatusChart dateFrom={dateFrom} dateTo={dateTo} queue={queue} />
+        </div>
 
         {/* 1. Этапы */}
         <Card>
