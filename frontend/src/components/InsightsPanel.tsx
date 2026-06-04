@@ -125,7 +125,6 @@ function MiniTooltip({ active, payload, valueLabel = "кол-во" }: any) {
       <p className="text-muted-foreground">{valueLabel}: <span className="font-semibold text-foreground">{d.value}</span></p>
       {item?.p70 > 0 && <p className="text-muted-foreground">P70: <span className="font-semibold text-amber-400">{item.p70}д</span></p>}
       {item?.p85 > 0 && <p className="text-muted-foreground">P85: <span className="font-semibold text-red-400">{item.p85}д</span></p>}
-      {item?.p90 > 0 && <p className="text-muted-foreground">P90: <span className="font-semibold text-red-500">{item.p90}д</span></p>}
       <p className="text-muted-foreground/70 pt-0.5">нажми для деталей</p>
     </div>
   )

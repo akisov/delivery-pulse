@@ -861,6 +861,7 @@ async def insights(
         vals = [t["days"] for t in tasks]
         p85v = ipct(vals, 0.85)
         reasons_count.append({"reason": r["reason"], "count": int(r["cnt"] or 0),
+                               "p70": ipct(vals,0.70), "p85": p85v,
                                "tasks": with_outliers(tasks, p85v)})
 
     reasons_avg = []
@@ -883,6 +884,7 @@ async def insights(
         vals = [t["days"] for t in tasks]
         p85v = ipct(vals, 0.85)
         issue_types.append({"type": label, "count": int(r["cnt"] or 0),
+                             "p70": ipct(vals,0.70), "p85": p85v,
                              "tasks": with_outliers(tasks, p85v)})
 
     return JSONResponse({
