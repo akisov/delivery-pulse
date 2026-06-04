@@ -82,10 +82,10 @@ export function DowntimeChart({ dateFrom, dateTo, queue }: Props) {
   const chartData = [{ name: "Итого", ...Object.fromEntries(visibleItems.map(i => [i.reason, i.totalDays])) }]
 
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle>Общее время простоя по причинам</CardTitle>
+          <CardTitle>📉 Общее время простоя по причинам</CardTitle>
           <span className="text-xs font-semibold text-foreground">{visibleTotal} дн. суммарно</span>
         </div>
         <p className="text-xs text-muted-foreground mt-1">

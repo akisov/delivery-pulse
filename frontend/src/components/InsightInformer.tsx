@@ -31,8 +31,8 @@ function renderBold(text: string) {
 // Разбор ответа AI на «Маркер» / «Рекомендация» с эмодзи
 function renderAI(text: string) {
   const clean = text.replace(/\*\*/g, "").trim()
-  const marker = clean.match(/Маркер\s*:?\s*([\s\S]*?)(?=\n*\s*Рекоменд|$)/i)?.[1]?.trim()
-  const rec = clean.match(/Рекоменд\w*\s*:?\s*([\s\S]*)/i)?.[1]?.trim()
+  const marker = clean.match(/Маркер[а-яё]*\s*[:.\-—]?\s*([\s\S]*?)(?=\n*\s*Рекоменд|$)/i)?.[1]?.trim()
+  const rec = clean.match(/Рекомендаци[а-яё]*\s*[:.\-—]?\s*([\s\S]*)/i)?.[1]?.trim()
 
   if (!marker && !rec) {
     return <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-foreground">{clean}</p>

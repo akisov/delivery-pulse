@@ -207,10 +207,10 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
   const chartHeight = Math.max(300, displayedTasks.length * 32 + 60)
 
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle>Время разрешения блокировок</CardTitle>
+          <CardTitle>⏳ Время разрешения блокировок</CardTitle>
           <span className="text-xs text-muted-foreground">{filteredTasks.length} задач</span>
         </div>
 

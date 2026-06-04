@@ -126,10 +126,10 @@ export function BlockingTable({ tasks }: Props) {
   const displayed = expanded ? sorted : sorted.slice(0, COLLAPSED_COUNT)
 
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle>Задачи по блокировкам</CardTitle>
+          <CardTitle>📋 Задачи по блокировкам</CardTitle>
           <div className="flex gap-1 bg-secondary rounded-lg p-1">
             {([["days", "По длительности"], ["active", "По активным"]] as const).map(([v, label]) => (
               <button key={v} onClick={() => setSortBy(v)}
