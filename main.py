@@ -919,6 +919,12 @@ def _pctl(vals: list[int], p: float) -> float:
     s = sorted(vals)
     return round(s[min(int(len(s) * p), len(s) - 1)], 1)
 
+def _ddmm(iso: str) -> str:
+    try:
+        d = date.fromisoformat(iso[:10]); return f"{d.day:02d}.{d.month:02d}.{d.year}"
+    except Exception:
+        return iso
+
 async def compute_facts(selected: list[str], date_from: str, date_to: str) -> dict:
     q_ph = ",".join("?" * len(selected))
     days_expr = """CASE
@@ -953,8 +959,13 @@ async def compute_facts(selected: list[str], date_from: str, date_to: str) -> di
         stmt(f"""SELECT b.reason as reason, COUNT(*) as cnt FROM blockings b
                  WHERE b.queue IN ({q_ph}){rng} AND b.reason IS NOT NULL AND b.reason!=''
                  GROUP BY b.reason ORDER BY cnt DESC LIMIT 1""", rargs),
+        # самая ранняя дата блокировки — граница реальных данных
+        stmt(f"SELECT MIN(b.start_date) as mn FROM blockings b "
+             f"WHERE b.queue IN ({q_ph}) AND b.start_date != ''", [*selected]),
     ]
+    prev_idx = None
     if prev:
+        prev_idx = len(stmts)
         stmts.append(stmt(
             f"SELECT COUNT(*) as cnt FROM blockings b WHERE b.queue IN ({q_ph}) "
             f"AND b.start_date >= ? AND b.start_date <= ?", [*selected, prev[0], prev[1]]))
@@ -970,16 +981,22 @@ async def compute_facts(selected: list[str], date_from: str, date_to: str) -> di
 
     stage_rows  = rows_to_dicts(results[1]) if len(results) > 1 else []
     reason_rows = rows_to_dicts(results[2]) if len(results) > 2 else []
-    prev_total = None
-    if prev and len(results) > 3:
-        pr = rows_to_dicts(results[3]); prev_total = int(pr[0]["cnt"]) if pr else 0
+    min_rows    = rows_to_dicts(results[3]) if len(results) > 3 else []
+    data_start  = (min_rows[0]["mn"] or "")[:10] if min_rows and min_rows[0].get("mn") else None
+
+    # Тренд показываем, только если ВЕСЬ предыдущий период попадает в реальные данные
+    prev_total, prev_valid = None, False
+    if prev and prev_idx is not None and len(results) > prev_idx:
+        pr = rows_to_dicts(results[prev_idx]); raw_prev = int(pr[0]["cnt"]) if pr else 0
+        if data_start and prev[0] >= data_start:
+            prev_total, prev_valid = raw_prev, True
 
     top_stage = ({"key": stage_rows[0]["sk"], "label": WORK_STATUSES.get(stage_rows[0]["sk"], stage_rows[0]["sk"]),
                   "count": int(stage_rows[0]["cnt"] or 0)} if stage_rows else None)
     top_reason = ({"reason": reason_rows[0]["reason"], "count": int(reason_rows[0]["cnt"] or 0)}
                   if reason_rows else None)
     total = len(rows0)
-    trend_pct = round((total - prev_total) / prev_total * 100) if prev_total else None
+    trend_pct = round((total - prev_total) / prev_total * 100) if (prev_valid and prev_total) else None
 
     return {
         "queue":          "ALL" if len(selected) == len(QUEUES) else ",".join(selected),
@@ -989,7 +1006,11 @@ async def compute_facts(selected: list[str], date_from: str, date_to: str) -> di
         "topStage":       top_stage,
         "topReason":      top_reason,
         "avgDays":        round(sum(days) / len(days), 1) if days else 0,
+        "p70":            _pctl(days, 0.70),
         "p85":            _pctl(days, 0.85),
+        "dataStart":      data_start,
+        "prevFrom":       prev[0] if prev_valid else None,
+        "prevTo":         prev[1] if prev_valid else None,
         "prevTotal":      prev_total,
         "trendPct":       trend_pct,
     }
@@ -1004,10 +1025,11 @@ def build_template(f: dict) -> str:
     elif f["topReason"]:
         parts.append(f"Чаще всего блокируют по причине **{f['topReason']['reason']}**.")
     s = f"Всего за период — **{f['totalBlockings']}** блокировок по **{f['blockedTasks']}** задачам"
-    if f["trendPct"] is not None:
-        if f["trendPct"] > 0:   s += f", это на **{f['trendPct']}%** больше, чем в прошлом периоде"
-        elif f["trendPct"] < 0: s += f", это на **{abs(f['trendPct'])}%** меньше, чем в прошлом периоде"
-        else:                   s += ", столько же, сколько в прошлом периоде"
+    if f["trendPct"] is not None and f.get("prevFrom") and f.get("prevTo"):
+        period = f"предыдущий период (**{_ddmm(f['prevFrom'])}–{_ddmm(f['prevTo'])}**)"
+        if f["trendPct"] > 0:   s += f", это на **{f['trendPct']}%** больше, чем за {period}"
+        elif f["trendPct"] < 0: s += f", это на **{abs(f['trendPct'])}%** меньше, чем за {period}"
+        else:                   s += f", столько же, сколько за {period}"
     s += "."
     parts.append(s)
     if f["avgDays"]:
@@ -1024,7 +1046,8 @@ async def mistral_insight(f: dict) -> str | None:
         f"Главная причина: {f['topReason']['reason'] if f['topReason'] else '—'}"
         f" ({f['topReason']['count'] if f['topReason'] else 0} раз).\n"
         f"Среднее время разблокировки: {f['avgDays']} дн., P85: {f['p85']} дн.\n"
-        + (f"Динамика к прошлому периоду: {f['trendPct']:+d}%.\n" if f["trendPct"] is not None else "")
+        + (f"Динамика к предыдущему периоду ({_ddmm(f['prevFrom'])}–{_ddmm(f['prevTo'])}): {f['trendPct']:+d}%.\n"
+           if (f["trendPct"] is not None and f.get("prevFrom")) else "")
     )
     system = (
         "Ты — аналитик процессов разработки в VkusVill. Опирайся на внутреннюю практику ниже "
