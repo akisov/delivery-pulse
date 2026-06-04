@@ -565,49 +565,47 @@ async def sync_status_endpoint():
 @app.post("/backfill-types")
 async def backfill_types(queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
     """Догружает issue_type/issue_type_display для задач, у которых он пуст.
-    Тянет только тип задачи через _search по очереди (без перезагрузки блокировок).
+    Запрашивает тип строго по ключам, которые уже есть в БД (т.е. только три
+    очереди и уже загруженный период) — лишние данные не тянет.
     Использует TRACKER_TOKEN и Turso самого Space — отдельные доступы не нужны."""
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
     selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    q_ph = ",".join("?" * len(selected))
 
-    # ключи без типа
+    # ключи без типа — только по выбранным очередям и тем, что уже в БД
     res = await turso_execute([stmt(
-        "SELECT key FROM parent_tasks WHERE issue_type IS NULL OR issue_type = ''")])
-    need = {r["key"] for r in rows_to_dicts(res[0])} if res else set()
+        f"SELECT key FROM parent_tasks WHERE (issue_type IS NULL OR issue_type = '') "
+        f"AND queue IN ({q_ph})", [*selected])])
+    need = [r["key"] for r in rows_to_dicts(res[0])] if res else []
     if not need:
-        return JSONResponse({"ok": True, "updated": 0, "scanned": 0, "msg": "Типы уже заполнены"})
+        return JSONResponse({"ok": True, "updated": 0, "needed": 0, "msg": "Типы уже заполнены"})
 
-    updated = scanned = 0
+    updated = 0
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            for queue in selected:
-                page = 1
-                while True:
-                    data = await tracker_request(client, "POST",
-                        f"/v2/issues/_search?perPage=100&page={page}",
-                        {"filter": {"queue": queue}})
-                    chunk = data if isinstance(data, list) else []
-                    scanned += len(chunk)
-                    upd = []
-                    for iss in chunk:
-                        k = iss.get("key")
-                        if k in need:
-                            t = iss.get("type", {})
-                            upd.append(stmt(
-                                "UPDATE parent_tasks SET issue_type=?, issue_type_display=? WHERE key=?",
-                                [t.get("key", ""), t.get("display", ""), k]))
-                    for i in range(0, len(upd), 50):
-                        await turso_execute(upd[i:i+50])
+            # тянем строго по ключам пачками — без обхода всей очереди
+            for i in range(0, len(need), 50):
+                batch = need[i:i+50]
+                data = await tracker_request(client, "POST",
+                    "/v2/issues/_search?perPage=50", {"keys": batch})
+                issues = data if isinstance(data, list) else []
+                upd = []
+                for iss in issues:
+                    k = iss.get("key")
+                    t = iss.get("type", {})
+                    if k and (t.get("key") or t.get("display")):
+                        upd.append(stmt(
+                            "UPDATE parent_tasks SET issue_type=?, issue_type_display=? WHERE key=?",
+                            [t.get("key", ""), t.get("display", ""), k]))
+                if upd:
+                    await turso_execute(upd)
                     updated += len(upd)
-                    if len(chunk) < 100:
-                        break
-                    page += 1
-                    await asyncio.sleep(0.4)
+                await asyncio.sleep(0.3)
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e), "updated": updated, "scanned": scanned})
+        return JSONResponse({"ok": False, "error": str(e), "updated": updated, "needed": len(need)})
 
-    return JSONResponse({"ok": True, "updated": updated, "scanned": scanned, "needed": len(need)})
+    return JSONResponse({"ok": True, "updated": updated, "needed": len(need)})
 
 @app.get("/status-analysis")
 async def status_analysis(
