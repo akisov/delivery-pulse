@@ -179,9 +179,9 @@ export function InsightsPanel({ dateFrom, dateTo, queue }: Props) {
         </div>
 
         {/* 1. Этапы */}
-        <Card>
+        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
           <CardHeader className="pb-2">
-            <CardTitle>На каких этапах чаще блокируются</CardTitle>
+            <CardTitle>🚧 На каких этапах чаще блокируются</CardTitle>
             <p className="text-xs text-muted-foreground">Кол-во блокировок по рабочим статусам</p>
           </CardHeader>
           <CardContent>
@@ -205,9 +205,9 @@ export function InsightsPanel({ dateFrom, dateTo, queue }: Props) {
         </Card>
 
         {/* 2. Типы задач — рядом с этапами (похожая высота) */}
-        <Card>
+        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
           <CardHeader className="pb-2">
-            <CardTitle>Какие типы задач чаще блокируются</CardTitle>
+            <CardTitle>🗂️ Какие типы задач чаще блокируются</CardTitle>
             <p className="text-xs text-muted-foreground">Уникальных задач с блокировками по типу</p>
           </CardHeader>
           <CardContent>
@@ -235,9 +235,9 @@ export function InsightsPanel({ dateFrom, dateTo, queue }: Props) {
         </Card>
 
         {/* 3. Причины — количество */}
-        <Card>
+        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
           <CardHeader className="pb-2">
-            <CardTitle>По каким причинам чаще блокируются</CardTitle>
+            <CardTitle>📌 По каким причинам чаще блокируются</CardTitle>
             <p className="text-xs text-muted-foreground">Топ причин по количеству блокировок</p>
           </CardHeader>
           <CardContent>
@@ -262,9 +262,9 @@ export function InsightsPanel({ dateFrom, dateTo, queue }: Props) {
         </Card>
 
         {/* 4. Причины — среднее время */}
-        <Card>
+        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
           <CardHeader className="pb-2">
-            <CardTitle>Среднее время разблокировки по причине</CardTitle>
+            <CardTitle>⏱️ Среднее время разблокировки по причине</CardTitle>
             <p className="text-xs text-muted-foreground">Сколько дней в среднем занимает каждая причина</p>
           </CardHeader>
           <CardContent>

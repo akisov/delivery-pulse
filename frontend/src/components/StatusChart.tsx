@@ -146,10 +146,10 @@ export function StatusChart({ dateFrom, dateTo, queue }: Props) {
 
   return (
     <>
-      <Card>
+      <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardTitle>Блокировки по этапам работы</CardTitle>
+            <CardTitle>📊 Блокировки по этапам работы</CardTitle>
             {data && <span className="text-xs text-muted-foreground">среднее и P90 · нажми на столбец</span>}
           </div>
           <p className="text-xs text-muted-foreground mt-1">

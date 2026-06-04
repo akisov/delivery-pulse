@@ -28,6 +28,37 @@ function renderBold(text: string) {
   )
 }
 
+// Разбор ответа AI на «Маркер» / «Рекомендация» с эмодзи
+function renderAI(text: string) {
+  const clean = text.replace(/\*\*/g, "").trim()
+  const marker = clean.match(/Маркер\s*:?\s*([\s\S]*?)(?=\n*\s*Рекоменд|$)/i)?.[1]?.trim()
+  const rec = clean.match(/Рекоменд\w*\s*:?\s*([\s\S]*)/i)?.[1]?.trim()
+
+  if (!marker && !rec) {
+    return <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-foreground">{clean}</p>
+  }
+  return (
+    <div className="mt-3 space-y-2">
+      {marker && (
+        <div className="flex gap-2">
+          <span className="shrink-0 leading-relaxed">🎯</span>
+          <p className="text-sm leading-relaxed text-foreground">
+            <span className="font-bold">Маркер.</span> {marker}
+          </p>
+        </div>
+      )}
+      {rec && (
+        <div className="flex gap-2">
+          <span className="shrink-0 leading-relaxed">💡</span>
+          <p className="text-sm leading-relaxed text-foreground">
+            <span className="font-bold">Рекомендация.</span> {rec}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function InsightInformer({ dateFrom, dateTo, queue }: Props) {
   const [data, setData] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -89,9 +120,7 @@ export function InsightInformer({ dateFrom, dateTo, queue }: Props) {
           ) : data ? (
             <>
               <p className="text-sm leading-relaxed text-muted-foreground">{renderBold(data.template)}</p>
-              {data.ai && (
-                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-foreground">{data.ai}</p>
-              )}
+              {data.ai && renderAI(data.ai)}
               {data.practiceUrl && (
                 <a
                   href={data.practiceUrl}
