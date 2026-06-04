@@ -185,7 +185,7 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
       task.blockings.forEach(b => { byReason[b.reason] = (byReason[b.reason] ?? 0) + b.days })
       return { key: task.key, title: task.title, totalDays: task.totalDays, blockings: task.blockings, url: task.url, ...byReason }
     })
-  }, [filteredTasks])
+  }, [filteredTasks, expanded])
 
   const visibleReasons = activeReasons && activeReasons.size > 0
     ? allReasons.filter(r => activeReasons.has(r))
