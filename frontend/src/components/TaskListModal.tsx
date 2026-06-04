@@ -34,6 +34,7 @@ function TaskRow({ task }: { task: BlockedTask }) {
             </a>
             <Badge variant="outline" className="text-[10px] shrink-0">{task.queue}</Badge>
             {activeCount > 0 && <Badge variant="destructive" className="text-[10px] shrink-0">{activeCount} активн.</Badge>}
+            {task.isOutlier && <span className="text-sm" title="Выше P85">🔥</span>}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 truncate">{task.title}</p>
         </div>

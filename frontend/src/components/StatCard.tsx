@@ -36,16 +36,19 @@ function AnimatedNumber({ value }: { value: number | string }) {
   return <>{display}</>
 }
 
+interface Chip { label: string; color: string; bg: string }
+
 interface Props {
   label: string
   value: number | string
   sub?: string
+  chips?: Chip[]
   icon: string
   color?: keyof typeof COLOR_MAP
   onClick?: () => void
 }
 
-export function StatCard({ label, value, sub, icon, color = "purple", onClick }: Props) {
+export function StatCard({ label, value, sub, chips, icon, color = "purple", onClick }: Props) {
   const c = COLOR_MAP[color]
   const [hovered, setHovered] = useState(false)
 
@@ -89,6 +92,17 @@ export function StatCard({ label, value, sub, icon, color = "purple", onClick }:
           <AnimatedNumber value={value} />
         </p>
         {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
+        {chips && chips.length > 0 && (
+          <div className="flex gap-1.5 mt-2 flex-wrap">
+            {chips.map(chip => (
+              <span key={chip.label}
+                className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold"
+                style={{ background: chip.bg, color: chip.color }}>
+                {chip.label}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {onClick && (

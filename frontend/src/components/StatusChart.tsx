@@ -66,7 +66,7 @@ function StatusTaskModal({ status, onClose }: { status: StatusData | null; onClo
                 <Badge variant={t.isActive ? "destructive" : "success"} className="text-[10px]">
                   {t.isActive ? "Активна" : "Закрыта"}
                 </Badge>
-                {t.isOutlier && <Badge className="text-[10px] bg-red-500/15 text-red-400 border border-red-500/30">P85+</Badge>}
+                {t.isOutlier && <span className="text-sm" title="Выше P85">🔥</span>}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5 truncate">{t.parentTitle}</p>
               <p className="text-xs text-muted-foreground/70 mt-0.5">{t.reason} · {t.startDate}{t.endDate ? ` → ${t.endDate}` : " → сегодня"}</p>

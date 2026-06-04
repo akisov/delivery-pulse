@@ -298,8 +298,6 @@ export function BlockingChart({ tasks, onTaskClick, activeReasons, onToggleReaso
               tick={<YAxisTick tasksMap={tasksMap} />}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: "hsl(var(--accent))", opacity: 0.4 }} />
-            {p70 > 0 && <PercentileLine p={p70} color="#EAB308" label="P70" />}
-            {p85 > 0 && <PercentileLine p={p85} color="#EF4444" label="P85" />}
             {visibleReasons.map((reason, ri) => (
               <Bar
                 key={reason}
