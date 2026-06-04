@@ -7,6 +7,7 @@ import { StatCard } from "@/components/StatCard"
 import { SyncBar } from "@/components/SyncBar"
 import { SyncProgress } from "@/components/SyncProgress"
 import { BlockingChart } from "@/components/BlockingChart"
+import { InsightInformer } from "@/components/InsightInformer"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
 import { InsightsPanel } from "@/components/InsightsPanel"
@@ -331,6 +332,13 @@ export default function App() {
                 <div className="animate-fade-in-up stagger-2"><StatCard label="Активных блокировок"   value={activeTasks.length} sub="ещё не закрыты"               icon="⏳" color="rose"   onClick={() => setStatModal("active")} /></div>
                 <div className="animate-fade-in-up stagger-3"><StatCard label="Всего блокировок"      value={totalBlockings}      sub="суммарно по задачам"           icon="🔢" color="sky"    onClick={() => setStatModal("blocked")} /></div>
                 <div className="animate-fade-in-up stagger-4"><StatCard label="Среднее время" value={`${avgDays}д`} sub={data.p70 ? `P70 ${data.p70}д · P85 ${data.p85}д` : "на одну заблок. задачу"} icon="📊" color="amber" onClick={() => setStatModal("avg")} /></div>
+              </div>
+            )}
+
+            {/* AI-сводка по текущим фильтрам */}
+            {!loading && data && (
+              <div className="animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
+                <InsightInformer dateFrom={dates.from} dateTo={dates.to} queue={queue} />
               </div>
             )}
 

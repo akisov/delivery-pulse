@@ -12,6 +12,8 @@ TRACKER_TOKEN = os.environ.get("TRACKER_TOKEN", "")
 ORG_ID        = os.environ.get("ORG_ID", "7405124")
 TURSO_URL     = os.environ.get("TURSO_URL", "").replace("libsql://", "https://")
 TURSO_TOKEN   = os.environ.get("TURSO_TOKEN", "")
+MISTRAL_API_KEY = os.environ.get("MISTRAL_TOKEN", "") or os.environ.get("MISTRAL_API_KEY", "")
+MISTRAL_MODEL   = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
 
 QUEUES = ["POOLING", "DOSTAVKAPIKO", "UDOSTAVKA"]
 
@@ -893,6 +895,160 @@ async def insights(
         "reasonsAvg":   reasons_avg,
         "issueTypes":   issue_types,
     })
+
+# ── AI-сводка ───────────────────────────────────────────────────────────────────
+
+_insight_cache: dict = {}
+
+def _pctl(vals: list[int], p: float) -> float:
+    if not vals: return 0
+    s = sorted(vals)
+    return round(s[min(int(len(s) * p), len(s) - 1)], 1)
+
+async def compute_facts(selected: list[str], date_from: str, date_to: str) -> dict:
+    q_ph = ",".join("?" * len(selected))
+    days_expr = """CASE
+        WHEN b.status='closed' AND b.start_date!='' AND b.end_date!=''
+            THEN CAST(julianday(b.end_date)-julianday(b.start_date) AS INTEGER)+1
+        WHEN b.status!='closed' AND b.start_date!=''
+            THEN CAST(julianday(date('now'))-julianday(b.start_date) AS INTEGER)+1
+        ELSE 0 END"""
+    rng = ""; rargs: list = [*selected]
+    if date_from: rng += " AND b.start_date >= ?"; rargs.append(date_from)
+    if date_to:   rng += " AND b.start_date <= ?"; rargs.append(date_to)
+
+    # Предыдущий период такой же длины — для тренда
+    prev = None
+    try:
+        if date_from and date_to:
+            d0 = date.fromisoformat(date_from); d1 = date.fromisoformat(date_to)
+            length = (d1 - d0).days
+            pe = d0 - timedelta(days=1); ps = pe - timedelta(days=length)
+            prev = (ps.isoformat(), pe.isoformat())
+    except Exception:
+        prev = None
+
+    stmts = [
+        stmt(f"SELECT {days_expr} as d, b.parent_key as pk FROM blockings b "
+             f"WHERE b.queue IN ({q_ph}){rng}", rargs),
+        stmt(f"""SELECT bs.status_key as sk, COUNT(*) as cnt FROM blockings b
+                 JOIN blocking_status bs ON bs.blocking_key=b.key
+                 WHERE b.queue IN ({q_ph}){rng} AND bs.status_key IN
+                 ('vRazrabotke','testing','analyticalstudy','pomesenieVProduktiv','atthecustomersinspection')
+                 GROUP BY bs.status_key ORDER BY cnt DESC LIMIT 1""", rargs),
+        stmt(f"""SELECT b.reason as reason, COUNT(*) as cnt FROM blockings b
+                 WHERE b.queue IN ({q_ph}){rng} AND b.reason IS NOT NULL AND b.reason!=''
+                 GROUP BY b.reason ORDER BY cnt DESC LIMIT 1""", rargs),
+    ]
+    if prev:
+        stmts.append(stmt(
+            f"SELECT COUNT(*) as cnt FROM blockings b WHERE b.queue IN ({q_ph}) "
+            f"AND b.start_date >= ? AND b.start_date <= ?", [*selected, prev[0], prev[1]]))
+
+    results = await turso_execute(stmts)
+    rows0 = rows_to_dicts(results[0]) if results else []
+    days, parents = [], set()
+    for r in rows0:
+        try: d = int(float(r["d"] or 0))
+        except: d = 0
+        if d > 0: days.append(d)
+        if r["pk"]: parents.add(r["pk"])
+
+    stage_rows  = rows_to_dicts(results[1]) if len(results) > 1 else []
+    reason_rows = rows_to_dicts(results[2]) if len(results) > 2 else []
+    prev_total = None
+    if prev and len(results) > 3:
+        pr = rows_to_dicts(results[3]); prev_total = int(pr[0]["cnt"]) if pr else 0
+
+    top_stage = ({"key": stage_rows[0]["sk"], "label": WORK_STATUSES.get(stage_rows[0]["sk"], stage_rows[0]["sk"]),
+                  "count": int(stage_rows[0]["cnt"] or 0)} if stage_rows else None)
+    top_reason = ({"reason": reason_rows[0]["reason"], "count": int(reason_rows[0]["cnt"] or 0)}
+                  if reason_rows else None)
+    total = len(rows0)
+    trend_pct = round((total - prev_total) / prev_total * 100) if prev_total else None
+
+    return {
+        "queue":          "ALL" if len(selected) == len(QUEUES) else ",".join(selected),
+        "dateFrom":       date_from, "dateTo": date_to,
+        "totalBlockings": total,
+        "blockedTasks":   len(parents),
+        "topStage":       top_stage,
+        "topReason":      top_reason,
+        "avgDays":        round(sum(days) / len(days), 1) if days else 0,
+        "p85":            _pctl(days, 0.85),
+        "prevTotal":      prev_total,
+        "trendPct":       trend_pct,
+    }
+
+def build_template(f: dict) -> str:
+    if not f["totalBlockings"]:
+        return "За выбранный период блокировок не найдено."
+    parts = []
+    if f["topStage"] and f["topReason"]:
+        parts.append(f"Больше всего блокировок — на этапе **{f['topStage']['label']}** "
+                     f"по причине **{f['topReason']['reason']}**.")
+    elif f["topReason"]:
+        parts.append(f"Чаще всего блокируют по причине **{f['topReason']['reason']}**.")
+    s = f"Всего за период — **{f['totalBlockings']}** блокировок по **{f['blockedTasks']}** задачам"
+    if f["trendPct"] is not None:
+        if f["trendPct"] > 0:   s += f", это на **{f['trendPct']}%** больше, чем в прошлом периоде"
+        elif f["trendPct"] < 0: s += f", это на **{abs(f['trendPct'])}%** меньше, чем в прошлом периоде"
+        else:                   s += ", столько же, сколько в прошлом периоде"
+    s += "."
+    parts.append(s)
+    if f["avgDays"]:
+        parts.append(f"Среднее время разблокировки — **{f['avgDays']} дн.** (P85 **{f['p85']} дн.**).")
+    return " ".join(parts)
+
+async def mistral_insight(f: dict) -> str | None:
+    if not MISTRAL_API_KEY or not f["totalBlockings"]:
+        return None
+    facts_txt = (
+        f"Очередь: {f['queue']}. Период: {f['dateFrom']}–{f['dateTo']}.\n"
+        f"Всего блокировок: {f['totalBlockings']} по {f['blockedTasks']} задачам.\n"
+        f"Чаще всего блокируются на этапе: {f['topStage']['label'] if f['topStage'] else '—'}.\n"
+        f"Главная причина: {f['topReason']['reason'] if f['topReason'] else '—'}"
+        f" ({f['topReason']['count'] if f['topReason'] else 0} раз).\n"
+        f"Среднее время разблокировки: {f['avgDays']} дн., P85: {f['p85']} дн.\n"
+        + (f"Динамика к прошлому периоду: {f['trendPct']:+d}%.\n" if f["trendPct"] is not None else "")
+    )
+    system = ("Ты — аналитик процессов разработки. На основе сухих фактов о блокировках задач "
+              "сделай короткий вывод на русском (1–2 предложения): какая системная проблема в процессе "
+              "за этим стоит и одна конкретная рекомендация — что добавить или проверить в процессе. "
+              "Опирайся ТОЛЬКО на факты, не выдумывай числа. Пиши по делу, без приветствий и воды.")
+    body = {"model": MISTRAL_MODEL,
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": facts_txt}],
+            "temperature": 0.4, "max_tokens": 300}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post("https://api.mistral.ai/v1/chat/completions",
+                                  headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
+            r.raise_for_status()
+            return (r.json()["choices"][0]["message"]["content"] or "").strip()
+    except Exception as e:
+        print(f"[mistral] {e}")
+        return None
+
+@app.get("/insight-summary")
+async def insight_summary(
+    queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA"),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+    refresh: bool = Query(False),
+):
+    selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    ck = f"{','.join(sorted(selected))}|{date_from}|{date_to}"
+    if not refresh and ck in _insight_cache:
+        return JSONResponse(_insight_cache[ck])
+    facts = await compute_facts(selected, date_from, date_to)
+    res = {"facts": facts, "template": build_template(facts),
+           "ai": await mistral_insight(facts), "hasAI": False}
+    res["hasAI"] = bool(res["ai"])
+    if len(_insight_cache) > 200:
+        _insight_cache.clear()
+    _insight_cache[ck] = res
+    return JSONResponse(res)
 
 @app.get("/downtime-analysis")
 async def downtime_analysis(
