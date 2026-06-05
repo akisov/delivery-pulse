@@ -1164,7 +1164,16 @@ async def downtime_analysis(
         date_filter += " AND start_date <= ?"
         args.append(date_to)
 
-    results = await turso_execute([stmt(f"""
+    days_expr_b = """CASE
+        WHEN b.status='closed' AND b.start_date!='' AND b.end_date!=''
+            THEN CAST(julianday(b.end_date)-julianday(b.start_date) AS INTEGER)+1
+        WHEN b.status!='closed' AND b.start_date!=''
+            THEN CAST(julianday(date('now'))-julianday(b.start_date) AS INTEGER)+1
+        ELSE 0 END"""
+    date_filter_b = date_filter.replace("start_date", "b.start_date")
+
+    results = await turso_execute([
+        stmt(f"""
         SELECT
             reason,
             SUM(CASE
@@ -1179,19 +1188,53 @@ async def downtime_analysis(
         WHERE queue IN ({q_ph}){date_filter}
         GROUP BY reason
         ORDER BY total_days DESC
-    """, args)])
+    """, args),
+        # задачи по каждой причине (со стадией для группировки)
+        stmt(f"""SELECT b.reason as reason, b.key as blocking_key, b.parent_key as parent_key,
+                    b.start_date, b.end_date, b.status as b_status, b.queue,
+                    p.title as parent_title, bs.status_display as stage,
+                    {days_expr_b} as days_val
+                 FROM blockings b
+                 LEFT JOIN parent_tasks p ON p.key=b.parent_key
+                 LEFT JOIN blocking_status bs ON bs.blocking_key=b.key
+                 WHERE b.queue IN ({q_ph}){date_filter_b}""", args),
+    ])
 
     rows = rows_to_dicts(results[0]) if results else []
+    task_rows = rows_to_dicts(results[1]) if len(results) > 1 else []
+
+    by_reason: dict = {}
+    for r in task_rows:
+        try: d = int(float(r.get("days_val") or 0))
+        except: d = 0
+        if d <= 0: continue
+        by_reason.setdefault(r.get("reason") or "Не указана", []).append({
+            "blockingKey": r.get("blocking_key", ""),
+            "parentKey":   r.get("parent_key", ""),
+            "parentTitle": r.get("parent_title") or "—",
+            "url":         f"https://tracker.yandex.ru/{r.get('parent_key','')}",
+            "queue":       r.get("queue", ""),
+            "stage":       r.get("stage") or "Без этапа",
+            "startDate":   (r.get("start_date") or "")[:10],
+            "endDate":     (r.get("end_date") or "")[:10],
+            "isActive":    r.get("b_status") != "closed",
+            "days":        d,
+        })
+    for k in by_reason:
+        by_reason[k].sort(key=lambda t: t["days"], reverse=True)
+
     total = sum(int(float(r["total_days"] or 0)) for r in rows)
     items = []
     for r in rows:
         d = int(float(r["total_days"] or 0))
         if d > 0:
+            reason = r["reason"] or "Не указана"
             items.append({
-                "reason":     r["reason"] or "Не указана",
+                "reason":     reason,
                 "totalDays":  d,
                 "count":      int(r["cnt"] or 0),
                 "pct":        round(d / total * 100, 1) if total else 0,
+                "tasks":      by_reason.get(reason, []),
             })
 
     return JSONResponse({"items": items, "totalDays": total})
