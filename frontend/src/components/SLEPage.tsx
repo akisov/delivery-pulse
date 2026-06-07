@@ -263,6 +263,13 @@ export function SLEPage() {
   )
   const maxCluster = Math.max(1, ...(data?.clusters.map(c => c.count) ?? [1]))
   const clusterChartData = (data?.clusters ?? []).map(c => ({ ...c, fill: clusterColor(c.label) }))
+  const stats = useMemo(() => {
+    if (!data) return null
+    const total = data.count
+    const violated = data.tasks.filter(t => riskKey(t.sleRisk) === "нарушен").length
+    const risky = data.tasks.filter(t => t.cluster).length
+    return { total, violated, risky, attention: data.attention ?? 0 }
+  }, [data])
 
   return (
     <div className="space-y-6">
@@ -291,6 +298,29 @@ export function SLEPage() {
         </div>
       </div>
 
+      {/* Сводка */}
+      {stats && (
+        <div className="grid grid-cols-3 gap-3">
+          {(which === "current"
+            ? [
+                { label: "В работе", value: stats.total, color: "text-foreground" },
+                { label: "В зоне риска", value: stats.risky, color: "text-primary" },
+                { label: "Требуют действий", value: stats.attention, color: "text-amber-500" },
+              ]
+            : [
+                { label: "Завершено", value: stats.total, color: "text-foreground" },
+                { label: "Нарушено SLE", value: stats.violated, color: "text-destructive" },
+                { label: "Доля нарушений", value: `${Math.round(stats.violated / Math.max(stats.total, 1) * 100)}%`, color: "text-destructive" },
+              ]
+          ).map(s => (
+            <div key={s.label} className="rounded-xl border border-border bg-card px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(108,99,255,0.1)]">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{s.label}</p>
+              <p className={cn("text-2xl font-black tracking-tight leading-none mt-1", s.color)}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* График риска для выбранной вкладки */}
       {data ? (
         which === "historical"
@@ -305,10 +335,10 @@ export function SLEPage() {
         <Card className="border-amber-500/40 bg-amber-500/[0.06] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(245,158,11,0.18)]">
           <CardHeader className="pb-2">
             <CardTitle className="text-amber-600 dark:text-amber-400">
-              ⚠️ Требуют внимания — {attentionTasks.length}
+              ⚠️ Требуют действий сейчас — {attentionTasks.length} из {stats?.risky ?? attentionTasks.length} рисковых
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Задачи с риском SLE (умеренный+), где висит блок в подзадаче или работа не спланирована
+              Висит открытый блок в активной подзадаче или работа не спланирована (нет активных подзадач)
             </p>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -356,7 +386,7 @@ export function SLEPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle>{which === "current" ? "🧩 Риски нарушения SLE — в работе" : "🧩 Причины нарушения SLE — история"}</CardTitle>
-                <span className="text-xs text-muted-foreground">{data.tasks.filter(t => t.cluster).length} задач · нажми на кластер</span>
+                <span className="text-xs text-muted-foreground">{data.tasks.filter(t => t.cluster).length} рисковых задач · нажми на кластер</span>
               </div>
             </CardHeader>
             <CardContent>
