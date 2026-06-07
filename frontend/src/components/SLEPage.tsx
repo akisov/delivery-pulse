@@ -202,6 +202,10 @@ export function SLEPage() {
     return CLUSTER_ORDER.filter(c => g[c]?.length).map(c => ({ cluster: c, tasks: g[c] }))
   }, [data])
 
+  const attentionTasks = useMemo(
+    () => data ? data.tasks.filter(t => t.needsAttention).sort((a, b) => riskRank(a.sleRisk) - riskRank(b.sleRisk)) : [],
+    [data]
+  )
   const maxCluster = Math.max(1, ...(data?.clusters.map(c => c.count) ?? [1]))
   const clusterChartData = (data?.clusters ?? []).map(c => ({ ...c, fill: clusterColor(c.label) }))
 
@@ -240,10 +244,40 @@ export function SLEPage() {
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
 
-      {data && (data.attention ?? 0) > 0 && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600 dark:text-amber-400">
-          ⚠️ <b>{data.attention}</b> {data.attention === 1 ? "задача с риском SLE требует" : "задач с риском SLE требуют"} внимания — висит блок в подзадаче, работа не спланирована или рассинхрон этапов.
-        </div>
+      {/* Требуют внимания — самый заметный блок */}
+      {data && attentionTasks.length > 0 && (
+        <Card className="border-amber-500/40 bg-amber-500/[0.06]">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-amber-600 dark:text-amber-400">
+              ⚠️ Требуют внимания — {attentionTasks.length}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Задачи с риском SLE (умеренный+), где висит блок в подзадаче или работа не спланирована
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {attentionTasks.map(t => (
+              <div key={t.key} className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-card px-3 py-2">
+                <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: RISK_COLOR[riskKey(t.sleRisk)] }} title={t.sleRisk} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a href={t.url} target="_blank" rel="noopener noreferrer"
+                      className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+                      {t.key} <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <span className="text-[11px] font-semibold" style={{ color: RISK_COLOR[riskKey(t.sleRisk)] }}>{t.sleRisk}</span>
+                    <span className="text-xs text-muted-foreground truncate">{t.summary}</span>
+                  </div>
+                  <div className="mt-1 flex flex-col gap-0.5">
+                    {(t.riskSignals || []).map((s, i) => (
+                      <span key={i} className="text-[11px] text-amber-600 dark:text-amber-400">→ {s}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       {loading ? (
