@@ -20,7 +20,6 @@ const CLUSTER_COLORS: Record<string, string> = {
 function clusterColor(c?: string | null) { return (c && CLUSTER_COLORS[c]) || "#94A3B8" }
 
 const RISK_ORDER = ["нарушен", "высокий", "умеренный", "низкий"]
-const RISK_LABEL: Record<string, string> = { "нарушен": "🔴 нарушен", "высокий": "🟠 высокий", "умеренный": "🟡 умеренный", "низкий": "🟢 низкий" }
 const RISK_COLOR: Record<string, string> = { "нарушен": "#EF4444", "высокий": "#F97316", "умеренный": "#EAB308", "низкий": "#10B981" }
 function riskKey(r: string) {
   const s = (r || "").toLowerCase()
@@ -47,7 +46,7 @@ interface Resp {
 function riskCounts(tasks: { sleRisk: string }[]) {
   const c: Record<string, number> = { "нарушен": 0, "высокий": 0, "умеренный": 0, "низкий": 0 }
   tasks.forEach(t => { c[riskKey(t.sleRisk)]++ })
-  return RISK_ORDER.map(k => ({ key: k, name: RISK_LABEL[k], count: c[k], fill: RISK_COLOR[k] }))
+  return RISK_ORDER.map(k => ({ key: k, name: k, count: c[k], fill: RISK_COLOR[k] }))
 }
 
 function RiskChart({ title, sub, tasks }: { title: string; sub: string; tasks: { sleRisk: string }[] }) {
@@ -322,6 +321,14 @@ export function SLEPage() {
           </Card>
 
           {/* Список, сгруппированный по кластерам */}
+          <div>
+            <h2 className="text-lg font-black tracking-tight text-foreground mb-1">
+              Задачи по причинам — {which === "current" ? "в работе" : "завершённые (история)"}
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              {data.count} задач с риском SLE, сгруппированы по причине нарушения. Кластер можно поправить вручную.
+            </p>
+          </div>
           <div className="space-y-5">
             {grouped.filter(g => !filter || g.cluster === filter).map(g => (
               <div key={g.cluster}>

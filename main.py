@@ -1300,8 +1300,8 @@ async def fetch_sle_tasks(which: str) -> dict:
         keys = [p["key"] for p in parents if p.get("key")]
         subs = []
         if keys:
-            subs = await tracker_query(client,
-                f'"Parent issue": {", ".join(keys)} Queue: {SLE_SUB_QUEUES}')
+            # берём ВСЕ дочерние задачи (любые очереди, не только три dev-очереди)
+            subs = await tracker_query(client, f'"Parent issue": {", ".join(keys)}')
 
     # подзадачи по родителю
     subs_by_parent: dict = {}
@@ -1403,7 +1403,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 3  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 4  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:
@@ -1535,7 +1535,10 @@ async def classify_sle_task(client, t: dict) -> dict:
         system = (
             f"Причина нарушения SLE для этой задачи уже определена как: «{cluster}». "
             "Напиши РОВНО ОДНО короткое предложение на русском, почему так, простым человеческим языком, "
-            "без канцелярита и штампов. Опирайся только на факты ниже, числа не выдумывай. Без вступлений."
+            "без канцелярита и штампов. "
+            "СТРОГО опирайся только на факты ниже. НЕ придумывай конкретику, которой нет в тексте "
+            "(роли, команды, причины вроде «архитекторы», «провайдер» — только если они реально упомянуты). "
+            "Если конкретики нет — скажи общими словами. Без вступлений."
         )
         body = {"model": MISTRAL_MODEL,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": facts}],
