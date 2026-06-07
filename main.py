@@ -1373,8 +1373,14 @@ async def fetch_sle_tasks(which: str) -> dict:
             signals.append("По задаче никто не работает: нет активных подзадач (все завершены или в беклоге)")
         # если есть активные подзадачи и нет блоков — это нормальная работа, не триггерим
         needs_attention = at_risk and len(signals) > 0
+        # кластеризуем только реально рисковые: нарушен/высокий, либо умеренный с блокерами.
+        # низкий и умеренный без блокеров — ещё ничего не нарушено, кластер не присваиваем.
+        any_block = bool(blocked_subs) or any(sub_blockings.get(s.get("key")) for s in plist) \
+            or bool(p.get("theLastReasonForBlocking")) or bool(p.get("historyOfBlockingReasons"))
+        clusterable = risk_level in ("нарушен", "высокий") or (risk_level == "умеренный" and any_block)
         tasks.append({
             "riskLevel": risk_level,
+            "clusterable": clusterable,
             "riskSignals": signals if at_risk else [],
             "needsAttention": needs_attention,
             "blockedSubs": blocked_subs,
@@ -1404,7 +1410,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 7  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 8  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:
@@ -1575,13 +1581,15 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
         tasks = data["tasks"]
+        # кластеризуем (и тратим ИИ) только на рисковых задачах + эталонные (seed)
+        todo = [t for t in tasks if t.get("clusterable") or t["key"] in SLE_SEED]
         async with httpx.AsyncClient(timeout=60) as client:
-            comments = await asyncio.gather(*[fetch_comments(client, t["key"]) for t in tasks],
+            comments = await asyncio.gather(*[fetch_comments(client, t["key"]) for t in todo],
                                             return_exceptions=True)
-            for t, c in zip(tasks, comments):
+            for t, c in zip(todo, comments):
                 t["comments"] = c if isinstance(c, str) else ""
             # комментарии заблокированных подзадач (для анализа причины)
-            pairs = [(t, sk) for t in tasks for sk in (t.get("blockedSubs") or [])]
+            pairs = [(t, sk) for t in todo for sk in (t.get("blockedSubs") or [])]
             if pairs:
                 sc = await asyncio.gather(*[fetch_comments(client, sk) for _, sk in pairs],
                                           return_exceptions=True)
@@ -1589,10 +1597,12 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
                 for (t, sk), c in zip(pairs, sc):
                     if isinstance(c, str) and c:
                         acc.setdefault(t["key"], []).append(f"{sk}: {c}")
-                for t in tasks:
+                for t in todo:
                     t["subComments"] = " || ".join(acc.get(t["key"], []))
-            results = await asyncio.gather(*[classify_sle_task(client, t) for t in tasks])
-        for t, res in zip(tasks, results):
+            results = await asyncio.gather(*[classify_sle_task(client, t) for t in todo])
+        cls = {t["key"]: res for t, res in zip(todo, results)}
+        for t in tasks:
+            res = cls.get(t["key"], {})
             t["aiCluster"] = res.get("cluster")
             t["clusterReason"] = res.get("reason")
             t.pop("comments", None)
@@ -1612,8 +1622,11 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
             t["cluster"], t["source"], t["overridden"] = ov[t["key"]], "override", True
         elif t["key"] in SLE_SEED:
             t["cluster"], t["source"], t["overridden"] = SLE_SEED[t["key"]], "seed", False
-        else:
+        elif t.get("clusterable") and ai:
             t["cluster"], t["source"], t["overridden"] = ai, "ai", False
+        else:
+            # низкий риск / умеренный без блокеров — ещё ничего не нарушено, кластер не присваиваем
+            t["cluster"], t["source"], t["overridden"] = None, None, False
         t["aiCluster"] = ai
 
     agg = {c["label"]: 0 for c in SLE_CLUSTERS}
@@ -1621,8 +1634,9 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
         if t["cluster"] in agg:
             agg[t["cluster"]] += 1
     clusters = [{"label": c["label"], "key": c["key"], "count": agg[c["label"]]} for c in SLE_CLUSTERS]
+    clustered = sum(1 for t in tasks if t.get("cluster"))
     attention = sum(1 for t in tasks if t.get("needsAttention"))
-    return JSONResponse({"ok": True, "which": which, "count": len(tasks),
+    return JSONResponse({"ok": True, "which": which, "count": len(tasks), "clustered": clustered,
                          "clusters": clusters, "tasks": tasks, "attention": attention,
                          "updatedAt": ts, "clusterOptions": [c["label"] for c in SLE_CLUSTERS]})
 

@@ -238,7 +238,8 @@ export function SLEPage() {
 
   const grouped = useMemo(() => {
     if (!data) return []
-    const tasks = data.tasks.filter(t => !filter || t.cluster === filter)
+    // только кластеризованные (рисковые) задачи — низкий риск и умеренный без блокеров не показываем
+    const tasks = data.tasks.filter(t => t.cluster && (!filter || t.cluster === filter))
     const g: Record<string, SleTask[]> = {}
     const byRisk = (a: SleTask, b: SleTask) => riskRank(a.sleRisk) - riskRank(b.sleRisk)
     if (groupBy === "risk") {
@@ -386,7 +387,7 @@ export function SLEPage() {
                 Задачи — {which === "current" ? "в работе" : "завершённые (история)"}
               </h2>
               <p className="text-xs text-muted-foreground">
-                {data.count} задач с риском SLE. Кластер можно поправить вручную.
+                {data.tasks.filter(t => t.cluster).length} задач с риском нарушения SLE (низкий риск не учитываем). Кластер можно поправить вручную.
               </p>
             </div>
             <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
