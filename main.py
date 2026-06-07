@@ -1357,17 +1357,21 @@ async def fetch_sle_tasks(which: str) -> dict:
         # на истории «нет активных подзадач» — это норма (задача завершена), не сигнал.
         risk_level = _risk_level(_field(p, "--sleRisk") or "")
         at_risk = which == "current" and risk_level in ("нарушен", "высокий", "умеренный")
+        NOT_STARTED = {"gotovoKRabote", "backlogKomandy", "produktovyjBacklog"}
+        not_started = [s for s in plist if (s.get("status") or {}).get("key") in NOT_STARTED]
+        completed = [s for s in plist if (s.get("status") or {}).get("key") == "closed"]
         signals = []
-        if hidden_blocked:
-            signals.append("Работа не спланирована: есть подзадачи, но активных нет")
         if blocked_subs:
             signals.append("Блок висит в подзадаче: " + ", ".join(blocked_subs))
         if len(plist) == 0:
             signals.append("Нет связанных подзадач — работа не заведена")
-        # рассинхрон: часть подзадач уже завершена, часть ещё активна
-        done_subs = [s for s in plist if (s.get("status") or {}).get("key") in SLE_DONE_SUB]
-        if active and done_subs and len(plist) >= 2:
-            signals.append("Этапы рассинхронены: часть подзадач закрыта, часть ещё в работе")
+        elif not active and not_started:
+            # ничего не в работе, но есть незапущенные подзадачи — работа стоит
+            signals.append("Работа не спланирована: подзадачи ещё не начаты, активных нет")
+        elif completed and not_started:
+            # часть сделана, а часть даже не начата — ложная/скрытая блокировка
+            signals.append("Часть подзадач завершена, а часть ещё не начата — работа не спланирована")
+        # если все активные на финальных этапах и нет незапущенных — это норма, сигнал не ставим
         needs_attention = at_risk and len(signals) > 0
         tasks.append({
             "riskLevel": risk_level,
@@ -1399,7 +1403,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 2  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 3  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:
