@@ -270,7 +270,7 @@ export function SLEPage() {
         <div>
           <h1 className="text-3xl font-black tracking-tight text-foreground">Анализ нарушений SLE</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Очередь PUTKURERA · кластеризация причин (ИИ + правка вручную)
+            Очередь PUTKURERA · {which === "current" ? "риски нарушения SLE" : "причины нарушений SLE"} (ИИ + правка вручную)
             {data?.updatedAt && <span className="ml-1">· обновлено: {data.updatedAt}</span>}
           </p>
         </div>
@@ -355,7 +355,7 @@ export function SLEPage() {
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle>🧩 Причины нарушения SLE — {which === "current" ? "в работе" : "история"}</CardTitle>
+                <CardTitle>{which === "current" ? "🧩 Риски нарушения SLE — в работе" : "🧩 Причины нарушения SLE — история"}</CardTitle>
                 <span className="text-xs text-muted-foreground">{data.count} задач · нажми на кластер</span>
               </div>
             </CardHeader>
@@ -391,7 +391,7 @@ export function SLEPage() {
                 Задачи — {which === "current" ? "в работе" : "завершённые (история)"}
               </h2>
               <p className="text-xs text-muted-foreground">
-                {data.tasks.filter(t => t.cluster).length} задач с риском нарушения SLE (низкий риск не учитываем). Кластер можно поправить вручную.
+                {data.tasks.filter(t => t.cluster).length} задач {which === "current" ? "с риском нарушения SLE" : "с нарушением SLE"} (низкий риск не учитываем). Кластер можно поправить вручную.
               </p>
             </div>
             <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
