@@ -1353,9 +1353,10 @@ async def fetch_sle_tasks(which: str) -> dict:
                 "url": f"https://tracker.yandex.ru/{sk}",
                 "blockings": blks,
             })
-        # сигналы риска (значимы при умеренном/высоком/нарушенном риске)
+        # сигналы риска значимы только для ТЕКУЩИХ задач (in-progress) при умеренном+ риске;
+        # на истории «нет активных подзадач» — это норма (задача завершена), не сигнал.
         risk_level = _risk_level(_field(p, "--sleRisk") or "")
-        at_risk = risk_level in ("нарушен", "высокий", "умеренный")
+        at_risk = which == "current" and risk_level in ("нарушен", "высокий", "умеренный")
         signals = []
         if hidden_blocked:
             signals.append("Работа не спланирована: есть подзадачи, но активных нет")
@@ -1398,12 +1399,16 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
+SLE_SNAPSHOT_VERSION = 2  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+
 async def load_snapshot(which: str):
     try:
         res = await turso_execute([stmt("SELECT data, updated_at FROM sle_snapshot WHERE which=?", [which])])
         rows = rows_to_dicts(res[0]) if res else []
         if rows and rows[0].get("data"):
-            return json.loads(rows[0]["data"]), rows[0].get("updated_at")
+            obj = json.loads(rows[0]["data"])
+            if isinstance(obj, dict) and obj.get("v") == SLE_SNAPSHOT_VERSION:
+                return obj.get("tasks", []), rows[0].get("updated_at")
     except Exception as e:
         print(f"[sle-snapshot load] {e}")
     return None, None
@@ -1413,7 +1418,7 @@ async def save_snapshot(which: str, tasks: list):
         await turso_execute([stmt(
             "INSERT INTO sle_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
             "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
-            [which, json.dumps(tasks, ensure_ascii=False)])])
+            [which, json.dumps({"v": SLE_SNAPSHOT_VERSION, "tasks": tasks}, ensure_ascii=False)])])
     except Exception as e:
         print(f"[sle-snapshot save] {e}")
 
