@@ -1741,7 +1741,8 @@ async def flow_metrics():
     for t in delivery["tasks"]:
         sle_break[t["sleRisk"] or "—"] = sle_break.get(t["sleRisk"] or "—", 0) + 1
 
-    # недельный снапшот (лениво: если на этой неделе ещё не сохраняли)
+    # недельный снапшот: текущую неделю всегда обновляем актуальными значениями
+    # (прошлые недели/сид не трогаем)
     y, w, _ = date.today().isocalendar()
     week = f"{y}-W{w:02d}"
     today = date.today().isoformat()
@@ -1749,13 +1750,17 @@ async def flow_metrics():
     try:
         res = await turso_execute([stmt("SELECT week, discovery_p90, discovery_count, delivery_p90, delivery_count, saved_at FROM flow_snapshot ORDER BY saved_at")])
         rows = rows_to_dicts(res[0]) if res else []
-        if not any(r["week"] == week for r in rows):
-            await turso_execute([stmt(
-                "INSERT INTO flow_snapshot(week,discovery_p90,discovery_count,delivery_p90,delivery_count,saved_at) "
-                "VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(week) DO NOTHING",
-                [week, discovery["p90"], discovery["count"], delivery["p90"], delivery["count"]])])
-            rows.append({"week": week, "discovery_p90": discovery["p90"], "discovery_count": discovery["count"],
-                         "delivery_p90": delivery["p90"], "delivery_count": delivery["count"], "saved_at": today})
+        await turso_execute([stmt(
+            "INSERT INTO flow_snapshot(week,discovery_p90,discovery_count,delivery_p90,delivery_count,saved_at) "
+            "VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(week) DO UPDATE SET "
+            "discovery_p90=excluded.discovery_p90, discovery_count=excluded.discovery_count, "
+            "delivery_p90=excluded.delivery_p90, delivery_count=excluded.delivery_count, saved_at=excluded.saved_at",
+            [week, discovery["p90"], discovery["count"], delivery["p90"], delivery["count"]])])
+        cur = next((r for r in rows if r["week"] == week), None)
+        vals = {"discovery_p90": discovery["p90"], "discovery_count": discovery["count"],
+                "delivery_p90": delivery["p90"], "delivery_count": delivery["count"], "saved_at": today}
+        if cur: cur.update(vals)
+        else: rows.append({"week": week, **vals})
     except Exception as e:
         print(f"[flow-snapshot] {e}")
 
