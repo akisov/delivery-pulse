@@ -1667,18 +1667,26 @@ async def sle_override(key: str = Query(...), cluster: str = Query("")):
 
 # ── Поток: Discovery / Delivery (WIP Age) ───────────────────────────────────────
 
-FLOW_DISCOVERY_QUERY = "Queue: PUTKURERA Status: proverkaIdej, podtverzdenieBoli, confirmed"
-FLOW_DELIVERY_QUERY  = "Type: newFeature Queue: PUTKURERA Status: inProgress"
+_FLOW_COMMON = ('Type: newFeature Queue: PUTKURERA PUTKURERA."Operating mode": !Отложено '
+                'Resolution: empty() "Status Type": !cancelled "Status Type": !done')
+FLOW_DISCOVERY_QUERY = _FLOW_COMMON + " Status: podtverzdenieBoli, confirmed, proverkaIdej"
+FLOW_DELIVERY_QUERY  = _FLOW_COMMON + " Status: inProgress"
 WIP_DISCOVERY = int(os.environ.get("WIP_DISCOVERY", "25"))
 WIP_DELIVERY  = int(os.environ.get("WIP_DELIVERY", "20"))
 FLOW_TARGET   = int(os.environ.get("FLOW_TARGET", "60"))  # целевой WIP Age (красная линия)
 
-# Историческая динамика WIP Age (из ручного учёта) — стартовая линия тренда
+# Историческая динамика (из ручного учёта): (дата, discP90, discCount, delivP90, delivCount)
 SEED_FLOW_HISTORY = [
-    ("2025-10-01", 112.4, 112.0), ("2026-03-20", 162.9, 123.0), ("2026-04-04", 123.8, 117.8),
-    ("2026-04-17", 74.9, 124.0), ("2026-04-30", 84.1, 53.6), ("2026-05-05", 101.0, 70.6),
-    ("2026-05-08", 104.1, 71.4), ("2026-05-11", 105.2, 73.4), ("2026-05-21", 100.5, 53.8),
-    ("2026-06-04", 103.8, 64.6),
+    ("2025-10-01", 112.4, None, 112.0, None),
+    ("2026-03-20", 162.9, None, 123.0, None),
+    ("2026-04-03", 123.8, 32, 117.8, 19),
+    ("2026-04-17", 74.9, 34, 124.0, 18),
+    ("2026-04-30", 84.1, 34, 53.6, 15),
+    ("2026-05-05", 101.0, 34, 70.6, 15),
+    ("2026-05-08", 104.1, 34, 71.4, 17),
+    ("2026-05-11", 105.2, 27, 73.4, 17),
+    ("2026-05-21", 100.5, 16, 53.8, 18),
+    ("2026-06-04", 103.8, 22, 64.6, 18),
 ]
 
 def _flow_days(issue: dict, hint: str) -> int:
@@ -1716,8 +1724,6 @@ async def flow_metrics():
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
-    disc = [t for t in disc if _field(t, "operatingMode") != "Отложено"]
-    deliv = [t for t in deliv if _field(t, "operatingMode") == "В работе"]
     discovery = _flow_pack(disc, "research", WIP_DISCOVERY)
     delivery = _flow_pack(deliv, "work", WIP_DELIVERY)
 
@@ -1751,8 +1757,8 @@ async def flow_metrics():
         except Exception:
             return iso
     points: dict = {}
-    for dt, dp, vp in SEED_FLOW_HISTORY:
-        points[dt] = {"discoveryP90": dp, "deliveryP90": vp}
+    for dt, dp, dc, vp, vc in SEED_FLOW_HISTORY:
+        points[dt] = {"discoveryP90": dp, "deliveryP90": vp, "discoveryCount": dc, "deliveryCount": vc}
     for r in rows:
         dt = (r.get("saved_at") or "")[:10] or today
         points[dt] = {"discoveryP90": r.get("discovery_p90"), "deliveryP90": r.get("delivery_p90"),
