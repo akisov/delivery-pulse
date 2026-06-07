@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { RefreshCw, Home, Lock, Target, Layers } from "lucide-react"
+import { RefreshCw, Home, Lock, Target } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -10,7 +10,6 @@ import { BlockingChart } from "@/components/BlockingChart"
 import { InsightInformer } from "@/components/InsightInformer"
 import { SLEPage } from "@/components/SLEPage"
 import { HomePage } from "@/components/HomePage"
-import { ArchEmbed } from "@/components/ArchEmbed"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
 import { InsightsPanel } from "@/components/InsightsPanel"
@@ -50,7 +49,7 @@ export default function App() {
   const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
-  const [section, setSection] = useState<"home" | "blockings" | "sle" | "arch">("home")
+  const [section, setSection] = useState<"home" | "blockings" | "sle">("home")
 
   const [data, setData] = useState<DashboardData | null>(null)
   const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null)
@@ -225,7 +224,7 @@ export default function App() {
         <aside className="hidden md:block w-52 shrink-0 py-8 sticky top-14 self-start">
           <nav className="rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-card)]">
             <p className="px-3 pt-1.5 pb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Разделы</p>
-            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["sle", Target, "Анализ SLE"], ["arch", Layers, "Арх. комитет"]] as const).map(([v, Icon, label]) => {
+            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["sle", Target, "Анализ SLE"]] as const).map(([v, Icon, label]) => {
               const active = section === v
               return (
                 <button key={v} onClick={() => setSection(v)}
@@ -245,7 +244,6 @@ export default function App() {
 
         <main className="flex-1 min-w-0 py-8 space-y-6">
         {section === "home" ? <HomePage onGo={setSection} /> :
-         section === "arch" ? <ArchEmbed /> :
          section === "sle" ? <SLEPage /> : (
         <>
         <div>
