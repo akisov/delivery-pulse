@@ -1377,7 +1377,8 @@ async def fetch_sle_tasks(which: str) -> dict:
         # низкий и умеренный без блокеров — ещё ничего не нарушено, кластер не присваиваем.
         any_block = bool(blocked_subs) or any(sub_blockings.get(s.get("key")) for s in plist) \
             or bool(p.get("theLastReasonForBlocking")) or bool(p.get("historyOfBlockingReasons"))
-        clusterable = risk_level in ("нарушен", "высокий") or (risk_level == "умеренный" and any_block)
+        # нарушен — всегда (уже нарушено, надо разобрать); высокий и умеренный — только если есть блокеры
+        clusterable = risk_level == "нарушен" or (risk_level in ("высокий", "умеренный") and any_block)
         tasks.append({
             "riskLevel": risk_level,
             "clusterable": clusterable,
@@ -1410,7 +1411,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 8  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 9  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:

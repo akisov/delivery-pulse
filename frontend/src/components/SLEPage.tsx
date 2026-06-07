@@ -26,7 +26,14 @@ function riskKey(r: string) {
 }
 function riskRank(r: string) { return RISK_ORDER.indexOf(riskKey(r)) }
 
-interface Sub { key: string; summary: string; queue: string; status: string; isActive: boolean; url: string; blockings: { reason: string; status?: string }[] }
+interface Sub { key: string; summary: string; queue: string; status: string; statusKey?: string; isActive: boolean; url: string; blockings: { reason: string; status?: string }[] }
+
+const NOT_STARTED_KEYS = ["gotovoKRabote", "backlogKomandy", "produktovyjBacklog"]
+function subPhase(s: Sub): { color: string; title: string } {
+  if (s.statusKey === "closed") return { color: "#10B981", title: "завершена" }
+  if (s.statusKey && NOT_STARTED_KEYS.includes(s.statusKey)) return { color: "#94A3B8", title: "не начата" }
+  return { color: "#3B82F6", title: "в работе" }
+}
 interface SleTask {
   key: string; summary: string; url: string; assignee: string; status: string
   sleRisk: string; sle: number | null; p70: number | null; effort: number | null
@@ -165,9 +172,15 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
               </button>
               {open && (
                 <div className="mt-1.5 space-y-1">
+                  <div className="flex items-center gap-3 px-2 pb-0.5 text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#3B82F6" }} /> в работе</span>
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#94A3B8" }} /> не начата</span>
+                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#10B981" }} /> завершена</span>
+                    <span className="flex items-center gap-1 ml-auto"><Lock className="w-3 h-3 text-destructive" /> блок открыт · <Unlock className="w-3 h-3 text-emerald-500" /> снят</span>
+                  </div>
                   {t.subtasks.map(s => (
                     <div key={s.key} className="flex items-center gap-2 text-[11px] rounded-md bg-secondary/40 px-2 py-1">
-                      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", s.isActive ? "bg-destructive" : "bg-emerald-400")} />
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: subPhase(s).color }} title={subPhase(s).title} />
                       <a href={s.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">{s.key}</a>
                       <span className="text-muted-foreground">{s.queue}</span>
                       <span className="text-muted-foreground/70 truncate flex-1">{s.summary}</span>
