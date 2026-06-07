@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, Tooltip,
 } from "recharts"
-import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check, Lock, Unlock } from "lucide-react"
+import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check, Lock, Unlock, Download } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
@@ -37,11 +37,11 @@ function subPhase(s: Sub): { color: string; title: string } {
 interface SleTask {
   key: string; summary: string; url: string; assignee: string; status: string
   sleRisk: string; sle: number | null; p70: number | null; effort: number | null
-  jobCategory: string | null; deadline: string | null; daysInWork: number | null
+  jobCategory: string | null; deadline: string | null; daysInWork: number | null; end?: string | null
   subCount: number; activeSubCount: number; hiddenBlocked: boolean
   subtasks: Sub[]; cluster: string | null; clusterReason: string | null
   aiCluster?: string | null; overridden?: boolean; source?: string
-  riskSignals?: string[]; needsAttention?: boolean
+  riskSignals?: string[]; needsAttention?: boolean; riskLevel?: string
   blockedDetails?: { key: string; url: string; reason: string }[]
 }
 
@@ -222,6 +222,8 @@ export function SLEPage() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<string | null>(null)
   const [groupBy, setGroupBy] = useState<"cluster" | "risk">("cluster")
+  const [assignee, setAssignee] = useState<string>("")
+  const [expanded, setExpanded] = useState(false)
 
   const load = (refresh = false) => {
     setLoading(true); setError(null)
@@ -242,7 +244,7 @@ export function SLEPage() {
   const grouped = useMemo(() => {
     if (!data) return []
     // только кластеризованные (рисковые) задачи — низкий риск и умеренный без блокеров не показываем
-    const tasks = data.tasks.filter(t => t.cluster && (!filter || t.cluster === filter))
+    const tasks = data.tasks.filter(t => t.cluster && (!filter || t.cluster === filter) && (!assignee || t.assignee === assignee))
     const g: Record<string, SleTask[]> = {}
     const byRisk = (a: SleTask, b: SleTask) => riskRank(a.sleRisk) - riskRank(b.sleRisk)
     if (groupBy === "risk") {
@@ -255,7 +257,44 @@ export function SLEPage() {
     return CLUSTER_ORDER.filter(c => g[c]?.length).map(c => ({
       key: c, label: c, color: clusterColor(c), tasks: g[c].sort(byRisk),
     }))
-  }, [data, groupBy, filter])
+  }, [data, groupBy, filter, assignee])
+
+  // список исполнителей (по рисковым задачам)
+  const assignees = useMemo(() => {
+    if (!data) return []
+    return Array.from(new Set(data.tasks.filter(t => t.cluster).map(t => t.assignee).filter(Boolean))).sort()
+  }, [data])
+
+  // тренд нарушений по месяцам (история) — из даты завершения
+  const trend = useMemo(() => {
+    if (!data || which !== "historical") return []
+    const m: Record<string, { total: number; violated: number }> = {}
+    data.tasks.forEach(t => {
+      const ym = (t.end || "").slice(0, 7)
+      if (!ym) return
+      m[ym] ||= { total: 0, violated: 0 }
+      m[ym].total++
+      if (riskKey(t.sleRisk) === "нарушен") m[ym].violated++
+    })
+    return Object.entries(m).sort(([a], [b]) => a.localeCompare(b))
+      .map(([ym, v]) => ({ ym, rate: Math.round(v.violated / v.total * 100), violated: v.violated, total: v.total }))
+  }, [data, which])
+
+  const exportCsv = () => {
+    if (!data) return
+    const rows = data.tasks.filter(t => t.cluster)
+    const head = ["key", "summary", "assignee", "sleRisk", "daysInWork", "sleLimit", "cluster", "source", "reason", "url"]
+    const esc = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`
+    const csv = [head.join(",")].concat(
+      rows.map(t => [t.key, t.summary, t.assignee, t.riskLevel, t.daysInWork, t.sle, t.cluster, t.source, t.clusterReason, t.url].map(esc).join(","))
+    ).join("\n")
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" })
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = `sle_${which}_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
 
   const attentionTasks = useMemo(
     () => data ? data.tasks.filter(t => t.needsAttention).sort((a, b) => riskRank(a.sleRisk) - riskRank(b.sleRisk)) : [],
@@ -327,6 +366,33 @@ export function SLEPage() {
           ? <RiskChart title="📉 Попадание в SLE (история)" sub="Завершённые задачи по уровню риска SLE" tasks={data.tasks} />
           : <RiskChart title="⚡ Риск по SLE (в работе)" sub="Задачи в работе по уровню риска SLE" tasks={data.tasks} />
       ) : <Skeleton className="h-56 rounded-xl" />}
+
+      {/* Тренд нарушений по месяцам (история) */}
+      {which === "historical" && trend.length > 1 && (
+        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
+          <CardHeader className="pb-1">
+            <CardTitle>📈 Доля нарушений SLE по месяцам</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">% завершённых задач с нарушенным SLE (по дате завершения)</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={trend} margin={{ top: 14, right: 16, left: 0, bottom: 4 }}>
+                <XAxis dataKey="ym" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit="%" domain={[0, 100]} />
+                <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
+                  content={({ active, payload }: any) => active && payload?.length
+                    ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl">
+                        <b>{payload[0].payload.ym}</b>: {payload[0].payload.rate}% нарушений ({payload[0].payload.violated} из {payload[0].payload.total})
+                      </div> : null} />
+                <Bar dataKey="rate" radius={[4, 4, 0, 0]} fill="#EF4444">
+                  <LabelList dataKey="rate" position="top" formatter={(v: number) => `${v}%`}
+                    style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
 
@@ -424,30 +490,63 @@ export function SLEPage() {
                 {data.tasks.filter(t => t.cluster).length} задач {which === "current" ? "с риском нарушения SLE" : "с нарушением SLE"} (низкий риск не учитываем). Кластер можно поправить вручную.
               </p>
             </div>
-            <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
-              {([["cluster", "По причинам"], ["risk", "По риску SLE"]] as const).map(([v, label]) => (
-                <button key={v} onClick={() => setGroupBy(v)}
-                  className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
-                    groupBy === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
-                  {label}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Фильтр по исполнителю */}
+              <select value={assignee} onChange={e => { setAssignee(e.target.value); setExpanded(false) }}
+                className="rounded-lg border border-border bg-card text-xs px-2 h-9 text-foreground max-w-[180px]">
+                <option value="">Все исполнители</option>
+                {assignees.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+              <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
+                {([["cluster", "По причинам"], ["risk", "По риску SLE"]] as const).map(([v, label]) => (
+                  <button key={v} onClick={() => setGroupBy(v)}
+                    className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
+                      groupBy === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button onClick={exportCsv} title="Скачать CSV"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+                <Download className="w-3.5 h-3.5" /> CSV
+              </button>
             </div>
           </div>
-          <div className="space-y-5">
-            {grouped.map(g => (
-              <div key={g.key}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: g.color }} />
-                  <h3 className="text-sm font-black text-foreground">{g.label}</h3>
-                  <span className="text-xs text-muted-foreground">{g.tasks.length}</span>
+          {(() => {
+            const LIMIT = 6
+            const totalShown = grouped.reduce((s, g) => s + g.tasks.length, 0)
+            let shown = 0
+            return (
+              <>
+                <div className="space-y-5">
+                  {grouped.map(g => {
+                    if (!expanded && shown >= LIMIT) return null
+                    const list = expanded ? g.tasks : g.tasks.slice(0, Math.max(0, LIMIT - shown))
+                    shown += list.length
+                    if (!list.length) return null
+                    return (
+                      <div key={g.key}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: g.color }} />
+                          <h3 className="text-sm font-black text-foreground">{g.label}</h3>
+                          <span className="text-xs text-muted-foreground">{g.tasks.length}</span>
+                        </div>
+                        <div className="space-y-2.5">
+                          {list.map(t => <TaskCard key={t.key} t={t} options={data.clusterOptions} onOverride={overrideCluster} />)}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-                <div className="space-y-2.5">
-                  {g.tasks.map(t => <TaskCard key={t.key} t={t} options={data.clusterOptions} onOverride={overrideCluster} />)}
-                </div>
-              </div>
-            ))}
-          </div>
+                {totalShown > LIMIT && (
+                  <button onClick={() => setExpanded(e => !e)}
+                    className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground border-t border-border transition-colors">
+                    {expanded ? <><ChevronUp className="w-3.5 h-3.5" /> Свернуть</> : <><ChevronDown className="w-3.5 h-3.5" /> Показать все {totalShown}</>}
+                  </button>
+                )}
+              </>
+            )
+          })()}
         </>
       )}
     </div>
