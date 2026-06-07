@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, Tooltip,
 } from "recharts"
-import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check, Lock, Unlock, Download } from "lucide-react"
+import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check, Lock, Unlock, Download, Users, Tags, Activity } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
@@ -90,14 +90,14 @@ function riskCounts(tasks: { sleRisk: string }[]) {
   return RISK_ORDER.map(k => ({ key: k, name: k, count: c[k], fill: RISK_COLOR[k] }))
 }
 
-function RiskChart({ title, sub, tasks }: { title: string; sub: string; tasks: { sleRisk: string }[] }) {
+function RiskChart({ title, sub, tasks, active, onPick }: { title: string; sub: string; tasks: { sleRisk: string }[]; active?: string | null; onPick?: (k: string) => void }) {
   const data = riskCounts(tasks)
   return (
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardHeader className="pb-1">
         <div className="flex items-center justify-between">
           <CardTitle>{title}</CardTitle>
-          <span className="text-xs text-muted-foreground">{tasks.length} задач</span>
+          <span className="text-xs text-muted-foreground">{tasks.length} задач{onPick ? " · нажми на уровень" : ""}</span>
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
       </CardHeader>
@@ -106,8 +106,9 @@ function RiskChart({ title, sub, tasks }: { title: string; sub: string; tasks: {
           <BarChart data={data} layout="vertical" margin={{ top: 4, right: 36, left: 4, bottom: 4 }} barSize={20}>
             <XAxis type="number" hide />
             <YAxis type="category" dataKey="name" width={104} tick={{ fontSize: 12, fill: "hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
-            <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-              {data.map(d => <Cell key={d.key} fill={d.fill} />)}
+            <Bar dataKey="count" radius={[0, 4, 4, 0]} style={{ cursor: onPick ? "pointer" : "default" }}
+              onClick={(d: any) => onPick?.(d.key)}>
+              {data.map(d => <Cell key={d.key} fill={d.fill} fillOpacity={active && active !== d.key ? 0.35 : 1} />)}
               <LabelList dataKey="count" position="right" style={{ fontSize: 12, fontWeight: 800, fill: "hsl(var(--foreground))" }} />
             </Bar>
           </BarChart>
@@ -223,6 +224,7 @@ export function SLEPage() {
   const [filter, setFilter] = useState<string | null>(null)
   const [groupBy, setGroupBy] = useState<"cluster" | "risk">("cluster")
   const [assignee, setAssignee] = useState<string>("")
+  const [riskFilter, setRiskFilter] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
 
   const load = (refresh = false) => {
@@ -244,7 +246,8 @@ export function SLEPage() {
   const grouped = useMemo(() => {
     if (!data) return []
     // только кластеризованные (рисковые) задачи — низкий риск и умеренный без блокеров не показываем
-    const tasks = data.tasks.filter(t => t.cluster && (!filter || t.cluster === filter) && (!assignee || t.assignee === assignee))
+    const tasks = data.tasks.filter(t => t.cluster && (!filter || t.cluster === filter)
+      && (!assignee || t.assignee === assignee) && (!riskFilter || riskKey(t.sleRisk) === riskFilter))
     const g: Record<string, SleTask[]> = {}
     const byRisk = (a: SleTask, b: SleTask) => riskRank(a.sleRisk) - riskRank(b.sleRisk)
     if (groupBy === "risk") {
@@ -257,7 +260,7 @@ export function SLEPage() {
     return CLUSTER_ORDER.filter(c => g[c]?.length).map(c => ({
       key: c, label: c, color: clusterColor(c), tasks: g[c].sort(byRisk),
     }))
-  }, [data, groupBy, filter, assignee])
+  }, [data, groupBy, filter, assignee, riskFilter])
 
   // список исполнителей (по рисковым задачам)
   const assignees = useMemo(() => {
@@ -323,7 +326,7 @@ export function SLEPage() {
         <div className="flex items-center gap-2">
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
             {([["current", "Текущая"], ["historical", "История"]] as const).map(([v, label]) => (
-              <button key={v} onClick={() => { setWhich(v); setFilter(null) }}
+              <button key={v} onClick={() => { setWhich(v); setFilter(null); setRiskFilter(null); setAssignee(""); setExpanded(false) }}
                 className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
                   which === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
                 {label}
@@ -362,9 +365,13 @@ export function SLEPage() {
 
       {/* График риска для выбранной вкладки */}
       {data ? (
-        which === "historical"
-          ? <RiskChart title="📉 Попадание в SLE (история)" sub="Завершённые задачи по уровню риска SLE" tasks={data.tasks} />
-          : <RiskChart title="⚡ Риск по SLE (в работе)" sub="Задачи в работе по уровню риска SLE" tasks={data.tasks} />
+        <RiskChart
+          title={which === "historical" ? "📉 Попадание в SLE (история)" : "⚡ Риск по SLE (в работе)"}
+          sub={which === "historical" ? "Завершённые задачи по уровню риска SLE" : "Задачи в работе по уровню риска SLE"}
+          tasks={data.tasks}
+          active={riskFilter}
+          onPick={k => setRiskFilter(f => f === k ? null : k)}
+        />
       ) : <Skeleton className="h-56 rounded-xl" />}
 
       {/* Тренд нарушений по месяцам (история) */}
@@ -492,17 +499,20 @@ export function SLEPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {/* Фильтр по исполнителю */}
-              <select value={assignee} onChange={e => { setAssignee(e.target.value); setExpanded(false) }}
-                className="rounded-lg border border-border bg-card text-xs px-2 h-9 text-foreground max-w-[180px]">
-                <option value="">Все исполнители</option>
-                {assignees.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
+              <div className="relative">
+                <Users className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <select value={assignee} onChange={e => { setAssignee(e.target.value); setExpanded(false) }}
+                  className="rounded-lg border border-border bg-card text-xs pl-8 pr-2 h-9 text-foreground max-w-[200px]">
+                  <option value="">Все исполнители</option>
+                  {assignees.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
               <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
-                {([["cluster", "По причинам"], ["risk", "По риску SLE"]] as const).map(([v, label]) => (
+                {([["cluster", "По причинам", Tags], ["risk", "По риску SLE", Activity]] as const).map(([v, label, Icon]) => (
                   <button key={v} onClick={() => setGroupBy(v)}
-                    className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
+                    className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
                       groupBy === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
-                    {label}
+                    <Icon className="w-3.5 h-3.5" /> {label}
                   </button>
                 ))}
               </div>
@@ -512,6 +522,22 @@ export function SLEPage() {
               </button>
             </div>
           </div>
+
+          {/* Активные фильтры */}
+          {(riskFilter || assignee) && (
+            <div className="flex items-center gap-2 flex-wrap -mt-2">
+              {riskFilter && (
+                <button onClick={() => setRiskFilter(null)} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground hover:border-primary/50">
+                  <span className="w-2 h-2 rounded-full" style={{ background: RISK_COLOR[riskFilter] }} /> риск: {riskFilter} <X className="w-3 h-3 text-muted-foreground" />
+                </button>
+              )}
+              {assignee && (
+                <button onClick={() => setAssignee("")} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground hover:border-primary/50">
+                  <Users className="w-3 h-3" /> {assignee} <X className="w-3 h-3 text-muted-foreground" />
+                </button>
+              )}
+            </div>
+          )}
           {(() => {
             const LIMIT = 6
             const totalShown = grouped.reduce((s, g) => s + g.tasks.length, 0)
