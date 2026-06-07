@@ -1274,21 +1274,15 @@ async def tracker_query(client, query: str, per_page: int = 100) -> list:
         await asyncio.sleep(0.3)
     return out
 
-@app.get("/sle-analysis")
-async def sle_analysis(which: str = Query("current")):
-    if not TRACKER_TOKEN:
-        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+async def fetch_sle_tasks(which: str) -> dict:
     which = which if which in SLE_QUERIES else "current"
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            parents = await tracker_query(client, SLE_QUERIES[which])
-            keys = [p["key"] for p in parents if p.get("key")]
-            subs = []
-            if keys:
-                subs = await tracker_query(client,
-                    f'"Parent issue": {", ".join(keys)} Queue: {SLE_SUB_QUEUES}')
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)})
+    async with httpx.AsyncClient(timeout=60) as client:
+        parents = await tracker_query(client, SLE_QUERIES[which])
+        keys = [p["key"] for p in parents if p.get("key")]
+        subs = []
+        if keys:
+            subs = await tracker_query(client,
+                f'"Parent issue": {", ".join(keys)} Queue: {SLE_SUB_QUEUES}')
 
     # подзадачи по родителю
     subs_by_parent: dict = {}
@@ -1359,7 +1353,118 @@ async def sle_analysis(which: str = Query("current")):
             "hiddenBlocked": hidden_blocked,
         })
 
-    return JSONResponse({"ok": True, "which": which, "count": len(tasks), "tasks": tasks})
+    return {"which": which, "count": len(tasks), "tasks": tasks}
+
+@app.get("/sle-analysis")
+async def sle_analysis(which: str = Query("current")):
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    try:
+        return JSONResponse({"ok": True, **(await fetch_sle_tasks(which))})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+# ── AI-кластеризация причин нарушения SLE ───────────────────────────────────────
+
+# Таксономия из ручной разметки пользователя
+SLE_CLUSTERS = [
+    {"key": "external", "label": "Внешние зависимости",
+     "hint": "работа на стороне другой команды/ДВХ/маршрутизатора/провайдера, ожидание внешних команд, долгие согласования архитектуры или ФА, моратории"},
+    {"key": "large", "label": "Крупная задача / не MMF",
+     "hint": "много сторей/подзадач, XL или L без декомпозиции, SLE нарушен уже на момент заведения, слабая декомпозиция по MMF, менялись требования и приоритеты"},
+    {"key": "tech", "label": "Техническая блокировка",
+     "hint": "заблокирована багом или техпроблемой, демо/релиз отложены до исправления"},
+    {"key": "estimate", "label": "Ошибка оценки",
+     "hint": "неверно проставлены категория/SLE, на момент установки срок уже был превышен, реальный Effort больше (M/L вместо S), по факту не нарушен (статусы сдвинули поздно, праздники), долго лежала в беклоге вне приоритета / под мораторием"},
+]
+_CLUSTER_LABELS = {c["label"] for c in SLE_CLUSTERS}
+_sle_cluster_cache: dict = {}
+
+async def classify_sle_task(client, t: dict) -> dict:
+    sub_block = "; ".join(
+        f"{s['key']}({s['queue']},{s['status']})"
+        + (": " + ", ".join(b["reason"] for b in s["blockings"]) if s.get("blockings") else "")
+        for s in t.get("subtasks", [])[:12]
+    ) or "нет"
+    facts = (
+        f"Задача: {t['key']} — {t['summary']}\n"
+        f"SLE риск: {t['sleRisk']}; SLE: {t['sle']}; P70: {t['p70']}; "
+        f"Effort: {t['effort']}; факт.усилия: {t['effortFact']}; категория: {t['jobCategory']}.\n"
+        f"Дедлайн: {t.get('deadline')}; завершена: {t.get('end')}; дней в работе: {t.get('daysInWork')}.\n"
+        f"Подзадач: {t['subCount']} (активных {t['activeSubCount']}); "
+        f"скрытая блокировка (есть подзадачи, но активных нет): {'да' if t['hiddenBlocked'] else 'нет'}.\n"
+        f"Последняя причина блокировки: {(t.get('lastBlockingReason') or '—')[:400]}\n"
+        f"История блокировок: {(t.get('blockingHistory') or '—')[:400]}\n"
+        f"Подзадачи и их блокировки: {sub_block[:600]}\n"
+        f"Теги: {', '.join(t.get('tags') or []) or '—'}"
+    )
+    system = (
+        "Ты классифицируешь причину нарушения SLE для задачи разработки. "
+        "Выбери РОВНО ОДНУ категорию из списка (самую подходящую):\n"
+        + "\n".join(f"- {c['label']}: {c['hint']}" for c in SLE_CLUSTERS)
+        + "\n\nОтвечай строго в формате двух строк:\n"
+        "Кластер: <одна из категорий дословно>\n"
+        "Почему: <одно короткое человеческое предложение, простым языком, без канцелярита>\n"
+        "Подсказки: много подзадач/сторей или XL/L → «Крупная задача / не MMF»; "
+        "скрытая блокировка или блокировки подзадач в других командах → чаще «Внешние зависимости»; "
+        "баг/техпроблема → «Техническая блокировка»; "
+        "неверная категория/срок или по факту не нарушен → «Ошибка оценки»."
+    )
+    if not MISTRAL_API_KEY:
+        return {"cluster": None, "reason": None}
+    body = {"model": MISTRAL_MODEL,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": facts}],
+            "temperature": 0.2, "max_tokens": 160}
+    try:
+        r = await client.post("https://api.mistral.ai/v1/chat/completions",
+                              headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
+        r.raise_for_status()
+        txt = (r.json()["choices"][0]["message"]["content"] or "").strip()
+        import re as _re
+        cl = _re.search(r"Кластер\s*:?\s*(.+)", txt)
+        wh = _re.search(r"Почему\s*:?\s*(.+)", txt)
+        cluster = (cl.group(1).strip() if cl else "").replace("*", "")
+        # нормализуем к точной метке
+        cluster = next((lbl for lbl in _CLUSTER_LABELS if lbl.lower() in cluster.lower()), cluster or None)
+        return {"cluster": cluster, "reason": (wh.group(1).strip().replace("*", "") if wh else "")}
+    except Exception as e:
+        print(f"[sle-cluster] {e}")
+        return {"cluster": None, "reason": None}
+
+@app.get("/sle-clusters")
+async def sle_clusters(which: str = Query("current"), refresh: bool = Query(False)):
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    try:
+        data = await fetch_sle_tasks(which)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    tasks = data["tasks"]
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        async def one(t):
+            ck = t["key"]
+            if not refresh and ck in _sle_cluster_cache:
+                return ck, _sle_cluster_cache[ck]
+            res = await classify_sle_task(client, t)
+            if res.get("cluster"):
+                _sle_cluster_cache[ck] = res
+            return ck, res
+        results = await asyncio.gather(*[one(t) for t in tasks])
+    cmap = dict(results)
+    for t in tasks:
+        c = cmap.get(t["key"], {})
+        t["cluster"] = c.get("cluster")
+        t["clusterReason"] = c.get("reason")
+
+    # агрегаты по кластерам
+    agg = {c["label"]: 0 for c in SLE_CLUSTERS}
+    for t in tasks:
+        if t["cluster"] in agg:
+            agg[t["cluster"]] += 1
+    clusters = [{"label": c["label"], "key": c["key"], "count": agg[c["label"]]} for c in SLE_CLUSTERS]
+    return JSONResponse({"ok": True, "which": which, "count": len(tasks),
+                         "clusters": clusters, "tasks": tasks})
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 
