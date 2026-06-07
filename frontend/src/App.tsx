@@ -191,10 +191,10 @@ export default function App() {
       <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-sm">
         <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-base">🔒</div>
+            <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-base">📊</div>
             <div>
-              <p className="text-sm font-bold leading-none">Блокировки</p>
-              <p className="text-[11px] text-muted-foreground leading-none mt-0.5">POOLING · DOSTAVKAPIKO · UDOSTAVKA</p>
+              <p className="text-sm font-bold leading-none">Пульс доставки</p>
+              <p className="text-[11px] text-muted-foreground leading-none mt-0.5">Блокировки · SLE · Поток</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
