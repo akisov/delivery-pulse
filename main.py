@@ -150,6 +150,11 @@ async def init_db():
             cluster TEXT,
             updated_at TEXT
         )"""),
+        stmt("""CREATE TABLE IF NOT EXISTS sle_snapshot (
+            which TEXT PRIMARY KEY,
+            data TEXT,
+            updated_at TEXT
+        )"""),
     ])
     # Миграция: добавляем колонки если не существуют (игнорируем ошибку если уже есть)
     for col_sql in [
@@ -1330,9 +1335,13 @@ async def fetch_sle_tasks(which: str) -> dict:
         plist = subs_by_parent.get(pk, [])
         active = [s for s in plist if (s.get("status") or {}).get("key") not in SLE_DONE_SUB]
         hidden_blocked = len(plist) > 0 and len(active) == 0
-        sub_out = []
+        sub_out, blocked_subs = [], []
         for s in plist:
             sk = s.get("key")
+            blks = sub_blockings.get(sk, [])
+            has_active_block = any((b.get("status") or "") != "closed" for b in blks)
+            if has_active_block:
+                blocked_subs.append(sk)
             sub_out.append({
                 "key": sk,
                 "summary": s.get("summary", "—"),
@@ -1340,10 +1349,30 @@ async def fetch_sle_tasks(which: str) -> dict:
                 "status": (s.get("status") or {}).get("display", ""),
                 "statusKey": (s.get("status") or {}).get("key", ""),
                 "isActive": (s.get("status") or {}).get("key") not in SLE_DONE_SUB,
+                "hasActiveBlock": has_active_block,
                 "url": f"https://tracker.yandex.ru/{sk}",
-                "blockings": sub_blockings.get(sk, []),
+                "blockings": blks,
             })
+        # сигналы риска (значимы при умеренном/высоком/нарушенном риске)
+        risk_level = _risk_level(_field(p, "--sleRisk") or "")
+        at_risk = risk_level in ("нарушен", "высокий", "умеренный")
+        signals = []
+        if hidden_blocked:
+            signals.append("Работа не спланирована: есть подзадачи, но активных нет")
+        if blocked_subs:
+            signals.append("Блок висит в подзадаче: " + ", ".join(blocked_subs))
+        if len(plist) == 0:
+            signals.append("Нет связанных подзадач — работа не заведена")
+        # рассинхрон: часть подзадач уже завершена, часть ещё активна
+        done_subs = [s for s in plist if (s.get("status") or {}).get("key") in SLE_DONE_SUB]
+        if active and done_subs and len(plist) >= 2:
+            signals.append("Этапы рассинхронены: часть подзадач закрыта, часть ещё в работе")
+        needs_attention = at_risk and len(signals) > 0
         tasks.append({
+            "riskLevel": risk_level,
+            "riskSignals": signals if at_risk else [],
+            "needsAttention": needs_attention,
+            "blockedSubs": blocked_subs,
             "key": pk,
             "summary": p.get("summary", "—"),
             "url": f"https://tracker.yandex.ru/{pk}",
@@ -1369,10 +1398,33 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
+async def load_snapshot(which: str):
+    try:
+        res = await turso_execute([stmt("SELECT data, updated_at FROM sle_snapshot WHERE which=?", [which])])
+        rows = rows_to_dicts(res[0]) if res else []
+        if rows and rows[0].get("data"):
+            return json.loads(rows[0]["data"]), rows[0].get("updated_at")
+    except Exception as e:
+        print(f"[sle-snapshot load] {e}")
+    return None, None
+
+async def save_snapshot(which: str, tasks: list):
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO sle_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [which, json.dumps(tasks, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[sle-snapshot save] {e}")
+
 @app.get("/sle-analysis")
 async def sle_analysis(which: str = Query("current")):
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    which = which if which in SLE_QUERIES else "current"
+    snap, ts = await load_snapshot(which)
+    if snap is not None:
+        return JSONResponse({"ok": True, "which": which, "count": len(snap), "tasks": snap, "updatedAt": ts})
     try:
         return JSONResponse({"ok": True, **(await fetch_sle_tasks(which))})
     except Exception as e:
@@ -1393,6 +1445,29 @@ SLE_CLUSTERS = [
 ]
 _CLUSTER_LABELS = {c["label"] for c in SLE_CLUSTERS}
 _sle_cluster_cache: dict = {}
+
+# Ручная разметка пользователя (эталон) — приоритет: ручная правка > seed > ИИ
+SLE_SEED = {
+    "PUTKURERA-900": "Внешние зависимости",
+    "PUTKURERA-927": "Внешние зависимости",
+    "PUTKURERA-818": "Внешние зависимости",
+    "PUTKURERA-787": "Внешние зависимости",
+    "PUTKURERA-424": "Крупная задача / не MMF",
+    "PUTKURERA-740": "Крупная задача / не MMF",
+    "PUTKURERA-848": "Крупная задача / не MMF",
+    "PUTKURERA-794": "Техническая блокировка",
+    "PUTKURERA-148": "Ошибка оценки",
+    "PUTKURERA-893": "Ошибка оценки",
+    "PUTKURERA-878": "Ошибка оценки",
+}
+
+def _risk_level(s: str) -> str:
+    s = (s or "").lower()
+    if "наруш" in s: return "нарушен"
+    if "высок" in s: return "высокий"
+    if "умерен" in s: return "умеренный"
+    if "низк" in s: return "низкий"
+    return "—"
 
 async def classify_sle_task(client, t: dict) -> dict:
     sub_block = "; ".join(
@@ -1469,58 +1544,56 @@ async def classify_sle_task(client, t: dict) -> dict:
 async def sle_clusters(which: str = Query("current"), refresh: bool = Query(False)):
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
-    try:
-        data = await fetch_sle_tasks(which)
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)})
-    tasks = data["tasks"]
+    which = which if which in SLE_QUERIES else "current"
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        # комментарии нужны только для незакэшированных задач
-        todo = [t for t in tasks if refresh or t["key"] not in _sle_cluster_cache]
-        comments = await asyncio.gather(*[fetch_comments(client, t["key"]) for t in todo],
-                                        return_exceptions=True)
-        for t, c in zip(todo, comments):
-            t["comments"] = c if isinstance(c, str) else ""
+    # 1. читаем из БД-снапшота (мгновенно), либо пересчитываем по refresh/отсутствию
+    snap, ts = (None, None) if refresh else await load_snapshot(which)
+    if snap is not None:
+        tasks = snap
+    else:
+        try:
+            data = await fetch_sle_tasks(which)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+        tasks = data["tasks"]
+        async with httpx.AsyncClient(timeout=60) as client:
+            comments = await asyncio.gather(*[fetch_comments(client, t["key"]) for t in tasks],
+                                            return_exceptions=True)
+            for t, c in zip(tasks, comments):
+                t["comments"] = c if isinstance(c, str) else ""
+            results = await asyncio.gather(*[classify_sle_task(client, t) for t in tasks])
+        for t, res in zip(tasks, results):
+            t["aiCluster"] = res.get("cluster")
+            t["clusterReason"] = res.get("reason")
+            t.pop("comments", None)
+        await save_snapshot(which, tasks)
+        ts = "только что"
 
-        async def one(t):
-            ck = t["key"]
-            if not refresh and ck in _sle_cluster_cache:
-                return ck, _sle_cluster_cache[ck]
-            res = await classify_sle_task(client, t)
-            if res.get("cluster"):
-                _sle_cluster_cache[ck] = res
-            return ck, res
-        results = await asyncio.gather(*[one(t) for t in tasks])
-    cmap = dict(results)
-    for t in tasks:
-        c = cmap.get(t["key"], {})
-        t["cluster"] = c.get("cluster")
-        t["clusterReason"] = c.get("reason")
-
-    # применяем ручные оверрайды (перекрывают AI)
+    # 2. приоритет: ручная правка > эталонная разметка (seed) > ИИ
     try:
         ores = await turso_execute([stmt("SELECT task_key, cluster FROM sle_overrides")])
         ov = {r["task_key"]: r["cluster"] for r in (rows_to_dicts(ores[0]) if ores else [])}
     except Exception:
         ov = {}
     for t in tasks:
-        if t["key"] in ov and ov[t["key"]]:
-            t["aiCluster"] = t.get("cluster")
-            t["cluster"] = ov[t["key"]]
-            t["overridden"] = True
+        ai = t.get("aiCluster")
+        if ov.get(t["key"]):
+            t["cluster"], t["source"], t["overridden"] = ov[t["key"]], "override", True
+        elif t["key"] in SLE_SEED:
+            t["cluster"], t["source"], t["overridden"] = SLE_SEED[t["key"]], "seed", False
         else:
-            t["overridden"] = False
+            t["cluster"], t["source"], t["overridden"] = ai, "ai", False
+        t["aiCluster"] = ai
 
-    # агрегаты по кластерам
     agg = {c["label"]: 0 for c in SLE_CLUSTERS}
     for t in tasks:
         if t["cluster"] in agg:
             agg[t["cluster"]] += 1
     clusters = [{"label": c["label"], "key": c["key"], "count": agg[c["label"]]} for c in SLE_CLUSTERS]
+    attention = sum(1 for t in tasks if t.get("needsAttention"))
     return JSONResponse({"ok": True, "which": which, "count": len(tasks),
-                         "clusters": clusters, "tasks": tasks,
-                         "clusterOptions": [c["label"] for c in SLE_CLUSTERS]})
+                         "clusters": clusters, "tasks": tasks, "attention": attention,
+                         "updatedAt": ts, "clusterOptions": [c["label"] for c in SLE_CLUSTERS]})
 
 @app.post("/sle-override")
 async def sle_override(key: str = Query(...), cluster: str = Query("")):

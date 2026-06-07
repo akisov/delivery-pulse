@@ -35,12 +35,13 @@ interface SleTask {
   jobCategory: string | null; deadline: string | null; daysInWork: number | null
   subCount: number; activeSubCount: number; hiddenBlocked: boolean
   subtasks: Sub[]; cluster: string | null; clusterReason: string | null
-  aiCluster?: string | null; overridden?: boolean
+  aiCluster?: string | null; overridden?: boolean; source?: string
+  riskSignals?: string[]; needsAttention?: boolean
 }
 interface Resp {
   ok: boolean; error?: string; which: string; count: number
   clusters: { label: string; key: string; count: number }[]
-  clusterOptions: string[]; tasks: SleTask[]
+  clusterOptions: string[]; tasks: SleTask[]; attention?: number; updatedAt?: string
 }
 
 function riskCounts(tasks: { sleRisk: string }[]) {
@@ -117,9 +118,20 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
                 <option value="">↺ Сбросить к AI</option>
               </select>
             )}
-            {t.overridden && <span className="text-[10px] text-muted-foreground self-center">правка вручную{t.aiCluster ? ` (AI: ${t.aiCluster})` : ""}</span>}
+            {t.source === "override" && <span className="text-[10px] text-muted-foreground self-center">правка вручную{t.aiCluster ? ` (AI: ${t.aiCluster})` : ""}</span>}
+            {t.source === "seed" && <span className="text-[10px] text-emerald-500 self-center">ручная разметка</span>}
           </div>
           {t.clusterReason && <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{t.clusterReason}</p>}
+
+          {t.riskSignals && t.riskSignals.length > 0 && (
+            <div className="mt-2 flex flex-col gap-1">
+              {t.riskSignals.map((s, i) => (
+                <span key={i} className="inline-flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-600 dark:text-amber-400">
+                  <span className="shrink-0">⚠️</span>{s}
+                </span>
+              ))}
+            </div>
+          )}
 
           {t.subtasks.length > 0 && (
             <>
@@ -198,7 +210,10 @@ export function SLEPage() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-foreground">Анализ нарушений SLE</h1>
-          <p className="text-sm text-muted-foreground mt-1">Очередь PUTKURERA · кластеризация причин (ИИ + правка вручную)</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Очередь PUTKURERA · кластеризация причин (ИИ + правка вручную)
+            {data?.updatedAt && <span className="ml-1">· обновлено: {data.updatedAt}</span>}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
@@ -224,6 +239,12 @@ export function SLEPage() {
       </div>
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
+
+      {data && (data.attention ?? 0) > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600 dark:text-amber-400">
+          ⚠️ <b>{data.attention}</b> {data.attention === 1 ? "задача с риском SLE требует" : "задач с риском SLE требуют"} внимания — висит блок в подзадаче, работа не спланирована или рассинхрон этапов.
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-4">
