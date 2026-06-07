@@ -1689,6 +1689,15 @@ SEED_FLOW_HISTORY = [
     ("2026-06-04", 103.8, 22, 64.6, 18),
 ]
 
+def _pctl_interp(vals: list, p: float) -> int:
+    # P90 как в n8n: линейная интерполяция между соседними рангами
+    v = [x for x in vals if x is not None]
+    if not v: return 0
+    s = sorted(v)
+    idx = p * (len(s) - 1)
+    lo = int(idx); hi = min(lo + 1, len(s) - 1)
+    return round(s[lo] + (s[hi] - s[lo]) * (idx - lo))
+
 def _flow_days(issue: dict, hint: str) -> int:
     k = next((k for k in issue if hint in k.lower()), None)
     v = issue.get(k) if k else None
@@ -1710,7 +1719,7 @@ def _flow_pack(issues: list, hint: str, limit: int) -> dict:
         })
     items.sort(key=lambda x: x["days"], reverse=True)
     days = [i["days"] for i in items]
-    return {"count": len(items), "p90": _pctl(days, 0.90), "limit": limit,
+    return {"count": len(items), "p90": _pctl_interp(days, 0.90), "limit": limit,
             "overLimit": len(items) > limit, "top": items[:5], "tasks": items}
 
 @app.get("/flow-metrics")
