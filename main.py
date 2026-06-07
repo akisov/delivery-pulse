@@ -1248,6 +1248,119 @@ async def data(
     selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
     return JSONResponse(await query_dashboard(selected, date_from, date_to))
 
+# ── SLE анализ (PUTKURERA) ──────────────────────────────────────────────────────
+
+SLE_SUB_QUEUES = "UDOSTAVKA, POOLING, DOSTAVKAPIKO"
+SLE_DONE_SUB = {"gotovoKRabote", "closed", "backlogKomandy", "produktovyjBacklog"}
+SLE_QUERIES = {
+    "current":    'Type: newFeature Queue: PUTKURERA Status: inProgress Putkurera."sle risk": notEmpty() "Sort by": Putkurera."sle risk" DESC',
+    "historical": 'Type: newFeature Queue: PUTKURERA Status: zaverseno, analizRezults, closed Putkurera."sle risk": notEmpty() "Sort by": Putkurera."sle risk" DESC',
+}
+
+def _field(issue: dict, suffix: str, default=None):
+    k = next((k for k in issue if k.endswith(suffix)), None)
+    return issue.get(k, default) if k is not None else default
+
+async def tracker_query(client, query: str, per_page: int = 100) -> list:
+    out, page = [], 1
+    while True:
+        data = await tracker_request(client, "POST",
+            f"/v2/issues/_search?perPage={per_page}&page={page}", {"query": query})
+        chunk = data if isinstance(data, list) else []
+        out.extend(chunk)
+        if len(chunk) < per_page:
+            break
+        page += 1
+        await asyncio.sleep(0.3)
+    return out
+
+@app.get("/sle-analysis")
+async def sle_analysis(which: str = Query("current")):
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    which = which if which in SLE_QUERIES else "current"
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            parents = await tracker_query(client, SLE_QUERIES[which])
+            keys = [p["key"] for p in parents if p.get("key")]
+            subs = []
+            if keys:
+                subs = await tracker_query(client,
+                    f'"Parent issue": {", ".join(keys)} Queue: {SLE_SUB_QUEUES}')
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+    # подзадачи по родителю
+    subs_by_parent: dict = {}
+    for s in subs:
+        pk = (s.get("parent") or {}).get("key")
+        if pk:
+            subs_by_parent.setdefault(pk, []).append(s)
+
+    # блокировки подзадач из нашей БД (по ключам подзадач)
+    sub_keys = [s.get("key") for s in subs if s.get("key")]
+    sub_blockings: dict = {}
+    if sub_keys:
+        ph = ",".join("?" * len(sub_keys))
+        try:
+            res = await turso_execute([stmt(
+                f"SELECT parent_key, reason, status, start_date, end_date "
+                f"FROM blockings WHERE parent_key IN ({ph})", sub_keys)])
+            for r in rows_to_dicts(res[0]) if res else []:
+                sub_blockings.setdefault(r["parent_key"], []).append({
+                    "reason": r.get("reason") or "Не указана",
+                    "status": r.get("status"),
+                    "startDate": (r.get("start_date") or "")[:10],
+                    "endDate": (r.get("end_date") or "")[:10],
+                })
+        except Exception:
+            pass
+
+    tasks = []
+    for p in parents:
+        pk = p["key"]
+        plist = subs_by_parent.get(pk, [])
+        active = [s for s in plist if (s.get("status") or {}).get("key") not in SLE_DONE_SUB]
+        hidden_blocked = len(plist) > 0 and len(active) == 0
+        sub_out = []
+        for s in plist:
+            sk = s.get("key")
+            sub_out.append({
+                "key": sk,
+                "summary": s.get("summary", "—"),
+                "queue": (s.get("queue") or {}).get("key", ""),
+                "status": (s.get("status") or {}).get("display", ""),
+                "statusKey": (s.get("status") or {}).get("key", ""),
+                "isActive": (s.get("status") or {}).get("key") not in SLE_DONE_SUB,
+                "url": f"https://tracker.yandex.ru/{sk}",
+                "blockings": sub_blockings.get(sk, []),
+            })
+        tasks.append({
+            "key": pk,
+            "summary": p.get("summary", "—"),
+            "url": f"https://tracker.yandex.ru/{pk}",
+            "assignee": (p.get("assignee") or {}).get("display", "—"),
+            "status": (p.get("status") or {}).get("display", ""),
+            "sleRisk": _field(p, "--sleRisk") or "—",
+            "sle": _field(p, "--sle"),
+            "p70": _field(p, "--p70"),
+            "effort": p.get("effort"),
+            "effortFact": _field(p, "--anEffortFact"),
+            "jobCategory": _field(p, "--jobCategory"),
+            "deadline": p.get("deadline"),
+            "end": p.get("end"),
+            "daysInWork": p.get("daysInTheWork"),
+            "tags": p.get("tags") or [],
+            "lastBlockingReason": p.get("theLastReasonForBlocking") or "",
+            "blockingHistory": p.get("historyOfBlockingReasons") or "",
+            "subtasks": sub_out,
+            "subCount": len(plist),
+            "activeSubCount": len(active),
+            "hiddenBlocked": hidden_blocked,
+        })
+
+    return JSONResponse({"ok": True, "which": which, "count": len(tasks), "tasks": tasks})
+
 # ── Static (React build) ──────────────────────────────────────────────────────
 
 import os as _os
