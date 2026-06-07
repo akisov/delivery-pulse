@@ -4,7 +4,6 @@ import {
 } from "recharts"
 import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
@@ -26,19 +25,6 @@ function riskKey(r: string) {
   return RISK_ORDER.find(k => s.includes(k.slice(0, 5))) || "низкий"
 }
 function riskRank(r: string) { return RISK_ORDER.indexOf(riskKey(r)) }
-
-// Пороги SLE по дням в работе для категории (трудозатраты ≠ дни в работе)
-function catSleHint(jc?: string | null) {
-  if (!jc) return undefined
-  const u = jc.toUpperCase()
-  const key = u.startsWith("XL") ? "XL" : u[0]
-  const M: Record<string, string> = {
-    "S": "SLE для S (по дням в работе): P50 20 · P70 30 · P85 40",
-    "M": "SLE для M (по дням в работе): P50 45 · P70 77 · P85 88",
-    "L": "SLE для L (по дням в работе): P50 67 · P70 100 · P85 108",
-  }
-  return M[key]
-}
 
 interface Sub { key: string; summary: string; queue: string; status: string; isActive: boolean; url: string; blockings: { reason: string }[] }
 interface SleTask {
@@ -136,11 +122,6 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
               {t.key} <ExternalLink className="w-3 h-3" />
             </a>
             <span className="text-[11px] font-semibold" style={{ color: RISK_COLOR[riskKey(t.sleRisk)] }}>{t.sleRisk}</span>
-            {t.jobCategory && (
-              <Badge variant="outline" className="text-[10px]" title={catSleHint(t.jobCategory)}>
-                {t.jobCategory}
-              </Badge>
-            )}
             {t.daysInWork != null && (
               <span className="inline-flex items-center rounded-md px-1.5 py-px text-[10px] font-bold text-white"
                 style={{ background: RISK_COLOR[riskKey(t.sleRisk)] }}
