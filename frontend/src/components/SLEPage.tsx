@@ -356,7 +356,7 @@ export function SLEPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle>{which === "current" ? "🧩 Риски нарушения SLE — в работе" : "🧩 Причины нарушения SLE — история"}</CardTitle>
-                <span className="text-xs text-muted-foreground">{data.count} задач · нажми на кластер</span>
+                <span className="text-xs text-muted-foreground">{data.tasks.filter(t => t.cluster).length} задач · нажми на кластер</span>
               </div>
             </CardHeader>
             <CardContent>
