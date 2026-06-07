@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react"
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ReferenceLine } from "recharts"
+import { LineChart, Line, BarChart, Bar, Cell, LabelList, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ReferenceLine } from "recharts"
 import { ExternalLink, RefreshCw, AlertTriangle, CheckCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
 interface FlowTask { key: string; summary: string; assignee: string; status: string; url: string; days: number; sleRisk: string }
-interface Stream { count: number; p90: number; limit: number; overLimit: boolean; top: FlowTask[] }
+interface Stream { count: number; p90: number; limit: number; overLimit: boolean; top: FlowTask[]; tasks: FlowTask[] }
 interface Hist { date: string; label: string; discoveryP90: number; deliveryP90: number; discoveryCount?: number | null; deliveryCount?: number | null }
 interface Resp {
   ok: boolean; error?: string; discovery: Stream; delivery: Stream
@@ -15,6 +15,43 @@ interface Resp {
 
 const DISC = "#EAB308" // Исследования (жёлтый, как в учётной таблице)
 const DELI = "#10B981" // В работе (зелёный)
+const PERSON_LIMIT = 5
+
+function byAssignee(tasks: FlowTask[]) {
+  const m: Record<string, number> = {}
+  tasks.forEach(t => { m[t.assignee] = (m[t.assignee] || 0) + 1 })
+  return Object.entries(m).map(([a, count]) => ({ a, count })).sort((x, y) => y.count - x.count)
+}
+
+function AssigneeChart({ title, emoji, color, tasks }: { title: string; emoji: string; color: string; tasks: FlowTask[] }) {
+  const data = byAssignee(tasks)
+  const over = data.filter(d => d.count > PERSON_LIMIT).length
+  return (
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
+      <CardHeader className="pb-1">
+        <div className="flex items-center justify-between">
+          <CardTitle>{emoji} {title}</CardTitle>
+          {over > 0 && <span className="text-xs font-semibold text-destructive">⚠️ {over} перегружено</span>}
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5">Задач на продакте · красным — больше {PERSON_LIMIT}</p>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={Math.max(120, data.length * 32 + 16)}>
+          <BarChart data={data} layout="vertical" margin={{ top: 2, right: 32, left: 4, bottom: 2 }} barSize={16}>
+            <XAxis type="number" hide />
+            <YAxis type="category" dataKey="a" width={150} tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
+            <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
+              contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
+            <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+              {data.map(d => <Cell key={d.a} fill={d.count > PERSON_LIMIT ? "#EF4444" : color} />)}
+              <LabelList dataKey="count" position="right" style={{ fontSize: 11, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
 
 function StreamCard({ title, emoji, color, s }: { title: string; emoji: string; color: string; s: Stream }) {
   return (
@@ -110,6 +147,12 @@ export function FlowPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <StreamCard title="Discovery" emoji="🔬" color={DISC} s={data.discovery} />
             <StreamCard title="Delivery" emoji="🚀" color={DELI} s={data.delivery} />
+          </div>
+
+          {/* Загрузка по продактам */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <AssigneeChart title="Discovery — по продактам" emoji="🔬" color={DISC} tasks={data.discovery.tasks} />
+            <AssigneeChart title="Delivery — по продактам" emoji="🚀" color={DELI} tasks={data.delivery.tasks} />
           </div>
 
           {/* Тренд P90 по неделям */}
