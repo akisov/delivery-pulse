@@ -170,6 +170,33 @@ function RiskChart({ title, sub, tasks, active, onPick }: { title: string; sub: 
   )
 }
 
+function AttentionRow({ t }: { t: SleTask }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-card px-3 py-2 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-500/40 hover:shadow-[0_6px_20px_rgba(245,158,11,0.15)]">
+      <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: RISK_COLOR[riskKey(t.sleRisk)] }} title={t.sleRisk} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <a href={t.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+            {t.key} <ExternalLink className="w-3 h-3" />
+          </a>
+          <span className="text-[11px] font-semibold" style={{ color: RISK_COLOR[riskKey(t.sleRisk)] }}>{t.sleRisk}</span>
+          <span className="text-xs text-muted-foreground truncate">{t.summary}</span>
+        </div>
+        <div className="mt-1 flex flex-col gap-1">
+          {(t.blockedDetails || []).map((b, i) => (
+            <span key={i} className="text-[11px] text-amber-600 dark:text-amber-400">
+              🔒 Блок в <a href={b.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline">{b.key}</a>: {b.reason}
+            </span>
+          ))}
+          {(t.riskSignals || []).filter(s => !s.startsWith("Блок висит")).map((s, i) => (
+            <span key={i} className="text-[11px] text-amber-600 dark:text-amber-400">→ {s}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; onOverride: (key: string, cluster: string) => void }) {
   const [open, setOpen] = useState(false)
   return (
@@ -466,31 +493,15 @@ export function SLEPage() {
               Нет активных подзадач (никто не работает) или висит открытый блок в активной подзадаче — при любом риске SLE
             </p>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {attentionTasks.map(t => (
-              <div key={t.key} className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-card px-3 py-2 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-500/40 hover:shadow-[0_6px_20px_rgba(245,158,11,0.15)]">
-                <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: RISK_COLOR[riskKey(t.sleRisk)] }} title={t.sleRisk} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <a href={t.url} target="_blank" rel="noopener noreferrer"
-                      className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
-                      {t.key} <ExternalLink className="w-3 h-3" />
-                    </a>
-                    <span className="text-[11px] font-semibold" style={{ color: RISK_COLOR[riskKey(t.sleRisk)] }}>{t.sleRisk}</span>
-                    <span className="text-xs text-muted-foreground truncate">{t.summary}</span>
-                  </div>
-                  <div className="mt-1 flex flex-col gap-1">
-                    {(t.blockedDetails || []).map((b, i) => (
-                      <span key={i} className="text-[11px] text-amber-600 dark:text-amber-400">
-                        🔒 Блок в{" "}
-                        <a href={b.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline">{b.key}</a>
-                        : {b.reason}
-                      </span>
-                    ))}
-                    {(t.riskSignals || []).filter(s => !s.startsWith("Блок висит")).map((s, i) => (
-                      <span key={i} className="text-[11px] text-amber-600 dark:text-amber-400">→ {s}</span>
-                    ))}
-                  </div>
+          <CardContent className="space-y-4">
+            {[
+              { key: "block", title: "🔒 Блок в подзадаче", tasks: attentionTasks.filter(t => (t.blockedDetails?.length ?? 0) > 0) },
+              { key: "idle", title: "💤 Никто не работает — нет активных подзадач", tasks: attentionTasks.filter(t => !(t.blockedDetails?.length)) },
+            ].filter(s => s.tasks.length > 0).map(s => (
+              <div key={s.key}>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-1.5">{s.title} — {s.tasks.length}</p>
+                <div className="space-y-2">
+                  {s.tasks.map(t => <AttentionRow key={t.key} t={t} />)}
                 </div>
               </div>
             ))}
