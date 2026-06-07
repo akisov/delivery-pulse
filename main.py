@@ -155,6 +155,12 @@ async def init_db():
             data TEXT,
             updated_at TEXT
         )"""),
+        stmt("""CREATE TABLE IF NOT EXISTS flow_snapshot (
+            week TEXT PRIMARY KEY,
+            discovery_p90 REAL, discovery_count INTEGER,
+            delivery_p90 REAL, delivery_count INTEGER,
+            saved_at TEXT
+        )"""),
     ])
     # Миграция: добавляем колонки если не существуют (игнорируем ошибку если уже есть)
     for col_sql in [
@@ -1658,6 +1664,81 @@ async def sle_override(key: str = Query(...), cluster: str = Query("")):
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
     return JSONResponse({"ok": True})
+
+# ── Поток: Discovery / Delivery (WIP Age) ───────────────────────────────────────
+
+FLOW_DISCOVERY_QUERY = "Queue: PUTKURERA Status: proverkaIdej, podtverzdenieBoli, confirmed"
+FLOW_DELIVERY_QUERY  = "Type: newFeature Queue: PUTKURERA Status: inProgress"
+WIP_DISCOVERY, WIP_DELIVERY = 25, 20
+
+def _flow_days(issue: dict, hint: str) -> int:
+    k = next((k for k in issue if hint in k.lower()), None)
+    v = issue.get(k) if k else None
+    if v is None:
+        v = issue.get("daysOnTheStatus")
+    try: return int(float(v or 0))
+    except: return 0
+
+def _flow_pack(issues: list, hint: str, limit: int) -> dict:
+    items = []
+    for t in issues:
+        items.append({
+            "key": t.get("key"), "summary": t.get("summary", "—"),
+            "assignee": (t.get("assignee") or {}).get("display", "—"),
+            "status": (t.get("status") or {}).get("display", ""),
+            "url": f"https://tracker.yandex.ru/{t.get('key')}",
+            "days": _flow_days(t, hint),
+            "sleRisk": _field(t, "--sleRisk") or "",
+        })
+    items.sort(key=lambda x: x["days"], reverse=True)
+    days = [i["days"] for i in items]
+    return {"count": len(items), "p90": _pctl(days, 0.90), "limit": limit,
+            "overLimit": len(items) > limit, "top": items[:5], "tasks": items}
+
+@app.get("/flow-metrics")
+async def flow_metrics():
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            disc = await tracker_query(client, FLOW_DISCOVERY_QUERY)
+            deliv = await tracker_query(client, FLOW_DELIVERY_QUERY)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+    disc = [t for t in disc if _field(t, "operatingMode") != "Отложено"]
+    deliv = [t for t in deliv if _field(t, "operatingMode") == "В работе"]
+    discovery = _flow_pack(disc, "research", WIP_DISCOVERY)
+    delivery = _flow_pack(deliv, "work", WIP_DELIVERY)
+
+    # SLE-риск в Delivery
+    sle_break: dict = {}
+    for t in delivery["tasks"]:
+        sle_break[t["sleRisk"] or "—"] = sle_break.get(t["sleRisk"] or "—", 0) + 1
+
+    # недельный снапшот (лениво: если на этой неделе ещё не сохраняли)
+    y, w, _ = date.today().isocalendar()
+    week = f"{y}-W{w:02d}"
+    history = []
+    try:
+        res = await turso_execute([stmt("SELECT * FROM flow_snapshot ORDER BY week")])
+        history = rows_to_dicts(res[0]) if res else []
+        if not any(r["week"] == week for r in history):
+            await turso_execute([stmt(
+                "INSERT INTO flow_snapshot(week,discovery_p90,discovery_count,delivery_p90,delivery_count,saved_at) "
+                "VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(week) DO NOTHING",
+                [week, discovery["p90"], discovery["count"], delivery["p90"], delivery["count"]])])
+            history.append({"week": week, "discovery_p90": discovery["p90"], "discovery_count": discovery["count"],
+                            "delivery_p90": delivery["p90"], "delivery_count": delivery["count"]})
+    except Exception as e:
+        print(f"[flow-snapshot] {e}")
+
+    return JSONResponse({"ok": True, "discovery": discovery, "delivery": delivery,
+                         "sleBreakdown": sle_break, "week": week,
+                         "history": [{"week": r["week"],
+                                      "discoveryP90": r.get("discovery_p90"), "deliveryP90": r.get("delivery_p90"),
+                                      "discoveryCount": r.get("discovery_count"), "deliveryCount": r.get("delivery_count")}
+                                     for r in history]})
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 
