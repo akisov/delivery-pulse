@@ -145,6 +145,11 @@ async def init_db():
             status_key TEXT,
             status_display TEXT
         )"""),
+        stmt("""CREATE TABLE IF NOT EXISTS sle_overrides (
+            task_key TEXT PRIMARY KEY,
+            cluster TEXT,
+            updated_at TEXT
+        )"""),
     ])
     # Миграция: добавляем колонки если не существуют (игнорируем ошибку если уже есть)
     for col_sql in [
@@ -1493,6 +1498,20 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
         t["cluster"] = c.get("cluster")
         t["clusterReason"] = c.get("reason")
 
+    # применяем ручные оверрайды (перекрывают AI)
+    try:
+        ores = await turso_execute([stmt("SELECT task_key, cluster FROM sle_overrides")])
+        ov = {r["task_key"]: r["cluster"] for r in (rows_to_dicts(ores[0]) if ores else [])}
+    except Exception:
+        ov = {}
+    for t in tasks:
+        if t["key"] in ov and ov[t["key"]]:
+            t["aiCluster"] = t.get("cluster")
+            t["cluster"] = ov[t["key"]]
+            t["overridden"] = True
+        else:
+            t["overridden"] = False
+
     # агрегаты по кластерам
     agg = {c["label"]: 0 for c in SLE_CLUSTERS}
     for t in tasks:
@@ -1500,7 +1519,24 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
             agg[t["cluster"]] += 1
     clusters = [{"label": c["label"], "key": c["key"], "count": agg[c["label"]]} for c in SLE_CLUSTERS]
     return JSONResponse({"ok": True, "which": which, "count": len(tasks),
-                         "clusters": clusters, "tasks": tasks})
+                         "clusters": clusters, "tasks": tasks,
+                         "clusterOptions": [c["label"] for c in SLE_CLUSTERS]})
+
+@app.post("/sle-override")
+async def sle_override(key: str = Query(...), cluster: str = Query("")):
+    if cluster and cluster not in _CLUSTER_LABELS:
+        return JSONResponse({"ok": False, "error": "неизвестный кластер"})
+    try:
+        if cluster:
+            await turso_execute([stmt(
+                "INSERT INTO sle_overrides(task_key,cluster,updated_at) VALUES(?,?,datetime('now')) "
+                "ON CONFLICT(task_key) DO UPDATE SET cluster=excluded.cluster, updated_at=excluded.updated_at",
+                [key, cluster])])
+        else:
+            await turso_execute([stmt("DELETE FROM sle_overrides WHERE task_key=?", [key])])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    return JSONResponse({"ok": True})
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 
