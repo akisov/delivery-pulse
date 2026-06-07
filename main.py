@@ -1338,8 +1338,10 @@ async def fetch_sle_tasks(which: str) -> dict:
         sub_out, blocked_subs = [], []
         for s in plist:
             sk = s.get("key")
+            s_active = (s.get("status") or {}).get("key") not in SLE_DONE_SUB
             blks = sub_blockings.get(sk, [])
-            has_active_block = any((b.get("status") or "") != "closed" for b in blks)
+            # блок значим, только если сама подзадача В РАБОТЕ и блок не закрыт
+            has_active_block = s_active and any((b.get("status") or "") != "closed" for b in blks)
             if has_active_block:
                 blocked_subs.append(sk)
             sub_out.append({
@@ -1357,21 +1359,16 @@ async def fetch_sle_tasks(which: str) -> dict:
         # на истории «нет активных подзадач» — это норма (задача завершена), не сигнал.
         risk_level = _risk_level(_field(p, "--sleRisk") or "")
         at_risk = which == "current" and risk_level in ("нарушен", "высокий", "умеренный")
-        NOT_STARTED = {"gotovoKRabote", "backlogKomandy", "produktovyjBacklog"}
-        not_started = [s for s in plist if (s.get("status") or {}).get("key") in NOT_STARTED]
-        completed = [s for s in plist if (s.get("status") or {}).get("key") == "closed"]
         signals = []
+        # Правило 2: блок висит в активной подзадаче
         if blocked_subs:
             signals.append("Блок висит в подзадаче: " + ", ".join(blocked_subs))
+        # Правило 1: по НВ фактически никто не работает (нет активных подзадач)
         if len(plist) == 0:
             signals.append("Нет связанных подзадач — работа не заведена")
-        elif not active and not_started:
-            # ничего не в работе, но есть незапущенные подзадачи — работа стоит
-            signals.append("Работа не спланирована: подзадачи ещё не начаты, активных нет")
-        elif completed and not_started:
-            # часть сделана, а часть даже не начата — ложная/скрытая блокировка
-            signals.append("Часть подзадач завершена, а часть ещё не начата — работа не спланирована")
-        # если все активные на финальных этапах и нет незапущенных — это норма, сигнал не ставим
+        elif len(active) == 0:
+            signals.append("По задаче никто не работает: нет активных подзадач (все завершены или в беклоге)")
+        # если есть активные подзадачи и нет блоков — это нормальная работа, не триггерим
         needs_attention = at_risk and len(signals) > 0
         tasks.append({
             "riskLevel": risk_level,
@@ -1403,7 +1400,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 4  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 5  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:
@@ -1513,7 +1510,8 @@ async def classify_sle_task(client, t: dict) -> dict:
         f"ЕстьЯвноеВнешнееОжидание в тексте: {'да' if has_external else 'нет'}.\n"
         f"Последняя причина блокировки: {(t.get('lastBlockingReason') or '—')[:400]}\n"
         f"История блокировок: {(t.get('blockingHistory') or '—')[:400]}\n"
-        f"Комментарии: {(t.get('comments') or '—')[:900]}\n"
+        f"Комментарии НВ: {(t.get('comments') or '—')[:800]}\n"
+        f"Комментарии в подзадачах с блоком: {(t.get('subComments') or '—')[:800]}\n"
         f"Подзадачи и их блокировки: {sub_block[:500]}\n"
         f"Теги: {', '.join(t.get('tags') or []) or '—'}"
     )
@@ -1573,11 +1571,23 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
                                             return_exceptions=True)
             for t, c in zip(tasks, comments):
                 t["comments"] = c if isinstance(c, str) else ""
+            # комментарии заблокированных подзадач (для анализа причины)
+            pairs = [(t, sk) for t in tasks for sk in (t.get("blockedSubs") or [])]
+            if pairs:
+                sc = await asyncio.gather(*[fetch_comments(client, sk) for _, sk in pairs],
+                                          return_exceptions=True)
+                acc: dict = {}
+                for (t, sk), c in zip(pairs, sc):
+                    if isinstance(c, str) and c:
+                        acc.setdefault(t["key"], []).append(f"{sk}: {c}")
+                for t in tasks:
+                    t["subComments"] = " || ".join(acc.get(t["key"], []))
             results = await asyncio.gather(*[classify_sle_task(client, t) for t in tasks])
         for t, res in zip(tasks, results):
             t["aiCluster"] = res.get("cluster")
             t["clusterReason"] = res.get("reason")
             t.pop("comments", None)
+            t.pop("subComments", None)
         await save_snapshot(which, tasks)
         ts = "только что"
 
