@@ -1404,7 +1404,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 6  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 7  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:
@@ -1495,8 +1495,11 @@ async def classify_sle_task(client, t: dict) -> dict:
     try: _sle = float(t.get("sle") or 0)
     except: _sle = 0
     overran = _sle > 0 and _ef > _sle * 1.2
+    # для детектора берём только ПРИЧИНЫ блокировок (не названия статусов подзадач —
+    # статус вроде «Согласование архитектуры Готово» означает завершённый этап, не блок)
+    sub_reasons = "; ".join(b.get("reason", "") for s in t.get("subtasks", []) for b in s.get("blockings", []))
     blob = " ".join([str(t.get("lastBlockingReason") or ""), str(t.get("blockingHistory") or ""),
-                     str(t.get("comments") or ""), sub_block]).lower()
+                     str(t.get("comments") or ""), str(t.get("subComments") or ""), sub_reasons]).lower()
     has_tech = any(w in blob for w in ["баг", "bug", "дефект", "ошибк", "фронт", "демо отлож", "не работает", "падает"])
     has_external = any(w in blob for w in ["архитект", "фа ", " фа", "провайдер", "вендор", "маршрутизатор",
                                            "двх", "мораторий", "согласован", "заказчик", "другая команда", "ждем команду"])
@@ -1540,6 +1543,8 @@ async def classify_sle_task(client, t: dict) -> dict:
             "без канцелярита и штампов. "
             "СТРОГО опирайся только на факты ниже. НЕ придумывай конкретику, которой нет в тексте "
             "(роли, команды, причины вроде «архитекторы», «провайдер» — только если они реально упомянуты). "
+            "ВАЖНО: статусы подзадач вроде «Согласование архитектуры Готово», «Разработка готово» означают, что "
+            "этот этап ЗАВЕРШЁН, а НЕ что задача чего-то ждёт — не делай вывод о блокировке из названия статуса. "
             "Если конкретики нет — скажи общими словами. Без вступлений."
         )
         body = {"model": MISTRAL_MODEL,
