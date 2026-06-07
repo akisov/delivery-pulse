@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from "react"
-import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, Pencil, EyeOff } from "lucide-react"
+import {
+  BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, Tooltip,
+} from "recharts"
+import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, Pencil, EyeOff, X } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
+const CLUSTER_ORDER = [
+  "Внешние зависимости", "Крупная задача / не MMF", "Техническая блокировка", "Ошибка оценки",
+]
 const CLUSTER_COLORS: Record<string, string> = {
   "Внешние зависимости":      "#3B82F6",
   "Крупная задача / не MMF":  "#8B5CF6",
@@ -13,24 +19,16 @@ const CLUSTER_COLORS: Record<string, string> = {
 }
 function clusterColor(c?: string | null) { return (c && CLUSTER_COLORS[c]) || "#94A3B8" }
 
-// порядок риска: нарушен > высокий > умеренный > низкий
-function riskRank(r: string) {
+const RISK_ORDER = ["нарушен", "высокий", "умеренный", "низкий"]
+const RISK_LABEL: Record<string, string> = { "нарушен": "🔴 нарушен", "высокий": "🟠 высокий", "умеренный": "🟡 умеренный", "низкий": "🟢 низкий" }
+const RISK_COLOR: Record<string, string> = { "нарушен": "#EF4444", "высокий": "#F97316", "умеренный": "#EAB308", "низкий": "#10B981" }
+function riskKey(r: string) {
   const s = (r || "").toLowerCase()
-  if (s.includes("наруш")) return 0
-  if (s.includes("высок")) return 1
-  if (s.includes("умерен")) return 2
-  if (s.includes("низк")) return 3
-  return 4
+  return RISK_ORDER.find(k => s.includes(k.slice(0, 5))) || "низкий"
 }
-function riskColor(r: string) {
-  const k = riskRank(r)
-  return ["#EF4444", "#F97316", "#EAB308", "#10B981", "#94A3B8"][k]
-}
+function riskRank(r: string) { return RISK_ORDER.indexOf(riskKey(r)) }
 
-interface Sub {
-  key: string; summary: string; queue: string; status: string; isActive: boolean
-  url: string; blockings: { reason: string }[]
-}
+interface Sub { key: string; summary: string; queue: string; status: string; isActive: boolean; url: string; blockings: { reason: string }[] }
 interface SleTask {
   key: string; summary: string; url: string; assignee: string; status: string
   sleRisk: string; sle: number | null; p70: number | null; effort: number | null
@@ -45,24 +43,55 @@ interface Resp {
   clusterOptions: string[]; tasks: SleTask[]
 }
 
+function riskCounts(tasks: { sleRisk: string }[]) {
+  const c: Record<string, number> = { "нарушен": 0, "высокий": 0, "умеренный": 0, "низкий": 0 }
+  tasks.forEach(t => { c[riskKey(t.sleRisk)]++ })
+  return RISK_ORDER.map(k => ({ key: k, name: RISK_LABEL[k], count: c[k], fill: RISK_COLOR[k] }))
+}
+
+function RiskChart({ title, sub, tasks }: { title: string; sub: string; tasks: { sleRisk: string }[] }) {
+  const data = riskCounts(tasks)
+  return (
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
+      <CardHeader className="pb-1">
+        <div className="flex items-center justify-between">
+          <CardTitle>{title}</CardTitle>
+          <span className="text-xs text-muted-foreground">{tasks.length} задач</span>
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 36, left: 4, bottom: 4 }} barSize={20}>
+            <XAxis type="number" hide />
+            <YAxis type="category" dataKey="name" width={104} tick={{ fontSize: 12, fill: "hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
+            <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+              {data.map(d => <Cell key={d.key} fill={d.fill} />)}
+              <LabelList dataKey="count" position="right" style={{ fontSize: 12, fontWeight: 800, fill: "hsl(var(--foreground))" }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
+
 function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; onOverride: (key: string, cluster: string) => void }) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   return (
     <div className="rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/30">
       <div className="flex items-start gap-3">
-        <span className="mt-1 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: riskColor(t.sleRisk) }} title={t.sleRisk} />
+        <span className="mt-1 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: RISK_COLOR[riskKey(t.sleRisk)] }} title={t.sleRisk} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <a href={t.url} target="_blank" rel="noopener noreferrer"
-              className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+            <a href={t.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
               {t.key} <ExternalLink className="w-3 h-3" />
             </a>
-            <span className="text-[11px] font-semibold" style={{ color: riskColor(t.sleRisk) }}>{t.sleRisk}</span>
+            <span className="text-[11px] font-semibold" style={{ color: RISK_COLOR[riskKey(t.sleRisk)] }}>{t.sleRisk}</span>
             {t.jobCategory && <Badge variant="outline" className="text-[10px]">{t.jobCategory}</Badge>}
             {t.hiddenBlocked && (
-              <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-px text-[10px] font-bold text-amber-500"
-                title="Есть подзадачи, но активных нет — работа не спланирована">
+              <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-px text-[10px] font-bold text-amber-500" title="Есть подзадачи, но активных нет — работа не спланирована">
                 <EyeOff className="w-3 h-3" /> скрытая блокировка
               </span>
             )}
@@ -72,7 +101,6 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
             👤 {t.assignee} · SLE {t.sle ?? "—"} / P70 {t.p70 ?? "—"} · подзадач {t.subCount} (активных {t.activeSubCount})
           </p>
 
-          {/* Кластер + причина */}
           <div className="mt-2 flex items-start gap-2 flex-wrap">
             {!editing ? (
               <button onClick={() => setEditing(true)}
@@ -95,8 +123,7 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
 
           {t.subtasks.length > 0 && (
             <>
-              <button onClick={() => setOpen(o => !o)}
-                className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground">
+              <button onClick={() => setOpen(o => !o)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground">
                 {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 подзадачи ({t.subtasks.length})
               </button>
@@ -127,6 +154,11 @@ export function SLEPage() {
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<string | null>(null)
+
+  // быстрые данные по риску для обоих разрезов (без ИИ)
+  const [riskCur, setRiskCur] = useState<{ sleRisk: string }[] | null>(null)
+  const [riskHist, setRiskHist] = useState<{ sleRisk: string }[] | null>(null)
 
   const load = (refresh = false) => {
     setLoading(true); setError(null)
@@ -138,35 +170,42 @@ export function SLEPage() {
   }
   useEffect(() => { load() }, [which])
 
+  useEffect(() => {
+    const get = (w: string) => fetch(`/sle-analysis?which=${w}`).then(r => r.json()).then(d => d.ok ? d.tasks : []).catch(() => [])
+    get("current").then(setRiskCur)
+    get("historical").then(setRiskHist)
+  }, [])
+
   const overrideCluster = async (key: string, cluster: string) => {
-    // оптимистично
     setData(prev => prev ? { ...prev, tasks: prev.tasks.map(t => t.key === key ? { ...t, cluster: cluster || t.aiCluster || t.cluster, overridden: !!cluster } : t) } : prev)
     await fetch(`/sle-override?key=${encodeURIComponent(key)}&cluster=${encodeURIComponent(cluster)}`, { method: "POST" }).catch(() => {})
     load()
   }
 
-  const sortedTasks = useMemo(
-    () => data ? [...data.tasks].sort((a, b) => riskRank(a.sleRisk) - riskRank(b.sleRisk)) : [],
-    [data]
-  )
-  const hiddenCount = useMemo(() => data ? data.tasks.filter(t => t.hiddenBlocked).length : 0, [data])
-  const violated = useMemo(() => data ? data.tasks.filter(t => riskRank(t.sleRisk) === 0).length : 0, [data])
+  const grouped = useMemo(() => {
+    if (!data) return []
+    const g: Record<string, SleTask[]> = {}
+    data.tasks.forEach(t => { const k = t.cluster || "—"; (g[k] ||= []).push(t) })
+    Object.values(g).forEach(list => list.sort((a, b) => riskRank(a.sleRisk) - riskRank(b.sleRisk)))
+    return CLUSTER_ORDER.filter(c => g[c]?.length).map(c => ({ cluster: c, tasks: g[c] }))
+  }, [data])
+
   const maxCluster = Math.max(1, ...(data?.clusters.map(c => c.count) ?? [1]))
+  const clusterChartData = (data?.clusters ?? []).map(c => ({ ...c, fill: clusterColor(c.label) }))
 
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-foreground">Анализ нарушений SLE</h1>
-          <p className="text-sm text-muted-foreground mt-1">Очередь PUTKURERA · кластеризация причин нарушения SLE (ИИ + правка вручную)</p>
+          <p className="text-sm text-muted-foreground mt-1">Очередь PUTKURERA · кластеризация причин (ИИ + правка вручную)</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
             {([["current", "Текущая"], ["historical", "История"]] as const).map(([v, label]) => (
-              <button key={v} onClick={() => setWhich(v)}
+              <button key={v} onClick={() => { setWhich(v); setFilter(null) }}
                 className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
-                  which === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]"
-                              : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
+                  which === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
                 {label}
               </button>
             ))}
@@ -178,42 +217,68 @@ export function SLEPage() {
         </div>
       </div>
 
+      {/* Риск: история + в работе */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {riskHist ? <RiskChart title="📉 Попадание в SLE (история)" sub="Завершённые задачи по уровню риска SLE" tasks={riskHist} /> : <Skeleton className="h-56 rounded-xl" />}
+        {riskCur ? <RiskChart title="⚡ Риск по SLE (в работе)" sub="Задачи в работе по уровню риска SLE" tasks={riskCur} /> : <Skeleton className="h-56 rounded-xl" />}
+      </div>
+
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
 
       {loading ? (
         <div className="space-y-4">
           <div className="text-xs text-muted-foreground">ИИ кластеризует причины… (может занять ~полминуты при первой загрузке)</div>
-          <Skeleton className="h-32 rounded-xl" />
-          {Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+          <Skeleton className="h-40 rounded-xl" />
+          {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
         </div>
       ) : data && (
         <>
-          {/* Распределение по кластерам */}
+          {/* Кластеры — кликабельный график */}
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle>📊 Кластеры причин нарушения SLE</CardTitle>
-                <span className="text-xs text-muted-foreground">{data.count} задач · {violated} нарушено · {hiddenCount} скрытых блокировок</span>
+                <CardTitle>🧩 Причины нарушения SLE — {which === "current" ? "в работе" : "история"}</CardTitle>
+                <span className="text-xs text-muted-foreground">{data.count} задач · нажми на кластер</span>
               </div>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {data.clusters.map(c => (
-                <div key={c.label} className="flex items-center gap-3">
-                  <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: clusterColor(c.label) }} />
-                  <span className="text-xs text-foreground w-52 shrink-0">{c.label}</span>
-                  <div className="flex-1 h-2 rounded-full bg-secondary overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${c.count / maxCluster * 100}%`, background: clusterColor(c.label) }} />
-                  </div>
-                  <span className="text-xs font-bold text-foreground w-6 text-right">{c.count}</span>
-                </div>
-              ))}
+            <CardContent>
+              <ResponsiveContainer width="100%" height={Math.max(160, clusterChartData.length * 44 + 24)}>
+                <BarChart data={clusterChartData} layout="vertical" margin={{ top: 4, right: 40, left: 4, bottom: 4 }} barSize={24}>
+                  <XAxis type="number" hide domain={[0, maxCluster]} />
+                  <YAxis type="category" dataKey="label" width={180} tick={{ fontSize: 12, fill: "hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
+                  <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
+                    content={({ active, payload }: any) => active && payload?.length
+                      ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl"><b>{payload[0].payload.label}</b>: {payload[0].value} задач · нажми для списка</div> : null} />
+                  <Bar dataKey="count" radius={[0, 4, 4, 0]} style={{ cursor: "pointer" }}
+                    onClick={(d: any) => setFilter(f => f === d.label ? null : d.label)}>
+                    {clusterChartData.map(d => (
+                      <Cell key={d.label} fill={d.fill} fillOpacity={filter && filter !== d.label ? 0.35 : 1} />
+                    ))}
+                    <LabelList dataKey="count" position="right" style={{ fontSize: 12, fontWeight: 800, fill: "hsl(var(--foreground))" }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              {filter && (
+                <button onClick={() => setFilter(null)} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                  <X className="w-3 h-3" /> Сбросить фильтр: {filter}
+                </button>
+              )}
             </CardContent>
           </Card>
 
-          {/* Список задач */}
-          <div className="space-y-2.5">
-            {sortedTasks.map(t => (
-              <TaskCard key={t.key} t={t} options={data.clusterOptions} onOverride={overrideCluster} />
+          {/* Список, сгруппированный по кластерам */}
+          <div className="space-y-5">
+            {grouped.filter(g => !filter || g.cluster === filter).map(g => (
+              <div key={g.cluster}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: clusterColor(g.cluster) }} />
+                  <h3 className="text-sm font-black text-foreground">{g.cluster}</h3>
+                  <span className="text-xs text-muted-foreground">{g.tasks.length}</span>
+                </div>
+                <div className="space-y-2.5">
+                  {g.tasks.map(t => <TaskCard key={t.key} t={t} options={data.clusterOptions} onOverride={overrideCluster} />)}
+                </div>
+              </div>
             ))}
           </div>
         </>

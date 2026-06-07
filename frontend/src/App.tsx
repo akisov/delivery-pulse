@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, Home, Lock, Target } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -9,6 +9,7 @@ import { SyncProgress } from "@/components/SyncProgress"
 import { BlockingChart } from "@/components/BlockingChart"
 import { InsightInformer } from "@/components/InsightInformer"
 import { SLEPage } from "@/components/SLEPage"
+import { HomePage } from "@/components/HomePage"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
 import { InsightsPanel } from "@/components/InsightsPanel"
@@ -48,7 +49,7 @@ export default function App() {
   const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
-  const [section, setSection] = useState<"blockings" | "sle">("blockings")
+  const [section, setSection] = useState<"home" | "blockings" | "sle">("home")
 
   const [data, setData] = useState<DashboardData | null>(null)
   const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null)
@@ -220,22 +221,30 @@ export default function App() {
 
       <div className="max-w-screen-xl mx-auto flex gap-6 px-6">
         {/* Боковое меню */}
-        <aside className="hidden md:flex w-48 shrink-0 flex-col gap-1 py-8 sticky top-14 self-start">
-          {([["blockings", "🔒", "Блокировки"], ["sle", "🎯", "Анализ SLE"]] as const).map(([v, icon, label]) => (
-            <button key={v} onClick={() => setSection(v)}
-              className={cn(
-                "flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left",
-                section === v
-                  ? "bg-primary/15 text-primary border border-primary/30"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent"
-              )}>
-              <span className="text-base">{icon}</span> {label}
-            </button>
-          ))}
+        <aside className="hidden md:block w-52 shrink-0 py-8 sticky top-14 self-start">
+          <nav className="rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-card)]">
+            <p className="px-3 pt-1.5 pb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Разделы</p>
+            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["sle", Target, "Анализ SLE"]] as const).map(([v, Icon, label]) => {
+              const active = section === v
+              return (
+                <button key={v} onClick={() => setSection(v)}
+                  className={cn(
+                    "relative w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left mb-0.5",
+                    active
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                  )}>
+                  {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-primary" />}
+                  <Icon className="w-4 h-4 shrink-0" /> {label}
+                </button>
+              )
+            })}
+          </nav>
         </aside>
 
         <main className="flex-1 min-w-0 py-8 space-y-6">
-        {section === "sle" ? <SLEPage /> : (
+        {section === "home" ? <HomePage onGo={setSection} /> :
+         section === "sle" ? <SLEPage /> : (
         <>
         <div>
           <h1 className="text-3xl font-black tracking-tight text-foreground">Время разрешения блокировок</h1>
