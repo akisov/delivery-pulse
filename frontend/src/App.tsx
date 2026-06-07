@@ -8,6 +8,7 @@ import { SyncBar } from "@/components/SyncBar"
 import { SyncProgress } from "@/components/SyncProgress"
 import { BlockingChart } from "@/components/BlockingChart"
 import { InsightInformer } from "@/components/InsightInformer"
+import { SLEPage } from "@/components/SLEPage"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
 import { InsightsPanel } from "@/components/InsightsPanel"
@@ -47,6 +48,7 @@ export default function App() {
   const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
+  const [section, setSection] = useState<"blockings" | "sle">("blockings")
 
   const [data, setData] = useState<DashboardData | null>(null)
   const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null)
@@ -216,7 +218,25 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-screen-xl mx-auto flex gap-6 px-6">
+        {/* Боковое меню */}
+        <aside className="hidden md:flex w-48 shrink-0 flex-col gap-1 py-8 sticky top-14 self-start">
+          {([["blockings", "🔒", "Блокировки"], ["sle", "🎯", "Анализ SLE"]] as const).map(([v, icon, label]) => (
+            <button key={v} onClick={() => setSection(v)}
+              className={cn(
+                "flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left",
+                section === v
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary border border-transparent"
+              )}>
+              <span className="text-base">{icon}</span> {label}
+            </button>
+          ))}
+        </aside>
+
+        <main className="flex-1 min-w-0 py-8 space-y-6">
+        {section === "sle" ? <SLEPage /> : (
+        <>
         <div>
           <h1 className="text-3xl font-black tracking-tight text-foreground">Время разрешения блокировок</h1>
           <p className="text-sm text-muted-foreground mt-1">Длительность и причины блокировок по задачам трёх очередей</p>
@@ -391,7 +411,10 @@ export default function App() {
             )}
           </>
         )}
-      </main>
+        </>
+        )}
+        </main>
+      </div>
 
       <TaskDetailModal task={selectedTask} onClose={() => setSelectedTask(null)} />
       <TaskListModal
