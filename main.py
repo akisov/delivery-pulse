@@ -1410,12 +1410,12 @@ async def fetch_sle_tasks(which: str) -> dict:
             "subtasks": sub_out,
             "subCount": len(plist),
             "activeSubCount": len(active),
-            "hiddenBlocked": hidden_blocked,
+            "hiddenBlocked": hidden_blocked and which == "current",
         })
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 10  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 11  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:
