@@ -137,7 +137,7 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
           </div>
           <p className="text-sm text-foreground mt-1 leading-snug">{t.summary}</p>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            👤 {t.assignee} · порог P85 {t.sle ?? "—"} / P70 {t.p70 ?? "—"} дн. · подзадач {t.subCount} (активных {t.activeSubCount})
+            👤 {t.assignee} · подзадач {t.subCount} (активных {t.activeSubCount})
           </p>
 
           <div className="mt-2 flex items-start gap-2 flex-wrap">
