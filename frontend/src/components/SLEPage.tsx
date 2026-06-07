@@ -5,6 +5,7 @@ import {
 import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check, Lock, Unlock, Download, Users, Tags, Activity } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Modal } from "@/components/ui/modal"
 import { cn } from "@/lib/utils"
 
 const CLUSTER_ORDER = [
@@ -170,6 +171,60 @@ function RiskChart({ title, sub, tasks, active, onPick }: { title: string; sub: 
   )
 }
 
+// Модалка: задачи выбранного уровня риска SLE (по клику на столбец)
+function RiskTasksModal({ riskK, which, tasks, onClose }: { riskK: string | null; which: "current" | "historical"; tasks: SleTask[]; onClose: () => void }) {
+  if (!riskK) return null
+  const color = RISK_COLOR[riskK]
+  const list = tasks.filter(t => riskKey(t.sleRisk) === riskK)
+    .sort((a, b) => (b.daysInWork ?? 0) - (a.daysInWork ?? 0))
+  return (
+    <Modal open={!!riskK} onClose={onClose}
+      title={`Риск SLE: ${riskK}`}
+      subtitle={`${which === "current" ? "В работе" : "Завершённые"} · ${list.length} задач · отсортированы по дням в работе`} wide>
+      {list.length === 0 ? (
+        <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">Нет задач</div>
+      ) : (
+        <div className="space-y-2">
+          {list.map(t => (
+            <div key={t.key} className="rounded-lg border border-border bg-card px-3 py-2.5 hover:bg-accent/30 transition-colors">
+              <div className="flex items-start gap-2.5">
+                <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: color }} title={t.sleRisk} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a href={t.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+                      {t.key} <ExternalLink className="w-3 h-3" />
+                    </a>
+                    {t.daysInWork != null && (
+                      <span className="inline-flex items-center rounded-md px-1.5 py-px text-[10px] font-bold text-white"
+                        style={{ background: color }} title="Дней в работе / допустимый порог SLE (P85)">
+                        в работе {t.daysInWork}{t.sle != null ? `/${t.sle}` : ""} дн.
+                      </span>
+                    )}
+                    {t.cluster && (
+                      <span className="inline-flex items-center rounded-md px-1.5 py-px text-[10px] font-bold text-white" style={{ background: clusterColor(t.cluster) }}>
+                        {t.cluster}
+                      </span>
+                    )}
+                    {t.hiddenBlocked && (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-px text-[10px] font-bold text-amber-500" title="Есть подзадачи, но активных нет — работа не спланирована">
+                        <EyeOff className="w-3 h-3" /> скрытая блокировка
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-foreground mt-1 leading-snug">{t.summary}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                    <Avatar name={t.assignee} size={14} /> {t.assignee} · подзадач {t.subCount} (активных {t.activeSubCount})
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 function AttentionRow({ t }: { t: SleTask }) {
   return (
     <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-card px-3 py-2 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-500/40 hover:shadow-[0_6px_20px_rgba(245,158,11,0.15)]">
@@ -303,7 +358,7 @@ export function SLEPage() {
   const [filter, setFilter] = useState<string | null>(null)
   const [groupBy, setGroupBy] = useState<"cluster" | "risk">("cluster")
   const [assignee, setAssignee] = useState<string>("")
-  const [riskFilter, setRiskFilter] = useState<string | null>(null)
+  const [riskModal, setRiskModal] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
 
   const load = (refresh = false) => {
@@ -326,7 +381,7 @@ export function SLEPage() {
     if (!data) return []
     // только кластеризованные (рисковые) задачи — низкий риск и умеренный без блокеров не показываем
     const tasks = data.tasks.filter(t => t.cluster && (!filter || t.cluster === filter)
-      && (!assignee || t.assignee === assignee) && (!riskFilter || riskKey(t.sleRisk) === riskFilter))
+      && (!assignee || t.assignee === assignee))
     const g: Record<string, SleTask[]> = {}
     const byRisk = (a: SleTask, b: SleTask) => riskRank(a.sleRisk) - riskRank(b.sleRisk)
     if (groupBy === "risk") {
@@ -339,7 +394,7 @@ export function SLEPage() {
     return CLUSTER_ORDER.filter(c => g[c]?.length).map(c => ({
       key: c, label: c, color: clusterColor(c), tasks: g[c].sort(byRisk),
     }))
-  }, [data, groupBy, filter, assignee, riskFilter])
+  }, [data, groupBy, filter, assignee])
 
   // список исполнителей (по рисковым задачам)
   const assignees = useMemo(() => {
@@ -405,7 +460,7 @@ export function SLEPage() {
         <div className="flex items-center gap-2">
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
             {([["current", "Текущая"], ["historical", "История"]] as const).map(([v, label]) => (
-              <button key={v} onClick={() => { setWhich(v); setFilter(null); setRiskFilter(null); setAssignee(""); setExpanded(false) }}
+              <button key={v} onClick={() => { setWhich(v); setFilter(null); setRiskModal(null); setAssignee(""); setExpanded(false) }}
                 className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
                   which === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
                 {label}
@@ -448,8 +503,7 @@ export function SLEPage() {
           title={which === "historical" ? "📉 Попадание в SLE (история)" : "⚡ Риск по SLE (в работе)"}
           sub={which === "historical" ? "Завершённые задачи по уровню риска SLE" : "Задачи в работе по уровню риска SLE"}
           tasks={data.tasks}
-          active={riskFilter}
-          onPick={k => setRiskFilter(f => f === k ? null : k)}
+          onPick={k => setRiskModal(k)}
         />
       ) : <Skeleton className="h-56 rounded-xl" />}
 
@@ -580,13 +634,8 @@ export function SLEPage() {
           </div>
 
           {/* Активные фильтры */}
-          {(riskFilter || assignee) && (
+          {assignee && (
             <div className="flex items-center gap-2 flex-wrap -mt-2">
-              {riskFilter && (
-                <button onClick={() => setRiskFilter(null)} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground hover:border-primary/50">
-                  <span className="w-2 h-2 rounded-full" style={{ background: RISK_COLOR[riskFilter] }} /> риск: {riskFilter} <X className="w-3 h-3 text-muted-foreground" />
-                </button>
-              )}
               {assignee && (
                 <button onClick={() => setAssignee("")} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground hover:border-primary/50">
                   <Avatar name={assignee} size={14} /> {assignee} <X className="w-3 h-3 text-muted-foreground" />
@@ -630,6 +679,11 @@ export function SLEPage() {
             )
           })()}
         </>
+      )}
+
+      {/* Модалка со списком задач по выбранному уровню риска */}
+      {data && (
+        <RiskTasksModal riskK={riskModal} which={which} tasks={data.tasks} onClose={() => setRiskModal(null)} />
       )}
     </div>
   )
