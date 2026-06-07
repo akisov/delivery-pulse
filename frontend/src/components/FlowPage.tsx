@@ -17,33 +17,51 @@ const DISC = "#EAB308" // Исследования (жёлтый, как в уч
 const DELI = "#10B981" // В работе (зелёный)
 const PERSON_LIMIT = 5
 
-function byAssignee(tasks: FlowTask[]) {
-  const m: Record<string, number> = {}
-  tasks.forEach(t => { m[t.assignee] = (m[t.assignee] || 0) + 1 })
-  return Object.entries(m).map(([a, count]) => ({ a, count })).sort((x, y) => y.count - x.count)
+function byAssignee(tasks: FlowTask[], oldThreshold: number) {
+  const m: Record<string, { count: number; old: boolean; maxDays: number }> = {}
+  tasks.forEach(t => {
+    const r = (m[t.assignee] ||= { count: 0, old: false, maxDays: 0 })
+    r.count++
+    r.maxDays = Math.max(r.maxDays, t.days)
+    if (t.days >= oldThreshold) r.old = true
+  })
+  return Object.entries(m).map(([name, v]) => {
+    const over = v.count > PERSON_LIMIT
+    const critical = over && v.old
+    return { name, count: v.count, maxDays: v.maxDays, over, critical, a: (critical ? "🔥 " : "") + name }
+  }).sort((x, y) => y.count - x.count)
 }
 
-function AssigneeChart({ title, emoji, color, tasks }: { title: string; emoji: string; color: string; tasks: FlowTask[] }) {
-  const data = byAssignee(tasks)
-  const over = data.filter(d => d.count > PERSON_LIMIT).length
+function AssigneeChart({ title, emoji, color, tasks, oldThreshold }: { title: string; emoji: string; color: string; tasks: FlowTask[]; oldThreshold: number }) {
+  const data = byAssignee(tasks, oldThreshold)
+  const critical = data.filter(d => d.critical).length
+  const over = data.filter(d => d.over && !d.critical).length
   return (
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardHeader className="pb-1">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-1">
           <CardTitle>{emoji} {title}</CardTitle>
-          {over > 0 && <span className="text-xs font-semibold text-destructive">⚠️ {over} перегружено</span>}
+          <span className="text-xs font-semibold">
+            {critical > 0 && <span className="text-destructive">🔥 {critical} перегруз+старая</span>}
+            {critical > 0 && over > 0 && <span className="text-muted-foreground"> · </span>}
+            {over > 0 && <span className="text-orange-500">{over} перегруз</span>}
+          </span>
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">Задач на продакте · красным — больше {PERSON_LIMIT}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Задач на продакте · 🔥 = больше {PERSON_LIMIT} и есть задача старше P90 ({oldThreshold} дн.)</p>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={Math.max(120, data.length * 32 + 16)}>
           <BarChart data={data} layout="vertical" margin={{ top: 2, right: 32, left: 4, bottom: 2 }} barSize={16}>
             <XAxis type="number" hide />
-            <YAxis type="category" dataKey="a" width={150} tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="a" width={160} tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
             <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
-              contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
+              content={({ active, payload }: any) => active && payload?.length
+                ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl">
+                    <b>{payload[0].payload.name}</b>: {payload[0].payload.count} задач · старейшая {payload[0].payload.maxDays} дн.
+                    {payload[0].payload.critical && <div className="text-destructive">перегруз + старая задача</div>}
+                  </div> : null} />
             <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-              {data.map(d => <Cell key={d.a} fill={d.count > PERSON_LIMIT ? "#EF4444" : color} />)}
+              {data.map(d => <Cell key={d.a} fill={d.critical ? "#B91C1C" : d.over ? "#F97316" : color} />)}
               <LabelList dataKey="count" position="right" style={{ fontSize: 11, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
             </Bar>
           </BarChart>
@@ -151,8 +169,8 @@ export function FlowPage() {
 
           {/* Загрузка по продактам */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <AssigneeChart title="Discovery — по продактам" emoji="🔬" color={DISC} tasks={data.discovery.tasks} />
-            <AssigneeChart title="Delivery — по продактам" emoji="🚀" color={DELI} tasks={data.delivery.tasks} />
+            <AssigneeChart title="Discovery — по продактам" emoji="🔬" color={DISC} tasks={data.discovery.tasks} oldThreshold={data.discovery.p90} />
+            <AssigneeChart title="Delivery — по продактам" emoji="🚀" color={DELI} tasks={data.delivery.tasks} oldThreshold={data.delivery.p90} />
           </div>
 
           {/* Тренд P90 по неделям */}
