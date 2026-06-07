@@ -1669,8 +1669,9 @@ async def sle_override(key: str = Query(...), cluster: str = Query("")):
 
 FLOW_DISCOVERY_QUERY = "Queue: PUTKURERA Status: proverkaIdej, podtverzdenieBoli, confirmed"
 FLOW_DELIVERY_QUERY  = "Type: newFeature Queue: PUTKURERA Status: inProgress"
-WIP_DISCOVERY, WIP_DELIVERY = 25, 20
-FLOW_TARGET = 60  # целевой WIP Age (красная линия)
+WIP_DISCOVERY = int(os.environ.get("WIP_DISCOVERY", "25"))
+WIP_DELIVERY  = int(os.environ.get("WIP_DELIVERY", "20"))
+FLOW_TARGET   = int(os.environ.get("FLOW_TARGET", "60"))  # целевой WIP Age (красная линия)
 
 # Историческая динамика WIP Age (из ручного учёта) — стартовая линия тренда
 SEED_FLOW_HISTORY = [
@@ -1731,14 +1732,15 @@ async def flow_metrics():
     today = date.today().isoformat()
     rows = []
     try:
-        res = await turso_execute([stmt("SELECT week, discovery_p90, delivery_p90, saved_at FROM flow_snapshot ORDER BY saved_at")])
+        res = await turso_execute([stmt("SELECT week, discovery_p90, discovery_count, delivery_p90, delivery_count, saved_at FROM flow_snapshot ORDER BY saved_at")])
         rows = rows_to_dicts(res[0]) if res else []
         if not any(r["week"] == week for r in rows):
             await turso_execute([stmt(
                 "INSERT INTO flow_snapshot(week,discovery_p90,discovery_count,delivery_p90,delivery_count,saved_at) "
                 "VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(week) DO NOTHING",
                 [week, discovery["p90"], discovery["count"], delivery["p90"], delivery["count"]])])
-            rows.append({"week": week, "discovery_p90": discovery["p90"], "delivery_p90": delivery["p90"], "saved_at": today})
+            rows.append({"week": week, "discovery_p90": discovery["p90"], "discovery_count": discovery["count"],
+                         "delivery_p90": delivery["p90"], "delivery_count": delivery["count"], "saved_at": today})
     except Exception as e:
         print(f"[flow-snapshot] {e}")
 
@@ -1753,7 +1755,8 @@ async def flow_metrics():
         points[dt] = {"discoveryP90": dp, "deliveryP90": vp}
     for r in rows:
         dt = (r.get("saved_at") or "")[:10] or today
-        points[dt] = {"discoveryP90": r.get("discovery_p90"), "deliveryP90": r.get("delivery_p90")}
+        points[dt] = {"discoveryP90": r.get("discovery_p90"), "deliveryP90": r.get("delivery_p90"),
+                      "discoveryCount": r.get("discovery_count"), "deliveryCount": r.get("delivery_count")}
     history = [{"date": dt, "label": _short(dt), **v} for dt, v in sorted(points.items())]
 
     return JSONResponse({"ok": True, "discovery": discovery, "delivery": delivery,

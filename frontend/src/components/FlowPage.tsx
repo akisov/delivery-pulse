@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 
 interface FlowTask { key: string; summary: string; assignee: string; status: string; url: string; days: number; sleRisk: string }
 interface Stream { count: number; p90: number; limit: number; overLimit: boolean; top: FlowTask[] }
-interface Hist { date: string; label: string; discoveryP90: number; deliveryP90: number }
+interface Hist { date: string; label: string; discoveryP90: number; deliveryP90: number; discoveryCount?: number | null; deliveryCount?: number | null }
 interface Resp {
   ok: boolean; error?: string; discovery: Stream; delivery: Stream
   sleBreakdown: Record<string, number>; week: string; target?: number; history: Hist[]
@@ -138,6 +138,36 @@ export function FlowPage() {
           {data.history.length <= 1 && (
             <p className="text-xs text-muted-foreground">📈 Тренд по неделям появится после нескольких недель сбора (снимок сохраняется раз в неделю).</p>
           )}
+
+          {/* Тренд количества в потоке */}
+          {(() => {
+            const cnt = data.history.filter(h => h.discoveryCount != null || h.deliveryCount != null)
+            if (cnt.length < 2)
+              return <p className="text-xs text-muted-foreground">📊 Тренд количества задач в потоке начнёт строиться с этой недели (исторических чисел нет).</p>
+            return (
+              <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
+                <CardHeader className="pb-1">
+                  <CardTitle>📊 Кол-во задач в потоке по неделям</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">Пунктир — WIP-лимиты ({data.discovery.limit} / {data.delivery.limit})</p>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <LineChart data={cnt} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+                      <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <ReferenceLine y={data.discovery.limit} stroke={DISC} strokeDasharray="4 4" />
+                      <ReferenceLine y={data.delivery.limit} stroke={DELI} strokeDasharray="4 4" />
+                      <Line type="monotone" dataKey="discoveryCount" name="Исследования" stroke={DISC} strokeWidth={2.5} dot={{ r: 2.5 }} connectNulls={false} />
+                      <Line type="monotone" dataKey="deliveryCount" name="В работе" stroke={DELI} strokeWidth={2.5} dot={{ r: 2.5 }} connectNulls={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )
+          })()}
         </>
       )}
     </div>
