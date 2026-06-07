@@ -1,11 +1,9 @@
-import { Lock, Target, Sparkles, BarChart3, Layers, ExternalLink } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Layers } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Props {
-  onGo: (section: "blockings" | "sle") => void
+  onGo: (section: "blockings" | "sle" | "arch") => void
 }
-
-const ARCH_URL = "https://akisov-arch-committee.hf.space"
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
   {
@@ -89,24 +87,22 @@ export function HomePage({ onGo }: Props) {
           </button>
         ))}
 
-        {/* Внешний дашборд — Арх. комитет (отдельный Space) */}
-        <a href={ARCH_URL} target="_blank" rel="noopener noreferrer"
+        {/* Арх. комитет (встроен в раздел) */}
+        <button onClick={() => onGo("arch")}
           className="group text-left rounded-2xl border border-border bg-card p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_8px_30px_rgba(108,99,255,0.15)]">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: "#F59E0B22" }}>
               <Layers className="h-5 w-5" style={{ color: "#F59E0B" }} />
             </div>
-            <h3 className="text-lg font-black text-foreground flex items-center gap-1.5">
-              Арх. комитет <ExternalLink className="w-4 h-4 text-muted-foreground" />
-            </h3>
+            <h3 className="text-lg font-black text-foreground">Арх. комитет</h3>
           </div>
           <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
-            Аналитика отсечек архитектурного комитета — отдельный дашборд.
+            Аналитика отсечек архитектурного комитета — встроенный дашборд.
           </p>
           <span className="mt-3 inline-block text-xs font-semibold text-primary opacity-0 transition-opacity group-hover:opacity-100">
-            Открыть в новой вкладке →
+            Открыть →
           </span>
-        </a>
+        </button>
       </div>
 
       {/* Релиз-ноты */}
