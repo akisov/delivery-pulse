@@ -1361,18 +1361,16 @@ async def fetch_sle_tasks(which: str) -> dict:
         # сигналы риска значимы только для ТЕКУЩИХ задач (in-progress) при умеренном+ риске;
         # на истории «нет активных подзадач» — это норма (задача завершена), не сигнал.
         risk_level = _risk_level(_field(p, "--sleRisk") or "")
-        at_risk = which == "current" and risk_level in ("нарушен", "высокий", "умеренный")
+        is_current = which == "current"
+        at_risk = is_current and risk_level in ("нарушен", "высокий", "умеренный")
         signals = []
-        # Правило 2: блок висит в активной подзадаче
-        if blocked_subs:
+        # Блок в активной подзадаче — сигнал при риске умеренный+
+        if blocked_subs and at_risk:
             signals.append("Блок висит в подзадаче: " + ", ".join(blocked_subs))
-        # Правило 1: по НВ фактически никто не работает (нет активных подзадач)
-        if len(plist) == 0:
-            signals.append("Нет связанных подзадач — работа не заведена")
-        elif len(active) == 0:
-            signals.append("По задаче никто не работает: нет активных подзадач (все завершены или в беклоге)")
-        # если есть активные подзадачи и нет блоков — это нормальная работа, не триггерим
-        needs_attention = at_risk and len(signals) > 0
+        # Нет активных подзадач (скрытая блокировка) — как в n8n, при ЛЮБОМ риске
+        if is_current and len(plist) > 0 and len(active) == 0:
+            signals.append("Нет активных подзадач — по задаче сейчас никто не работает")
+        needs_attention = is_current and len(signals) > 0
         # кластеризуем только реально рисковые: нарушен/высокий, либо умеренный с блокерами.
         # низкий и умеренный без блокеров — ещё ничего не нарушено, кластер не присваиваем.
         any_block = bool(blocked_subs) or any(sub_blockings.get(s.get("key")) for s in plist) \
@@ -1386,7 +1384,7 @@ async def fetch_sle_tasks(which: str) -> dict:
         tasks.append({
             "riskLevel": risk_level,
             "clusterable": clusterable,
-            "riskSignals": signals if at_risk else [],
+            "riskSignals": signals,
             "needsAttention": needs_attention,
             "blockedSubs": blocked_subs,
             "blockedDetails": blocked_details if at_risk else [],
@@ -1415,7 +1413,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 11  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 12  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:

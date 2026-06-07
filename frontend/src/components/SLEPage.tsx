@@ -90,6 +90,58 @@ function riskCounts(tasks: { sleRisk: string }[]) {
   return RISK_ORDER.map(k => ({ key: k, name: k, count: c[k], fill: RISK_COLOR[k] }))
 }
 
+// Аватар-инициалы исполнителя
+function initials(name: string) {
+  const p = name.trim().split(/\s+/)
+  return ((p[0]?.[0] || "") + (p[1]?.[0] || "")).toUpperCase()
+}
+function avatarColor(name: string) {
+  let h = 0
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return `hsl(${h % 360}, 58%, 52%)`
+}
+function Avatar({ name, size = 20 }: { name: string; size?: number }) {
+  return (
+    <span className="flex items-center justify-center rounded-full font-bold text-white shrink-0"
+      style={{ width: size, height: size, fontSize: size * 0.42, background: avatarColor(name) }}>
+      {initials(name)}
+    </span>
+  )
+}
+
+function AssigneeSelect({ value, options, onPick }: { value: string; options: string[]; onPick: (a: string) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 h-9 text-xs text-foreground max-w-[220px] hover:border-primary/50 transition-colors">
+        {value ? <Avatar name={value} /> : <Users className="w-3.5 h-3.5 text-muted-foreground" />}
+        <span className="truncate">{value || "Все исполнители"}</span>
+        <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute z-20 mt-1 w-64 max-h-72 overflow-auto rounded-xl border border-border bg-card p-1 shadow-2xl">
+            <button onClick={() => { onPick(""); setOpen(false) }}
+              className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-left text-foreground hover:bg-secondary transition-colors">
+              <Users className="w-4 h-4 text-muted-foreground" /> <span className="flex-1">Все исполнители</span>
+              {!value && <Check className="w-3.5 h-3.5 text-primary" />}
+            </button>
+            {options.map(a => (
+              <button key={a} onClick={() => { onPick(a); setOpen(false) }}
+                className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-left text-foreground hover:bg-secondary transition-colors">
+                <Avatar name={a} /> <span className="flex-1 truncate">{a}</span>
+                {value === a && <Check className="w-3.5 h-3.5 text-primary" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function RiskChart({ title, sub, tasks, active, onPick }: { title: string; sub: string; tasks: { sleRisk: string }[]; active?: string | null; onPick?: (k: string) => void }) {
   const data = riskCounts(tasks)
   return (
@@ -144,8 +196,8 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
             )}
           </div>
           <p className="text-sm text-foreground mt-1 leading-snug">{t.summary}</p>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            👤 {t.assignee} · подзадач {t.subCount} (активных {t.activeSubCount})
+          <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+            <Avatar name={t.assignee} size={14} /> {t.assignee} · подзадач {t.subCount} (активных {t.activeSubCount})
           </p>
 
           <div className="mt-2 flex items-start gap-2 flex-wrap">
@@ -408,10 +460,10 @@ export function SLEPage() {
         <Card className="border-amber-500/40 bg-amber-500/[0.06] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(245,158,11,0.18)]">
           <CardHeader className="pb-2">
             <CardTitle className="text-amber-600 dark:text-amber-400">
-              ⚠️ Требуют действий сейчас — {attentionTasks.length} из {stats?.risky ?? attentionTasks.length} рисковых
+              ⚠️ Требуют действий сейчас — {attentionTasks.length}
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Висит открытый блок в активной подзадаче или работа не спланирована (нет активных подзадач)
+              Нет активных подзадач (никто не работает) или висит открытый блок в активной подзадаче — при любом риске SLE
             </p>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -499,14 +551,7 @@ export function SLEPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {/* Фильтр по исполнителю */}
-              <div className="relative">
-                <Users className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                <select value={assignee} onChange={e => { setAssignee(e.target.value); setExpanded(false) }}
-                  className="rounded-lg border border-border bg-card text-xs pl-8 pr-2 h-9 text-foreground max-w-[200px]">
-                  <option value="">Все исполнители</option>
-                  {assignees.map(a => <option key={a} value={a}>{a}</option>)}
-                </select>
-              </div>
+              <AssigneeSelect value={assignee} options={assignees} onPick={a => { setAssignee(a); setExpanded(false) }} />
               <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
                 {([["cluster", "По причинам", Tags], ["risk", "По риску SLE", Activity]] as const).map(([v, label, Icon]) => (
                   <button key={v} onClick={() => setGroupBy(v)}
@@ -532,8 +577,8 @@ export function SLEPage() {
                 </button>
               )}
               {assignee && (
-                <button onClick={() => setAssignee("")} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground hover:border-primary/50">
-                  <Users className="w-3 h-3" /> {assignee} <X className="w-3 h-3 text-muted-foreground" />
+                <button onClick={() => setAssignee("")} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground hover:border-primary/50">
+                  <Avatar name={assignee} size={14} /> {assignee} <X className="w-3 h-3 text-muted-foreground" />
                 </button>
               )}
             </div>
