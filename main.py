@@ -1715,6 +1715,7 @@ def _flow_pack(issues: list, hint: str, limit: int) -> dict:
             "status": (t.get("status") or {}).get("display", ""),
             "url": f"https://tracker.yandex.ru/{t.get('key')}",
             "days": _flow_days(t, hint),
+            "statusKey": (t.get("status") or {}).get("key", ""),
             "sleRisk": _field(t, "--sleRisk") or "",
         })
     items.sort(key=lambda x: x["days"], reverse=True)

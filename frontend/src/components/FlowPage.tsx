@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { cn } from "@/lib/utils"
 
-interface FlowTask { key: string; summary: string; assignee: string; status: string; url: string; days: number; sleRisk: string }
+interface FlowTask { key: string; summary: string; assignee: string; status?: string; statusKey: string; url: string; days: number; sleRisk: string }
 interface Stream { count: number; p90: number; limit: number; overLimit: boolean; top: FlowTask[]; tasks: FlowTask[] }
 interface Hist { date: string; label: string; discoveryP90: number; deliveryP90: number; discoveryCount?: number | null; deliveryCount?: number | null }
 interface Resp {
@@ -17,28 +17,69 @@ interface Resp {
 const DISC = "#EAB308" // Исследования (жёлтый, как в учётной таблице)
 const DELI = "#10B981" // В работе (зелёный)
 const PERSON_LIMIT = 5
+// статусы Discovery — по statusKey (надёжно), цвета как на графике
 const DISC_STATUSES = [
-  { key: "Проверка идей", color: "#38BDF8" },
-  { key: "Подтверждение боли", color: "#FB923C" },
-  { key: "Подтверждено", color: "#4ADE80" },
+  { key: "proverkaIdej", label: "Проверка идей", color: "#38BDF8" },
+  { key: "podtverzdenieBoli", label: "Подтверждение боли", color: "#FB923C" },
+  { key: "confirmed", label: "Подтверждено", color: "#4ADE80" },
 ]
+const STATUS_COLOR: Record<string, string> = Object.fromEntries(DISC_STATUSES.map(s => [s.key, s.color]))
 
-interface ProdRow { name: string; a: string; count: number; maxDays: number; old: boolean; over: boolean; critical: boolean; tasks: FlowTask[]; [k: string]: any }
+function shortName(n: string) {
+  const p = n.trim().split(/\s+/)
+  return p.length >= 3 ? `${p[0]} ${p[p.length - 1]}` : n // убираем отчество
+}
+function initials(n: string) {
+  const p = shortName(n).split(/\s+/)
+  return ((p[0]?.[0] || "") + (p[1]?.[0] || "")).toUpperCase()
+}
+function avatarColor(n: string) {
+  let h = 0; for (const c of n) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return `hsl(${h % 360}, 55%, 52%)`
+}
+
+interface ProdRow { name: string; short: string; count: number; maxDays: number; old: boolean; over: boolean; critical: boolean; tasks: FlowTask[]; [k: string]: any }
 
 function aggProducts(tasks: FlowTask[], oldThreshold: number, highlight: boolean): ProdRow[] {
   const m: Record<string, any> = {}
   tasks.forEach(t => {
     const name = (t.assignee && t.assignee !== "—") ? t.assignee : "Без исполнителя"
-    const r = (m[name] ||= { name, count: 0, old: false, maxDays: 0, tasks: [], "Проверка идей": 0, "Подтверждение боли": 0, "Подтверждено": 0 })
+    const r = (m[name] ||= { name, count: 0, old: false, maxDays: 0, tasks: [], proverkaIdej: 0, podtverzdenieBoli: 0, confirmed: 0 })
     r.count++; r.tasks.push(t); r.maxDays = Math.max(r.maxDays, t.days)
     if (t.days >= oldThreshold) r.old = true
-    if (r[t.status] !== undefined) r[t.status]++
+    if (r[t.statusKey] !== undefined) r[t.statusKey]++
   })
   return Object.values(m).map((r: any) => {
     const over = highlight && r.count > PERSON_LIMIT
-    const critical = over && r.old
-    return { ...r, over, critical, a: (critical ? "🔥 " : over ? "⚠️ " : "") + r.name }
+    return { ...r, over, critical: over && r.old, short: shortName(r.name) }
   }).sort((x, y) => y.count - x.count)
+}
+
+// тик оси: аватар + короткое имя + маркер перегруза
+function ProductTick(rows: ProdRow[]) {
+  return ({ x, y, index }: any) => {
+    const r = rows[index]; if (!r) return null
+    return (
+      <foreignObject x={x - 168} y={y - 11} width={164} height={22}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5, height: 22 }}>
+          {r.critical ? <span>🔥</span> : r.over ? <span>⚠️</span> : null}
+          <span style={{ width: 18, height: 18, borderRadius: 9, background: avatarColor(r.name), color: "#fff",
+            fontSize: 8, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {initials(r.name)}
+          </span>
+          <span style={{ fontSize: 11, color: "hsl(var(--foreground))", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.short}</span>
+        </div>
+      </foreignObject>
+    )
+  }
+}
+
+// скругление правого края только у последнего ненулевого сегмента
+function RoundedRight(props: any) {
+  const { x, y, width, height, fill, isLast } = props
+  if (!width || width <= 0 || !height || height <= 0) return null
+  const r = isLast ? 4 : 0
+  return <path d={`M${x},${y} h${width - r} a${r},${r} 0 0 1 ${r},${r} v${height - 2 * r} a${r},${r} 0 0 1 -${r},${r} H${x} Z`} fill={fill} />
 }
 
 function ProductChart({ title, emoji, color, tasks, oldThreshold, stacked, highlight, onPick }: {
@@ -67,10 +108,10 @@ function ProductChart({ title, emoji, color, tasks, oldThreshold, stacked, highl
         </p>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={Math.max(120, data.length * 34 + 16)}>
-          <BarChart data={data} layout="vertical" margin={{ top: 2, right: 32, left: 4, bottom: 2 }} barSize={16}>
+        <ResponsiveContainer width="100%" height={Math.max(130, data.length * 36 + (stacked ? 40 : 16))}>
+          <BarChart data={data} layout="vertical" margin={{ top: 2, right: 36, left: 4, bottom: 2 }} barSize={16}>
             <XAxis type="number" hide />
-            <YAxis type="category" dataKey="a" width={165} tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="short" width={172} tickLine={false} axisLine={false} tick={ProductTick(data)} interval={0} />
             <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
               content={({ active, payload }: any) => active && payload?.length
                 ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl">
@@ -80,13 +121,17 @@ function ProductChart({ title, emoji, color, tasks, oldThreshold, stacked, highl
                   </div> : null} />
             {stacked
               ? DISC_STATUSES.map((s, i) => (
-                  <Bar key={s.key} dataKey={s.key} stackId="a" fill={s.color} style={{ cursor: "pointer" }}
-                    radius={i === DISC_STATUSES.length - 1 ? [0, 4, 4, 0] : 0}
-                    onClick={(d: any) => onPick(d?.tasks ? d : d?.payload)} />
+                  <Bar key={s.key} dataKey={s.key} stackId="a" fill={s.color} name={s.label} style={{ cursor: "pointer" }}
+                    onClick={(d: any) => onPick(d?.tasks ? d : d?.payload)}
+                    shape={(p: any) => {
+                      const row = p.payload || {}
+                      const isLast = DISC_STATUSES.slice(i + 1).every(st => !row[st.key])
+                      return <RoundedRight {...p} isLast={isLast} />
+                    }} />
                 ))
               : (
                 <Bar dataKey="count" radius={[0, 4, 4, 0]} style={{ cursor: "pointer" }} onClick={(d: any) => onPick(d?.tasks ? d : d?.payload)}>
-                  {data.map(d => <Cell key={d.a} fill={d.critical ? "#B91C1C" : d.over ? "#F97316" : color} />)}
+                  {data.map(d => <Cell key={d.name} fill={d.critical ? "#B91C1C" : d.over ? "#F97316" : color} />)}
                   <LabelList dataKey="count" position="right" style={{ fontSize: 11, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
                 </Bar>
               )}
@@ -98,19 +143,31 @@ function ProductChart({ title, emoji, color, tasks, oldThreshold, stacked, highl
   )
 }
 
+const RISK_DOT: Record<string, string> = { "нарушен": "#EF4444", "высок": "#F97316", "умерен": "#EAB308", "низк": "#10B981" }
+function riskColor(r: string) {
+  const s = (r || "").toLowerCase()
+  return Object.entries(RISK_DOT).find(([k]) => s.includes(k))?.[1] || "#94A3B8"
+}
+
 function ProductModal({ row, onClose }: { row: ProdRow | null; onClose: () => void }) {
   if (!row) return null
   const tasks = [...row.tasks].sort((a, b) => b.days - a.days)
   return (
-    <Modal open={!!row} onClose={onClose} title={row.name} subtitle={`${tasks.length} задач в потоке`} wide>
+    <Modal open={!!row} onClose={onClose} title={shortName(row.name)} subtitle={`${tasks.length} задач в потоке`} wide>
       <div className="rounded-xl border border-border overflow-hidden">
         {tasks.map(t => (
           <div key={t.key} className="border-b border-border last:border-0 px-4 py-2.5 flex items-center gap-3 hover:bg-accent/30 transition-colors">
+            {t.sleRisk && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: riskColor(t.sleRisk) }} title={t.sleRisk} />}
             <a href={t.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline flex items-center gap-1 shrink-0">
               {t.key} <ExternalLink className="w-3 h-3" />
             </a>
             <span className="text-xs text-muted-foreground truncate flex-1">{t.summary}</span>
-            <span className="text-[11px] text-muted-foreground shrink-0">{t.status}</span>
+            {t.status && (
+              <span className="text-[10px] font-semibold rounded-md px-1.5 py-0.5 shrink-0"
+                style={{ background: `${STATUS_COLOR[t.statusKey] || "#94A3B8"}22`, color: STATUS_COLOR[t.statusKey] || "#94A3B8" }}>
+                {t.status}
+              </span>
+            )}
             <span className="text-sm font-black text-foreground shrink-0">{t.days} <span className="text-[10px] font-normal text-muted-foreground">дн.</span></span>
           </div>
         ))}
