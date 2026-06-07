@@ -1335,7 +1335,7 @@ async def fetch_sle_tasks(which: str) -> dict:
         plist = subs_by_parent.get(pk, [])
         active = [s for s in plist if (s.get("status") or {}).get("key") not in SLE_DONE_SUB]
         hidden_blocked = len(plist) > 0 and len(active) == 0
-        sub_out, blocked_subs = [], []
+        sub_out, blocked_subs, blocked_details = [], [], []
         for s in plist:
             sk = s.get("key")
             s_active = (s.get("status") or {}).get("key") not in SLE_DONE_SUB
@@ -1344,6 +1344,9 @@ async def fetch_sle_tasks(which: str) -> dict:
             has_active_block = s_active and any((b.get("status") or "") != "closed" for b in blks)
             if has_active_block:
                 blocked_subs.append(sk)
+                reasons = [b.get("reason") for b in blks if (b.get("status") or "") != "closed" and b.get("reason")]
+                blocked_details.append({"key": sk, "url": f"https://tracker.yandex.ru/{sk}",
+                                        "reason": "; ".join(reasons) or "Причина не указана"})
             sub_out.append({
                 "key": sk,
                 "summary": s.get("summary", "—"),
@@ -1375,6 +1378,7 @@ async def fetch_sle_tasks(which: str) -> dict:
             "riskSignals": signals if at_risk else [],
             "needsAttention": needs_attention,
             "blockedSubs": blocked_subs,
+            "blockedDetails": blocked_details if at_risk else [],
             "key": pk,
             "summary": p.get("summary", "—"),
             "url": f"https://tracker.yandex.ru/{pk}",
@@ -1400,7 +1404,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 5  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 6  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:

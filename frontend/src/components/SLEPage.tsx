@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, Tooltip,
 } from "recharts"
-import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, Pencil, EyeOff, X } from "lucide-react"
+import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -36,6 +36,41 @@ interface SleTask {
   subtasks: Sub[]; cluster: string | null; clusterReason: string | null
   aiCluster?: string | null; overridden?: boolean; source?: string
   riskSignals?: string[]; needsAttention?: boolean
+  blockedDetails?: { key: string; url: string; reason: string }[]
+}
+
+// Цветной дропдаун выбора кластера
+function ClusterSelect({ value, options, onPick }: { value: string | null; options: string[]; onPick: (c: string) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-bold text-white shadow-sm transition-transform hover:scale-[1.03]"
+        style={{ background: clusterColor(value) }} title="Изменить кластер">
+        {value || "—"} <ChevronDown className="w-3 h-3 opacity-80" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute z-20 mt-1 w-60 rounded-xl border border-border bg-card p-1 shadow-2xl">
+            {options.map(o => (
+              <button key={o} onClick={() => { onPick(o); setOpen(false) }}
+                className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-left text-foreground hover:bg-secondary transition-colors">
+                <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: clusterColor(o) }} />
+                <span className="flex-1">{o}</span>
+                {value === o && <Check className="w-3.5 h-3.5 text-primary" />}
+              </button>
+            ))}
+            <div className="my-1 h-px bg-border" />
+            <button onClick={() => { onPick(""); setOpen(false) }}
+              className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-left text-muted-foreground hover:bg-secondary transition-colors">
+              <RefreshCw className="w-3 h-3" /> Сбросить к AI
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 interface Resp {
   ok: boolean; error?: string; which: string; count: number
@@ -52,7 +87,7 @@ function riskCounts(tasks: { sleRisk: string }[]) {
 function RiskChart({ title, sub, tasks }: { title: string; sub: string; tasks: { sleRisk: string }[] }) {
   const data = riskCounts(tasks)
   return (
-    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardHeader className="pb-1">
         <div className="flex items-center justify-between">
           <CardTitle>{title}</CardTitle>
@@ -78,9 +113,8 @@ function RiskChart({ title, sub, tasks }: { title: string; sub: string; tasks: {
 
 function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; onOverride: (key: string, cluster: string) => void }) {
   const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState(false)
   return (
-    <div className="rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/30">
+    <div className="rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <div className="flex items-start gap-3">
         <span className="mt-1 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: RISK_COLOR[riskKey(t.sleRisk)] }} title={t.sleRisk} />
         <div className="flex-1 min-w-0">
@@ -102,21 +136,7 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
           </p>
 
           <div className="mt-2 flex items-start gap-2 flex-wrap">
-            {!editing ? (
-              <button onClick={() => setEditing(true)}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-bold text-white"
-                style={{ background: clusterColor(t.cluster) }} title="Изменить кластер">
-                {t.cluster || "—"} <Pencil className="w-3 h-3 opacity-80" />
-              </button>
-            ) : (
-              <select autoFocus defaultValue={t.cluster || ""}
-                onChange={e => { onOverride(t.key, e.target.value); setEditing(false) }}
-                onBlur={() => setEditing(false)}
-                className="rounded-md border border-border bg-card text-xs px-2 py-1 text-foreground">
-                {options.map(o => <option key={o} value={o}>{o}</option>)}
-                <option value="">↺ Сбросить к AI</option>
-              </select>
-            )}
+            <ClusterSelect value={t.cluster} options={options} onPick={c => onOverride(t.key, c)} />
             {t.source === "override" && <span className="text-[10px] text-muted-foreground self-center">правка вручную{t.aiCluster ? ` (AI: ${t.aiCluster})` : ""}</span>}
             {t.source === "seed" && <span className="text-[10px] text-emerald-500 self-center">ручная разметка</span>}
           </div>
@@ -245,7 +265,7 @@ export function SLEPage() {
 
       {/* Требуют внимания — самый заметный блок */}
       {data && attentionTasks.length > 0 && (
-        <Card className="border-amber-500/40 bg-amber-500/[0.06]">
+        <Card className="border-amber-500/40 bg-amber-500/[0.06] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(245,158,11,0.18)]">
           <CardHeader className="pb-2">
             <CardTitle className="text-amber-600 dark:text-amber-400">
               ⚠️ Требуют внимания — {attentionTasks.length}
@@ -256,7 +276,7 @@ export function SLEPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {attentionTasks.map(t => (
-              <div key={t.key} className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-card px-3 py-2">
+              <div key={t.key} className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-card px-3 py-2 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-500/40 hover:shadow-[0_6px_20px_rgba(245,158,11,0.15)]">
                 <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: RISK_COLOR[riskKey(t.sleRisk)] }} title={t.sleRisk} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -267,8 +287,15 @@ export function SLEPage() {
                     <span className="text-[11px] font-semibold" style={{ color: RISK_COLOR[riskKey(t.sleRisk)] }}>{t.sleRisk}</span>
                     <span className="text-xs text-muted-foreground truncate">{t.summary}</span>
                   </div>
-                  <div className="mt-1 flex flex-col gap-0.5">
-                    {(t.riskSignals || []).map((s, i) => (
+                  <div className="mt-1 flex flex-col gap-1">
+                    {(t.blockedDetails || []).map((b, i) => (
+                      <span key={i} className="text-[11px] text-amber-600 dark:text-amber-400">
+                        🔒 Блок в{" "}
+                        <a href={b.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline">{b.key}</a>
+                        : {b.reason}
+                      </span>
+                    ))}
+                    {(t.riskSignals || []).filter(s => !s.startsWith("Блок висит")).map((s, i) => (
                       <span key={i} className="text-[11px] text-amber-600 dark:text-amber-400">→ {s}</span>
                     ))}
                   </div>
@@ -288,7 +315,7 @@ export function SLEPage() {
       ) : data && (
         <>
           {/* Кластеры — кликабельный график */}
-          <Card>
+          <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle>🧩 Причины нарушения SLE — {which === "current" ? "в работе" : "история"}</CardTitle>
