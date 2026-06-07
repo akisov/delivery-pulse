@@ -191,6 +191,7 @@ export function SLEPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<string | null>(null)
+  const [groupBy, setGroupBy] = useState<"cluster" | "risk">("cluster")
 
   // быстрые данные по риску для обоих разрезов (без ИИ)
   const [riskCur, setRiskCur] = useState<{ sleRisk: string }[] | null>(null)
@@ -220,11 +221,20 @@ export function SLEPage() {
 
   const grouped = useMemo(() => {
     if (!data) return []
+    const tasks = data.tasks.filter(t => !filter || t.cluster === filter)
     const g: Record<string, SleTask[]> = {}
-    data.tasks.forEach(t => { const k = t.cluster || "—"; (g[k] ||= []).push(t) })
-    Object.values(g).forEach(list => list.sort((a, b) => riskRank(a.sleRisk) - riskRank(b.sleRisk)))
-    return CLUSTER_ORDER.filter(c => g[c]?.length).map(c => ({ cluster: c, tasks: g[c] }))
-  }, [data])
+    const byRisk = (a: SleTask, b: SleTask) => riskRank(a.sleRisk) - riskRank(b.sleRisk)
+    if (groupBy === "risk") {
+      tasks.forEach(t => { const k = riskKey(t.sleRisk); (g[k] ||= []).push(t) })
+      return RISK_ORDER.filter(k => g[k]?.length).map(k => ({
+        key: k, label: k, color: RISK_COLOR[k], tasks: g[k].sort(byRisk),
+      }))
+    }
+    tasks.forEach(t => { const k = t.cluster || "—"; (g[k] ||= []).push(t) })
+    return CLUSTER_ORDER.filter(c => g[c]?.length).map(c => ({
+      key: c, label: c, color: clusterColor(c), tasks: g[c].sort(byRisk),
+    }))
+  }, [data, groupBy, filter])
 
   const attentionTasks = useMemo(
     () => data ? data.tasks.filter(t => t.needsAttention).sort((a, b) => riskRank(a.sleRisk) - riskRank(b.sleRisk)) : [],
@@ -352,21 +362,32 @@ export function SLEPage() {
             </CardContent>
           </Card>
 
-          {/* Список, сгруппированный по кластерам */}
-          <div>
-            <h2 className="text-lg font-black tracking-tight text-foreground mb-1">
-              Задачи по причинам — {which === "current" ? "в работе" : "завершённые (история)"}
-            </h2>
-            <p className="text-xs text-muted-foreground mb-3">
-              {data.count} задач с риском SLE, сгруппированы по причине нарушения. Кластер можно поправить вручную.
-            </p>
+          {/* Список задач с переключателем группировки */}
+          <div className="flex items-end justify-between flex-wrap gap-2">
+            <div>
+              <h2 className="text-lg font-black tracking-tight text-foreground mb-1">
+                Задачи — {which === "current" ? "в работе" : "завершённые (история)"}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {data.count} задач с риском SLE. Кластер можно поправить вручную.
+              </p>
+            </div>
+            <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
+              {([["cluster", "По причинам"], ["risk", "По риску SLE"]] as const).map(([v, label]) => (
+                <button key={v} onClick={() => setGroupBy(v)}
+                  className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
+                    groupBy === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="space-y-5">
-            {grouped.filter(g => !filter || g.cluster === filter).map(g => (
-              <div key={g.cluster}>
+            {grouped.map(g => (
+              <div key={g.key}>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: clusterColor(g.cluster) }} />
-                  <h3 className="text-sm font-black text-foreground">{g.cluster}</h3>
+                  <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: g.color }} />
+                  <h3 className="text-sm font-black text-foreground">{g.label}</h3>
                   <span className="text-xs text-muted-foreground">{g.tasks.length}</span>
                 </div>
                 <div className="space-y-2.5">
