@@ -3,6 +3,7 @@ import { LineChart, Line, BarChart, Bar, Cell, LabelList, XAxis, YAxis, Tooltip,
 import { ExternalLink, RefreshCw, AlertTriangle, CheckCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Modal } from "@/components/ui/modal"
 import { cn } from "@/lib/utils"
 
 interface FlowTask { key: string; summary: string; assignee: string; status: string; url: string; days: number; sleRisk: string }
@@ -16,24 +17,35 @@ interface Resp {
 const DISC = "#EAB308" // Исследования (жёлтый, как в учётной таблице)
 const DELI = "#10B981" // В работе (зелёный)
 const PERSON_LIMIT = 5
+const DISC_STATUSES = [
+  { key: "Проверка идей", color: "#38BDF8" },
+  { key: "Подтверждение боли", color: "#FB923C" },
+  { key: "Подтверждено", color: "#4ADE80" },
+]
 
-function byAssignee(tasks: FlowTask[], oldThreshold: number) {
-  const m: Record<string, { count: number; old: boolean; maxDays: number }> = {}
+interface ProdRow { name: string; a: string; count: number; maxDays: number; old: boolean; over: boolean; critical: boolean; tasks: FlowTask[]; [k: string]: any }
+
+function aggProducts(tasks: FlowTask[], oldThreshold: number, highlight: boolean): ProdRow[] {
+  const m: Record<string, any> = {}
   tasks.forEach(t => {
-    const r = (m[t.assignee] ||= { count: 0, old: false, maxDays: 0 })
-    r.count++
-    r.maxDays = Math.max(r.maxDays, t.days)
+    const name = (t.assignee && t.assignee !== "—") ? t.assignee : "Без исполнителя"
+    const r = (m[name] ||= { name, count: 0, old: false, maxDays: 0, tasks: [], "Проверка идей": 0, "Подтверждение боли": 0, "Подтверждено": 0 })
+    r.count++; r.tasks.push(t); r.maxDays = Math.max(r.maxDays, t.days)
     if (t.days >= oldThreshold) r.old = true
+    if (r[t.status] !== undefined) r[t.status]++
   })
-  return Object.entries(m).map(([name, v]) => {
-    const over = v.count > PERSON_LIMIT
-    const critical = over && v.old
-    return { name, count: v.count, maxDays: v.maxDays, over, critical, a: (critical ? "🔥 " : "") + name }
+  return Object.values(m).map((r: any) => {
+    const over = highlight && r.count > PERSON_LIMIT
+    const critical = over && r.old
+    return { ...r, over, critical, a: (critical ? "🔥 " : over ? "⚠️ " : "") + r.name }
   }).sort((x, y) => y.count - x.count)
 }
 
-function AssigneeChart({ title, emoji, color, tasks, oldThreshold }: { title: string; emoji: string; color: string; tasks: FlowTask[]; oldThreshold: number }) {
-  const data = byAssignee(tasks, oldThreshold)
+function ProductChart({ title, emoji, color, tasks, oldThreshold, stacked, highlight, onPick }: {
+  title: string; emoji: string; color: string; tasks: FlowTask[]; oldThreshold: number
+  stacked?: boolean; highlight?: boolean; onPick: (r: ProdRow) => void
+}) {
+  const data = aggProducts(tasks, oldThreshold, !!highlight)
   const critical = data.filter(d => d.critical).length
   const over = data.filter(d => d.over && !d.critical).length
   return (
@@ -41,33 +53,69 @@ function AssigneeChart({ title, emoji, color, tasks, oldThreshold }: { title: st
       <CardHeader className="pb-1">
         <div className="flex items-center justify-between flex-wrap gap-1">
           <CardTitle>{emoji} {title}</CardTitle>
-          <span className="text-xs font-semibold">
-            {critical > 0 && <span className="text-destructive">🔥 {critical} перегруз+старая</span>}
-            {critical > 0 && over > 0 && <span className="text-muted-foreground"> · </span>}
-            {over > 0 && <span className="text-orange-500">{over} перегруз</span>}
-          </span>
+          {highlight && (critical > 0 || over > 0) && (
+            <span className="text-xs font-semibold">
+              {critical > 0 && <span className="text-destructive">🔥 {critical} перегруз+старая</span>}
+              {critical > 0 && over > 0 && <span className="text-muted-foreground"> · </span>}
+              {over > 0 && <span className="text-orange-500">{over} перегруз</span>}
+            </span>
+          )}
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">Задач на продакте · 🔥 = больше {PERSON_LIMIT} и есть задача старше P90 ({oldThreshold} дн.)</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {stacked ? "По статусам · " : "Задач на продакте · "}
+          {highlight ? `🔥 = >${PERSON_LIMIT} и есть задача старше P90 (${oldThreshold} дн.) · ` : ""}нажми на столбец
+        </p>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={Math.max(120, data.length * 32 + 16)}>
+        <ResponsiveContainer width="100%" height={Math.max(120, data.length * 34 + 16)}>
           <BarChart data={data} layout="vertical" margin={{ top: 2, right: 32, left: 4, bottom: 2 }} barSize={16}>
             <XAxis type="number" hide />
-            <YAxis type="category" dataKey="a" width={160} tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="a" width={165} tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }} axisLine={false} tickLine={false} />
             <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
               content={({ active, payload }: any) => active && payload?.length
                 ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl">
                     <b>{payload[0].payload.name}</b>: {payload[0].payload.count} задач · старейшая {payload[0].payload.maxDays} дн.
                     {payload[0].payload.critical && <div className="text-destructive">перегруз + старая задача</div>}
+                    <div className="text-muted-foreground/70">нажми для списка</div>
                   </div> : null} />
-            <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-              {data.map(d => <Cell key={d.a} fill={d.critical ? "#B91C1C" : d.over ? "#F97316" : color} />)}
-              <LabelList dataKey="count" position="right" style={{ fontSize: 11, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
-            </Bar>
+            {stacked
+              ? DISC_STATUSES.map((s, i) => (
+                  <Bar key={s.key} dataKey={s.key} stackId="a" fill={s.color} style={{ cursor: "pointer" }}
+                    radius={i === DISC_STATUSES.length - 1 ? [0, 4, 4, 0] : 0}
+                    onClick={(d: any) => onPick(d?.tasks ? d : d?.payload)} />
+                ))
+              : (
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} style={{ cursor: "pointer" }} onClick={(d: any) => onPick(d?.tasks ? d : d?.payload)}>
+                  {data.map(d => <Cell key={d.a} fill={d.critical ? "#B91C1C" : d.over ? "#F97316" : color} />)}
+                  <LabelList dataKey="count" position="right" style={{ fontSize: 11, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
+                </Bar>
+              )}
+            {stacked && <Legend wrapperStyle={{ fontSize: 11 }} />}
           </BarChart>
         </ResponsiveContainer>
       </CardContent>
     </Card>
+  )
+}
+
+function ProductModal({ row, onClose }: { row: ProdRow | null; onClose: () => void }) {
+  if (!row) return null
+  const tasks = [...row.tasks].sort((a, b) => b.days - a.days)
+  return (
+    <Modal open={!!row} onClose={onClose} title={row.name} subtitle={`${tasks.length} задач в потоке`} wide>
+      <div className="rounded-xl border border-border overflow-hidden">
+        {tasks.map(t => (
+          <div key={t.key} className="border-b border-border last:border-0 px-4 py-2.5 flex items-center gap-3 hover:bg-accent/30 transition-colors">
+            <a href={t.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline flex items-center gap-1 shrink-0">
+              {t.key} <ExternalLink className="w-3 h-3" />
+            </a>
+            <span className="text-xs text-muted-foreground truncate flex-1">{t.summary}</span>
+            <span className="text-[11px] text-muted-foreground shrink-0">{t.status}</span>
+            <span className="text-sm font-black text-foreground shrink-0">{t.days} <span className="text-[10px] font-normal text-muted-foreground">дн.</span></span>
+          </div>
+        ))}
+      </div>
+    </Modal>
   )
 }
 
@@ -128,6 +176,7 @@ export function FlowPage() {
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [product, setProduct] = useState<ProdRow | null>(null)
 
   const load = () => {
     setLoading(true); setError(null)
@@ -169,8 +218,10 @@ export function FlowPage() {
 
           {/* Загрузка по продактам */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <AssigneeChart title="Discovery — по продактам" emoji="🔬" color={DISC} tasks={data.discovery.tasks} oldThreshold={data.discovery.p90} />
-            <AssigneeChart title="Delivery — по продактам" emoji="🚀" color={DELI} tasks={data.delivery.tasks} oldThreshold={data.delivery.p90} />
+            <ProductChart title="Discovery — по продактам" emoji="🔬" color={DISC} tasks={data.discovery.tasks}
+              oldThreshold={data.discovery.p90} stacked highlight onPick={setProduct} />
+            <ProductChart title="Delivery — по продактам" emoji="🚀" color={DELI} tasks={data.delivery.tasks}
+              oldThreshold={data.delivery.p90} onPick={setProduct} />
           </div>
 
           {/* Тренд P90 по неделям */}
@@ -231,6 +282,8 @@ export function FlowPage() {
           })()}
         </>
       )}
+
+      <ProductModal row={product} onClose={() => setProduct(null)} />
     </div>
   )
 }
