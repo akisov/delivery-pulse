@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts"
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ReferenceLine } from "recharts"
 import { ExternalLink, RefreshCw, AlertTriangle, CheckCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -7,14 +7,14 @@ import { cn } from "@/lib/utils"
 
 interface FlowTask { key: string; summary: string; assignee: string; status: string; url: string; days: number; sleRisk: string }
 interface Stream { count: number; p90: number; limit: number; overLimit: boolean; top: FlowTask[] }
-interface Hist { week: string; discoveryP90: number; deliveryP90: number; discoveryCount: number; deliveryCount: number }
+interface Hist { date: string; label: string; discoveryP90: number; deliveryP90: number }
 interface Resp {
   ok: boolean; error?: string; discovery: Stream; delivery: Stream
-  sleBreakdown: Record<string, number>; week: string; history: Hist[]
+  sleBreakdown: Record<string, number>; week: string; target?: number; history: Hist[]
 }
 
-const DISC = "#38BDF8"
-const DELI = "#7C6FF7"
+const DISC = "#EAB308" // Исследования (жёлтый, как в учётной таблице)
+const DELI = "#10B981" // В работе (зелёный)
 
 function StreamCard({ title, emoji, color, s }: { title: string; emoji: string; color: string; s: Stream }) {
   return (
@@ -116,19 +116,20 @@ export function FlowPage() {
           {data.history.length > 1 && (
             <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
               <CardHeader className="pb-1">
-                <CardTitle>📈 WIP Age P90 по неделям</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">Динамика возраста работы (снимок раз в неделю)</p>
+                <CardTitle>📈 WIP Age динамика</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">Динамика возраста работы по датам · красная линия — цель {data.target ?? 60} дн.</p>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={240}>
+                <ResponsiveContainer width="100%" height={280}>
                   <LineChart data={data.history} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
                     <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                    <XAxis dataKey="week" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit=" дн." />
                     <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line type="monotone" dataKey="discoveryP90" name="Discovery" stroke={DISC} strokeWidth={2.5} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="deliveryP90" name="Delivery" stroke={DELI} strokeWidth={2.5} dot={{ r: 3 }} />
+                    <ReferenceLine y={data.target ?? 60} stroke="#EF4444" strokeDasharray="4 4" />
+                    <Line type="monotone" dataKey="discoveryP90" name="Исследования" stroke={DISC} strokeWidth={2.5} dot={{ r: 2.5 }} />
+                    <Line type="monotone" dataKey="deliveryP90" name="В работе" stroke={DELI} strokeWidth={2.5} dot={{ r: 2.5 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </CardContent>
