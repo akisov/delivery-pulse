@@ -1261,6 +1261,15 @@ def _field(issue: dict, suffix: str, default=None):
     k = next((k for k in issue if k.endswith(suffix)), None)
     return issue.get(k, default) if k is not None else default
 
+async def fetch_comments(client, key: str, limit: int = 8) -> str:
+    try:
+        data = await tracker_request(client, "GET", f"/v2/issues/{key}/comments")
+        arr = data if isinstance(data, list) else []
+        texts = [(c.get("text") or "").replace("\n", " ").strip() for c in arr]
+        return " | ".join(t for t in texts if t)[-1400:]
+    except Exception:
+        return ""
+
 async def tracker_query(client, query: str, per_page: int = 100) -> list:
     out, page = [], 1
     while True:
@@ -1386,16 +1395,28 @@ async def classify_sle_task(client, t: dict) -> dict:
         + (": " + ", ".join(b["reason"] for b in s["blockings"]) if s.get("blockings") else "")
         for s in t.get("subtasks", [])[:12]
     ) or "нет"
+    # жёсткие вычисляемые признаки
+    jc = (t.get("jobCategory") or "").upper()
+    is_large = (t.get("subCount", 0) >= 6) or jc.startswith("XL") or jc.startswith("L")
+    blob = " ".join([str(t.get("lastBlockingReason") or ""), str(t.get("blockingHistory") or ""),
+                     str(t.get("comments") or ""), sub_block]).lower()
+    has_tech = any(w in blob for w in ["баг", "bug", "дефект", "ошибк", "фронт", "демо отлож", "не работает", "падает"])
+    has_external = any(w in blob for w in ["архитект", "фа ", " фа", "провайдер", "вендор", "маршрутизатор",
+                                           "двх", "мораторий", "согласован", "заказчик", "другая команда", "ждем команду"])
     facts = (
         f"Задача: {t['key']} — {t['summary']}\n"
         f"SLE риск: {t['sleRisk']}; SLE: {t['sle']}; P70: {t['p70']}; "
         f"Effort: {t['effort']}; факт.усилия: {t['effortFact']}; категория: {t['jobCategory']}.\n"
         f"Дедлайн: {t.get('deadline')}; завершена: {t.get('end')}; дней в работе: {t.get('daysInWork')}.\n"
         f"Подзадач: {t['subCount']} (активных {t['activeSubCount']}); "
-        f"скрытая блокировка (есть подзадачи, но активных нет): {'да' if t['hiddenBlocked'] else 'нет'}.\n"
+        f"скрытая блокировка: {'да' if t['hiddenBlocked'] else 'нет'}.\n"
+        f"ПризнакКрупной (много сторей или XL/L): {'да' if is_large else 'нет'}.\n"
+        f"ЕстьБаг/ТехПроблема в тексте: {'да' if has_tech else 'нет'}.\n"
+        f"ЕстьЯвноеВнешнееОжидание в тексте: {'да' if has_external else 'нет'}.\n"
         f"Последняя причина блокировки: {(t.get('lastBlockingReason') or '—')[:400]}\n"
         f"История блокировок: {(t.get('blockingHistory') or '—')[:400]}\n"
-        f"Подзадачи и их блокировки: {sub_block[:600]}\n"
+        f"Комментарии: {(t.get('comments') or '—')[:900]}\n"
+        f"Подзадачи и их блокировки: {sub_block[:500]}\n"
         f"Теги: {', '.join(t.get('tags') or []) or '—'}"
     )
     system = (
@@ -1407,14 +1428,14 @@ async def classify_sle_task(client, t: dict) -> dict:
         "НЕ «Внешние зависимости». «Внешние зависимости» ставь, только если в причинах блокировки явно "
         "видно ожидание ВНЕ контроля команды: архитектура/функц. архитекторы (ФА), провайдер/вендор, "
         "ДВХ/маршрутизатор, другая ПРОДУКТОВАЯ команда, мораторий, согласования.\n\n"
-        "Порядок выбора (сверху вниз, бери первую подходящую):\n"
-        "1) По фактам видно неверную оценку: категория/SLE не та, срок уже был превышен при заведении, "
-        "реальный Effort больше (XL/L при маленьком SLE), по факту не нарушен (поздно сдвинули статусы, "
-        "праздники), долго лежала в беклоге/под мораторием вне приоритета → «Ошибка оценки».\n"
-        "2) Заблокирована багом/техпроблемой, демо/релиз отложены → «Техническая блокировка».\n"
-        "3) Много сторей/подзадач, XL или L без декомпозиции, менялись требования/приоритеты, "
-        "слабая декомпозиция по MMF → «Крупная задача / не MMF».\n"
-        "4) Иначе, если реально ждали внешних (см. выше) → «Внешние зависимости».\n\n"
+        "Порядок выбора (сверху вниз, бери ПЕРВУЮ подходящую; опирайся на вычисленные признаки):\n"
+        "1) ЕстьБаг/ТехПроблема=да → «Техническая блокировка».\n"
+        "2) ПризнакКрупной=да и нет явного бага → «Крупная задача / не MMF» "
+        "(делалась своими силами, но большая/без декомпозиции).\n"
+        "3) ЕстьЯвноеВнешнееОжидание=да (и не крупная) → «Внешние зависимости».\n"
+        "4) Иначе → «Ошибка оценки» (особенно если по факту не нарушен, не та категория/SLE, "
+        "праздники, лежала в беклоге/под мораторием без реальной работы).\n"
+        "Не относи задачу к «Ошибке оценки» только потому, что Effort немного больше SLE — нужны явные признаки.\n\n"
         "Примеры верной разметки:\n"
         "- 11 сторей, XL, менялись требования → Крупная задача / не MMF\n"
         "- 14 сторей, XL без декомпозиции, SLE нарушен уже при заведении → Крупная задача / не MMF\n"
@@ -1459,7 +1480,14 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
         return JSONResponse({"ok": False, "error": str(e)})
     tasks = data["tasks"]
 
-    async with httpx.AsyncClient(timeout=40) as client:
+    async with httpx.AsyncClient(timeout=60) as client:
+        # комментарии нужны только для незакэшированных задач
+        todo = [t for t in tasks if refresh or t["key"] not in _sle_cluster_cache]
+        comments = await asyncio.gather(*[fetch_comments(client, t["key"]) for t in todo],
+                                        return_exceptions=True)
+        for t, c in zip(todo, comments):
+            t["comments"] = c if isinstance(c, str) else ""
+
         async def one(t):
             ck = t["key"]
             if not refresh and ck in _sle_cluster_cache:
