@@ -125,8 +125,8 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
             {t.daysInWork != null && (
               <span className="inline-flex items-center rounded-md px-1.5 py-px text-[10px] font-bold text-white"
                 style={{ background: RISK_COLOR[riskKey(t.sleRisk)] }}
-                title="Фактически дней в работе (по этому считается SLE)">
-                в работе {t.daysInWork} дн.
+                title="Дней в работе / допустимый порог SLE (P85)">
+                в работе {t.daysInWork}{t.sle != null ? `/${t.sle}` : ""} дн.
               </span>
             )}
             {t.hiddenBlocked && (
