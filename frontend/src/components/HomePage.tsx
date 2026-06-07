@@ -1,11 +1,20 @@
-import { Lock, Target, Sparkles, BarChart3 } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Workflow } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Props {
-  onGo: (section: "blockings" | "sle") => void
+  onGo: (section: "blockings" | "sle" | "flow") => void
 }
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  {
+    date: "Июнь 2026",
+    title: "Раздел «Поток» (Discovery / Delivery)",
+    items: [
+      "WIP Age P90 по потокам Discovery и Delivery с WIP-лимитами и подсветкой превышения.",
+      "Топ задач по возрасту в потоке и разбивка SLE-риска в Delivery.",
+      "Недельный снапшот метрик и тренд WIP Age P90 по неделям.",
+    ],
+  },
   {
     date: "Июнь 2026",
     title: "Раздел «Анализ нарушений SLE»",
@@ -44,6 +53,8 @@ const NAV_CARDS = [
     title: "Блокировки", desc: "Время разрешения, причины, этапы и AI-сводка по трём очередям." },
   { section: "sle" as const, icon: Target, color: "#10B981",
     title: "Анализ SLE", desc: "Кластеризация причин нарушения SLE по PUTKURERA, скрытые блокировки." },
+  { section: "flow" as const, icon: Workflow, color: "#38BDF8",
+    title: "Поток", desc: "Возраст работы в Discovery/Delivery (WIP Age P90), WIP-лимиты и недельный тренд." },
 ]
 
 export function HomePage({ onGo }: Props) {
