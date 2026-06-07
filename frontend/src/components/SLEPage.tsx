@@ -223,10 +223,6 @@ export function SLEPage() {
   const [filter, setFilter] = useState<string | null>(null)
   const [groupBy, setGroupBy] = useState<"cluster" | "risk">("cluster")
 
-  // быстрые данные по риску для обоих разрезов (без ИИ)
-  const [riskCur, setRiskCur] = useState<{ sleRisk: string }[] | null>(null)
-  const [riskHist, setRiskHist] = useState<{ sleRisk: string }[] | null>(null)
-
   const load = (refresh = false) => {
     setLoading(true); setError(null)
     fetch(`/sle-clusters?which=${which}${refresh ? "&refresh=true" : ""}`)
@@ -236,12 +232,6 @@ export function SLEPage() {
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [which])
-
-  useEffect(() => {
-    const get = (w: string) => fetch(`/sle-analysis?which=${w}`).then(r => r.json()).then(d => d.ok ? d.tasks : []).catch(() => [])
-    get("current").then(setRiskCur)
-    get("historical").then(setRiskHist)
-  }, [])
 
   const overrideCluster = async (key: string, cluster: string) => {
     setData(prev => prev ? { ...prev, tasks: prev.tasks.map(t => t.key === key ? { ...t, cluster: cluster || t.aiCluster || t.cluster, overridden: !!cluster } : t) } : prev)
@@ -301,11 +291,12 @@ export function SLEPage() {
         </div>
       </div>
 
-      {/* Риск: история + в работе */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {riskHist ? <RiskChart title="📉 Попадание в SLE (история)" sub="Завершённые задачи по уровню риска SLE" tasks={riskHist} /> : <Skeleton className="h-56 rounded-xl" />}
-        {riskCur ? <RiskChart title="⚡ Риск по SLE (в работе)" sub="Задачи в работе по уровню риска SLE" tasks={riskCur} /> : <Skeleton className="h-56 rounded-xl" />}
-      </div>
+      {/* График риска для выбранной вкладки */}
+      {data ? (
+        which === "historical"
+          ? <RiskChart title="📉 Попадание в SLE (история)" sub="Завершённые задачи по уровню риска SLE" tasks={data.tasks} />
+          : <RiskChart title="⚡ Риск по SLE (в работе)" sub="Задачи в работе по уровню риска SLE" tasks={data.tasks} />
+      ) : <Skeleton className="h-56 rounded-xl" />}
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
 
