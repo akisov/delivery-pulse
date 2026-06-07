@@ -1428,57 +1428,37 @@ async def classify_sle_task(client, t: dict) -> dict:
         f"Подзадачи и их блокировки: {sub_block[:500]}\n"
         f"Теги: {', '.join(t.get('tags') or []) or '—'}"
     )
-    system = (
-        "Ты классифицируешь ГЛАВНУЮ причину нарушения SLE для продуктовой задачи (Новая возможность). "
-        "Выбери РОВНО ОДНУ категорию:\n"
-        + "\n".join(f"- {c['label']}: {c['hint']}" for c in SLE_CLUSTERS)
-        + "\n\nВАЖНО про подзадачи: у почти каждой задачи есть подзадачи в очередях разработки "
-        "UDOSTAVKA/POOLING/DOSTAVKAPIKO — это НОРМАЛЬНАЯ разработка своими силами, и САМО ПО СЕБЕ это "
-        "НЕ «Внешние зависимости». «Внешние зависимости» ставь, только если в причинах блокировки явно "
-        "видно ожидание ВНЕ контроля команды: архитектура/функц. архитекторы (ФА), провайдер/вендор, "
-        "ДВХ/маршрутизатор, другая ПРОДУКТОВАЯ команда, мораторий, согласования.\n\n"
-        "Порядок выбора (сверху вниз, бери ПЕРВУЮ подходящую; опирайся на вычисленные признаки):\n"
-        "1) ЕстьБаг/ТехПроблема=да → «Техническая блокировка».\n"
-        "2) МаленькаяКатегория=да и (Переработала=да ИЛИ по факту не нарушен/праздники/лежала в беклоге без работы) "
-        "→ «Ошибка оценки» (задачу оценили как маленькую, а она затянулась или срок проставлен неверно).\n"
-        "3) ПризнакКрупной=да (категория XL/L) и нет бага → «Крупная задача / не MMF» "
-        "(задача легитимно большая, делалась своими силами, но без декомпозиции по MMF).\n"
-        "4) ЕстьЯвноеВнешнееОжидание=да → «Внешние зависимости».\n"
-        "5) Иначе → «Ошибка оценки».\n"
-        "Число подзадач САМО ПО СЕБЕ не делает задачу крупной — смотри на категорию (XL/L).\n\n"
-        "Примеры верной разметки:\n"
-        "- 11 сторей, XL, менялись требования → Крупная задача / не MMF\n"
-        "- 14 сторей, XL без декомпозиции, SLE нарушен уже при заведении → Крупная задача / не MMF\n"
-        "- заблокирована багом фронта, демо отложено → Техническая блокировка\n"
-        "- категория S с SLE 40, хотя уже было 50 дней; реальный Effort M/L → Ошибка оценки\n"
-        "- по факту не нарушен, статусы сдвинули поздно, праздники → Ошибка оценки\n"
-        "- долго лежала в беклоге, моратории, вне приоритета → Ошибка оценки\n"
-        "- ждали доработку на стороне маршрутизатора → Внешние зависимости\n"
-        "- долгие согласования с провайдерами и архитектурой (IOT) → Внешние зависимости\n\n"
-        "Ответ строго двумя строками:\n"
-        "Кластер: <категория дословно>\n"
-        "Почему: <одно короткое человеческое предложение, простым языком, без канцелярита>"
-    )
-    if not MISTRAL_API_KEY:
-        return {"cluster": None, "reason": None}
-    body = {"model": MISTRAL_MODEL,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": facts}],
-            "temperature": 0.2, "max_tokens": 160}
-    try:
-        r = await client.post("https://api.mistral.ai/v1/chat/completions",
-                              headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
-        r.raise_for_status()
-        txt = (r.json()["choices"][0]["message"]["content"] or "").strip()
-        import re as _re
-        cl = _re.search(r"Кластер\s*:?\s*(.+)", txt)
-        wh = _re.search(r"Почему\s*:?\s*(.+)", txt)
-        cluster = (cl.group(1).strip() if cl else "").replace("*", "")
-        # нормализуем к точной метке
-        cluster = next((lbl for lbl in _CLUSTER_LABELS if lbl.lower() in cluster.lower()), cluster or None)
-        return {"cluster": cluster, "reason": (wh.group(1).strip().replace("*", "") if wh else "")}
-    except Exception as e:
-        print(f"[sle-cluster] {e}")
-        return {"cluster": None, "reason": None}
+    # Детерминированное правило (приоритет соблюдается всегда, не зависит от модели)
+    if has_tech:
+        cluster = "Техническая блокировка"
+    elif cat_small and overran:
+        cluster = "Ошибка оценки"
+    elif is_large:
+        cluster = "Крупная задача / не MMF"
+    elif has_external:
+        cluster = "Внешние зависимости"
+    else:
+        cluster = "Ошибка оценки"
+
+    # ИИ пишет только человеческое пояснение под уже выбранный кластер
+    reason = None
+    if MISTRAL_API_KEY:
+        system = (
+            f"Причина нарушения SLE для этой задачи уже определена как: «{cluster}». "
+            "Напиши РОВНО ОДНО короткое предложение на русском, почему так, простым человеческим языком, "
+            "без канцелярита и штампов. Опирайся только на факты ниже, числа не выдумывай. Без вступлений."
+        )
+        body = {"model": MISTRAL_MODEL,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": facts}],
+                "temperature": 0.3, "max_tokens": 120}
+        try:
+            r = await client.post("https://api.mistral.ai/v1/chat/completions",
+                                  headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
+            r.raise_for_status()
+            reason = (r.json()["choices"][0]["message"]["content"] or "").strip().replace("*", "")
+        except Exception as e:
+            print(f"[sle-cluster] {e}")
+    return {"cluster": cluster, "reason": reason}
 
 @app.get("/sle-clusters")
 async def sle_clusters(which: str = Query("current"), refresh: bool = Query(False)):
