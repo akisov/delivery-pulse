@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, Tooltip,
 } from "recharts"
-import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check } from "lucide-react"
+import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check, Lock, Unlock } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
@@ -26,7 +26,7 @@ function riskKey(r: string) {
 }
 function riskRank(r: string) { return RISK_ORDER.indexOf(riskKey(r)) }
 
-interface Sub { key: string; summary: string; queue: string; status: string; isActive: boolean; url: string; blockings: { reason: string }[] }
+interface Sub { key: string; summary: string; queue: string; status: string; isActive: boolean; url: string; blockings: { reason: string; status?: string }[] }
 interface SleTask {
   key: string; summary: string; url: string; assignee: string; status: string
   sleRisk: string; sle: number | null; p70: number | null; effort: number | null
@@ -172,7 +172,24 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
                       <span className="text-muted-foreground">{s.queue}</span>
                       <span className="text-muted-foreground/70 truncate flex-1">{s.summary}</span>
                       <span className="text-muted-foreground shrink-0">{s.status}</span>
-                      {s.blockings.length > 0 && <span className="text-amber-500 shrink-0" title={s.blockings.map(b => b.reason).join(", ")}>🔒{s.blockings.length}</span>}
+                      {(() => {
+                        const openB = s.blockings.filter(b => (b.status || "") !== "closed")
+                        const closedB = s.blockings.filter(b => (b.status || "") === "closed")
+                        return (
+                          <>
+                            {openB.length > 0 && (
+                              <span className="inline-flex items-center gap-0.5 text-destructive shrink-0" title={"Открытый блок: " + openB.map(b => b.reason).join(", ")}>
+                                <Lock className="w-3 h-3" />{openB.length}
+                              </span>
+                            )}
+                            {closedB.length > 0 && (
+                              <span className="inline-flex items-center gap-0.5 text-emerald-500 shrink-0" title={"Снятый блок: " + closedB.map(b => b.reason).join(", ")}>
+                                <Unlock className="w-3 h-3" />{closedB.length}
+                              </span>
+                            )}
+                          </>
+                        )
+                      })()}
                     </div>
                   ))}
                 </div>
