@@ -167,6 +167,10 @@ async def init_db():
             data TEXT,
             updated_at TEXT
         )"""),
+        stmt("""CREATE TABLE IF NOT EXISTS osp_pulse (
+            team TEXT, month TEXT, criterion TEXT, score REAL, updated_at TEXT,
+            PRIMARY KEY(team, month, criterion)
+        )"""),
     ])
     # Миграция: добавляем колонки если не существуют (игнорируем ошибку если уже есть)
     for col_sql in [
@@ -2357,6 +2361,105 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
         print(f"[osp-sle save] {e}")
     payload["updatedAt"] = "только что"
     return JSONResponse(payload)
+
+# ── ОСП: оценка продакта (Pulse) ────────────────────────────────────────────────
+OSP_PULSE_CRITERIA = [
+    "Сколько мы сделали",
+    "Что именно мы сделали",
+    "Сколько это стоило",
+    "Как долго мы это делали",
+    "Насколько качественно и эффективно",
+]
+OSP_PULSE_SCALE = {
+    "1": "К сожалению, ожидания не оправданы",
+    "2": "Не все важные потребности были учтены",
+    "3": "Ожидания в целом оправдались, есть только несколько мелких моментов",
+    "4": "Вполне попали в ожидания",
+    "5": "Превзошли ожидания",
+}
+
+@app.get("/osp-pulse")
+async def osp_pulse():
+    try:
+        res = await turso_execute([stmt("SELECT team, month, criterion, score FROM osp_pulse")])
+        rows = rows_to_dicts(res[0]) if res else []
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    data: dict = {}
+    months: set = set()
+    for r in rows:
+        q, m, c = r.get("team"), r.get("month"), r.get("criterion")
+        if not (q and m and c):
+            continue
+        try:
+            sc = float(r.get("score"))
+        except (TypeError, ValueError):
+            continue
+        data.setdefault(q, {}).setdefault(m, {})[c] = sc
+        months.add(m)
+    return JSONResponse({"ok": True, "queues": OSP_QUEUES, "criteria": OSP_PULSE_CRITERIA,
+                         "scale": OSP_PULSE_SCALE, "months": sorted(months), "data": data})
+
+@app.post("/osp-pulse/submit")
+async def osp_pulse_submit(team: str = Query(...), month: str = Query(...), request: Request = None):
+    if team not in OSP_QUEUES:
+        return JSONResponse({"ok": False, "error": "неизвестная команда"})
+    if not re.match(r"^\d{4}-\d{2}$", month or ""):
+        return JSONResponse({"ok": False, "error": "месяц в формате YYYY-MM"})
+    try:
+        scores = await request.json()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"bad json: {e}"})
+    stmts = []
+    for c, v in (scores or {}).items():
+        if c not in OSP_PULSE_CRITERIA:
+            continue
+        try:
+            sc = float(v)
+        except (TypeError, ValueError):
+            continue
+        stmts.append(stmt(
+            "INSERT INTO osp_pulse(team,month,criterion,score,updated_at) VALUES(?,?,?,?,datetime('now')) "
+            "ON CONFLICT(team,month,criterion) DO UPDATE SET score=excluded.score, updated_at=excluded.updated_at",
+            [team, month, c, sc]))
+    if stmts:
+        try:
+            await turso_execute(stmts)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+    return JSONResponse({"ok": True, "saved": len(stmts)})
+
+@app.post("/osp-pulse/set")
+async def osp_pulse_set(request: Request):
+    """Массовая заливка: {data: {team: {month: {criterion: score}}}}."""
+    try:
+        payload = await request.json()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"bad json: {e}"})
+    data = (payload or {}).get("data") or {}
+    stmts = []
+    for team, by_month in data.items():
+        if team not in OSP_QUEUES:
+            continue
+        for month, scores in (by_month or {}).items():
+            for c, v in (scores or {}).items():
+                if c not in OSP_PULSE_CRITERIA:
+                    continue
+                try:
+                    sc = float(v)
+                except (TypeError, ValueError):
+                    continue
+                stmts.append(stmt(
+                    "INSERT INTO osp_pulse(team,month,criterion,score,updated_at) VALUES(?,?,?,?,datetime('now')) "
+                    "ON CONFLICT(team,month,criterion) DO UPDATE SET score=excluded.score, updated_at=excluded.updated_at",
+                    [team, month, c, sc]))
+    if stmts:
+        try:
+            for i in range(0, len(stmts), 50):
+                await turso_execute(stmts[i:i + 50])
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+    return JSONResponse({"ok": True, "saved": len(stmts)})
 
 def _date_only(s: str):
     try:
