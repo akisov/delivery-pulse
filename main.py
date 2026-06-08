@@ -606,11 +606,36 @@ async def _sync_queue_from(client, queue, updated_from, send):
         [queue, (datetime.utcnow() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")]
     )])
 
+# ── Планировщик: ежедневный синк блокировок ─────────────────────────────────────
+SYNC_HOUR_MSK = 6  # во сколько (по МСК) гонять авто-синк
+
+async def _daily_scheduler():
+    await asyncio.sleep(20)  # дать приложению подняться
+    while True:
+        try:
+            now = datetime.utcnow()
+            target = now.replace(hour=(SYNC_HOUR_MSK - 3) % 24, minute=0, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=1)
+            await asyncio.sleep(max(60, (target - now).total_seconds()))
+            if TRACKER_TOKEN and not _sync_status["running"]:
+                print("[scheduler] ежедневный синк блокировок")
+                await run_sync_job(list(QUEUES), False)
+                # сбрасываем SLE-кэш, чтобы при заходе подхватились свежие статусы блоков
+                try:
+                    await turso_execute([stmt("DELETE FROM sle_snapshot")])
+                except Exception as e:
+                    print(f"[scheduler] sle invalidate: {e}")
+        except Exception as e:
+            print(f"[scheduler] {e}")
+            await asyncio.sleep(3600)
+
 # ── FastAPI ───────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    asyncio.create_task(_daily_scheduler())
     yield
 
 app = FastAPI(lifespan=lifespan)
