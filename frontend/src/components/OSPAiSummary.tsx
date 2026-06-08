@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react"
 import { Sparkles, RefreshCw } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
 
 interface Resp { ok: boolean; error?: string; summary?: string; updatedAt?: string }
 
@@ -37,38 +35,45 @@ export function OSPAiSummary({ queue, month, monthLabel, refreshKey }: {
   const lines = (resp?.summary || "").split("\n").map(s => s.trim()).filter(Boolean)
 
   return (
-    <Card className="border-primary/30 bg-primary/[0.04] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(108,99,255,0.15)]">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-primary" /> AI-вывод по месяцу{monthLabel ? ` · ${monthLabel}` : ""}
-          </CardTitle>
-          <button onClick={() => load(true)} disabled={loading} title="Пересобрать вывод"
-            className="flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          </button>
+    <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-5 shadow-[0_0_32px_rgba(108,99,255,0.12)]">
+      <div className="pointer-events-none absolute -top-12 -right-12 h-40 w-40 rounded-full bg-primary/20 blur-3xl" />
+      <div className="relative flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/20">
+          <Sparkles className="h-5 w-5 text-primary" />
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">Узкие места и тревожные тренды относительно прошлого месяца — по числам дашборда</p>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-            <RefreshCw className="w-4 h-4 animate-spin text-primary" /> ИИ анализирует тренды…
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-widest text-primary">AI-вывод по месяцу</span>
+            {monthLabel && <span className="text-[10px] font-semibold uppercase text-primary/70">· {monthLabel}</span>}
+            <span className="text-[10px] text-muted-foreground">· Mistral + ваши данные</span>
+            <button onClick={() => load(true)} disabled={loading} title="Пересобрать вывод"
+              className="ml-auto text-muted-foreground/60 transition-colors hover:text-primary">
+              <RefreshCw className={loading ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+            </button>
           </div>
-        ) : !resp?.summary ? (
-          <div className="text-sm text-muted-foreground py-2">
-            {resp && !resp.ok ? `⚠️ ${resp.error}` : "Нет данных для вывода (или ИИ-ключ не задан)."}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {lines.map((l, i) => (
-              <div key={i} className="text-sm text-foreground leading-relaxed rounded-xl border border-border/60 bg-card/60 px-3 py-2 animate-fade-in-up" style={{ animationDelay: `${i * 0.05}s` }}>
-                {renderMd(l.replace(/^[•\-*]\s*/, ""))}
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          <p className="text-[11px] text-muted-foreground mb-2">Узкие места и тревожные тренды относительно прошлого месяца — по числам дашборда</p>
+
+          {loading ? (
+            <div className="space-y-2 py-0.5">
+              <div className="h-3.5 w-3/4 animate-pulse rounded bg-muted" />
+              <div className="h-3.5 w-2/3 animate-pulse rounded bg-muted" />
+              <div className="h-3.5 w-1/2 animate-pulse rounded bg-muted" />
+            </div>
+          ) : !resp?.summary ? (
+            <p className="text-sm text-muted-foreground py-1">
+              {resp && !resp.ok ? `⚠️ ${resp.error}` : "Нет данных для вывода (или ИИ-ключ не задан)."}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {lines.map((l, i) => (
+                <div key={i} className="flex gap-2 text-sm leading-relaxed text-foreground animate-fade-in-up" style={{ animationDelay: `${i * 0.05}s` }}>
+                  <span>{renderMd(l.replace(/^[•\-*]\s*/, ""))}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
