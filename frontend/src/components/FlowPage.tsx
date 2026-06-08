@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { LineChart, Line, BarChart, Bar, Cell, LabelList, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ReferenceLine } from "recharts"
+import { LineChart, Line, BarChart, Bar, Cell, LabelList, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ReferenceLine, ReferenceArea } from "recharts"
 import { ExternalLink, RefreshCw, AlertTriangle, CheckCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -17,6 +17,9 @@ interface Resp {
 
 const DISC = "#EAB308" // Исследования (жёлтый, как в учётной таблице)
 const DELI = "#10B981" // В работе (зелёный)
+// коридор нормы WIP Age (±квадратичное отклонение)
+const WIP_CORR_LO = 51
+const WIP_CORR_HI = 79
 const PERSON_LIMIT = 5
 // статусы Discovery — по statusKey (надёжно), цвета как на графике
 const DISC_STATUSES = [
@@ -287,7 +290,7 @@ export function FlowPage() {
             <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
               <CardHeader className="pb-1">
                 <CardTitle>📈 WIP Age динамика</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">Динамика возраста работы по датам · красная линия — цель {data.target ?? 60} дн.</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Динамика возраста работы по датам · зелёный коридор нормы {WIP_CORR_LO}–{WIP_CORR_HI} дн.</p>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={280}>
@@ -297,7 +300,12 @@ export function FlowPage() {
                     <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit=" дн." />
                     <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <ReferenceLine y={data.target ?? 60} stroke="#EF4444" strokeDasharray="4 4" />
+                    {/* коридор нормы (квадратичное отклонение) */}
+                    <ReferenceArea y1={WIP_CORR_LO} y2={WIP_CORR_HI} fill="#10B981" fillOpacity={0.10} stroke="none" />
+                    <ReferenceLine y={WIP_CORR_HI} stroke="#10B981" strokeDasharray="4 4" strokeOpacity={0.7}
+                      label={{ value: `${WIP_CORR_HI}`, position: "right", fontSize: 10, fill: "#10B981" }} />
+                    <ReferenceLine y={WIP_CORR_LO} stroke="#10B981" strokeDasharray="4 4" strokeOpacity={0.7}
+                      label={{ value: `${WIP_CORR_LO}`, position: "right", fontSize: 10, fill: "#10B981" }} />
                     <Line type="monotone" dataKey="discoveryP90" name="Исследования" stroke={DISC} strokeWidth={2.5} dot={{ r: 2.5 }} />
                     <Line type="monotone" dataKey="deliveryP90" name="В работе" stroke={DELI} strokeWidth={2.5} dot={{ r: 2.5 }} />
                   </LineChart>
