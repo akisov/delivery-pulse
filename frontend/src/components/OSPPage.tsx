@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { OSPTime } from "@/components/OSPTime"
 import { OSPBlockings } from "@/components/OSPBlockings"
+import { OSPIncidents } from "@/components/OSPIncidents"
 import { cn } from "@/lib/utils"
 
 const CAT_COLORS: Record<string, string> = {
@@ -362,6 +363,9 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
 
       {/* Распределение времени (worklog) — управляется общим фильтром команды */}
       <OSPTime queue={queue} />
+
+      {/* Инцидентов создано — по месяцам */}
+      <OSPIncidents queue={queue} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
 
       {/* Блокировки — динамика по месяцам + ссылка на дашборд */}
       <OSPBlockings queue={queue} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
