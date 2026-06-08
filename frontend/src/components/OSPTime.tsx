@@ -36,7 +36,7 @@ function Trend({ cur, prev }: { cur: number; prev: number | undefined }) {
   )
 }
 
-export function OSPTime() {
+export function OSPTime({ queue }: { queue?: string }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [month, setMonth] = useState<string>("")
@@ -86,7 +86,10 @@ export function OSPTime() {
   const hoursFor = (m: string | undefined, q: string, t: string) =>
     (m && resp?.data?.[m]?.[q]?.[t]) || 0
   const types = resp?.types ?? []
-  const teams = TEAM_ORDER.filter(q => resp?.queues?.[q])
+  const allTeams = TEAM_ORDER.filter(q => resp?.queues?.[q])
+  // общий фильтр команды (из раздела ОСП): одна команда → показываем только её
+  const teams = queue && queue !== "all" ? allTeams.filter(q => q === queue) : allTeams
+  const showTotal = teams.length > 1
 
   const colTotal = (m: string | undefined, q: string) => types.reduce((s, t) => s + hoursFor(m, q, t), 0)
   const rowTotal = (m: string | undefined, t: string) => teams.reduce((s, q) => s + hoursFor(m, q, t), 0)
@@ -156,11 +159,13 @@ export function OSPTime() {
                   <div className="mt-1"><Trend cur={colTotal(month, q)} prev={prevMonth ? colTotal(prevMonth, q) : undefined} /></div>
                 </div>
               ))}
-              <div className="rounded-xl border border-primary/30 bg-primary/[0.05] px-4 py-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Всего</p>
-                <p className="text-2xl font-black tracking-tight leading-none mt-1 text-foreground">{Math.round(grand(month))}<span className="text-sm font-bold text-muted-foreground"> ч</span></p>
-                <div className="mt-1"><Trend cur={grand(month)} prev={prevMonth ? grand(prevMonth) : undefined} /></div>
-              </div>
+              {showTotal && (
+                <div className="rounded-xl border border-primary/30 bg-primary/[0.05] px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Всего</p>
+                  <p className="text-2xl font-black tracking-tight leading-none mt-1 text-foreground">{Math.round(grand(month))}<span className="text-sm font-bold text-muted-foreground"> ч</span></p>
+                  <div className="mt-1"><Trend cur={grand(month)} prev={prevMonth ? grand(prevMonth) : undefined} /></div>
+                </div>
+              )}
             </div>
 
             {/* таблица тип × команда */}
@@ -170,7 +175,7 @@ export function OSPTime() {
                   <tr className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                     <th className="text-left px-2.5 py-2 border-b border-border">Тип</th>
                     {teams.map(q => <th key={q} className="text-right px-2.5 py-2 border-b border-border whitespace-nowrap">{resp.queues?.[q]}</th>)}
-                    <th className="text-right px-2.5 py-2 border-b border-border">Итого</th>
+                    {showTotal && <th className="text-right px-2.5 py-2 border-b border-border">Итого</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -180,16 +185,21 @@ export function OSPTime() {
                         <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm" style={{ background: typeColor(t) }} />{t}</span>
                       </td>
                       {teams.map(q => (
-                        <td key={q} className="px-2.5 py-2 border-b border-border/50 text-right tabular-nums text-foreground">
-                          {Math.round(hoursFor(month, q, t)) || <span className="text-muted-foreground/50">·</span>}
+                        <td key={q} className="px-2.5 py-2 border-b border-border/50 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="tabular-nums text-foreground">{Math.round(hoursFor(month, q, t)) || <span className="text-muted-foreground/50">·</span>}</span>
+                            {!showTotal && <Trend cur={hoursFor(month, q, t)} prev={prevMonth ? hoursFor(prevMonth, q, t) : undefined} />}
+                          </div>
                         </td>
                       ))}
-                      <td className="px-2.5 py-2 border-b border-border/50 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="font-bold tabular-nums text-foreground">{Math.round(rowTotal(month, t))}</span>
-                          <Trend cur={rowTotal(month, t)} prev={prevMonth ? rowTotal(prevMonth, t) : undefined} />
-                        </div>
-                      </td>
+                      {showTotal && (
+                        <td className="px-2.5 py-2 border-b border-border/50 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="font-bold tabular-nums text-foreground">{Math.round(rowTotal(month, t))}</span>
+                            <Trend cur={rowTotal(month, t)} prev={prevMonth ? rowTotal(prevMonth, t) : undefined} />
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                   <tr className="font-bold">
@@ -197,7 +207,7 @@ export function OSPTime() {
                     {teams.map(q => (
                       <td key={q} className="px-2.5 py-2 border-t-2 border-border text-right tabular-nums">{Math.round(colTotal(month, q))}</td>
                     ))}
-                    <td className="px-2.5 py-2 border-t-2 border-border text-right tabular-nums">{Math.round(grand(month))}</td>
+                    {showTotal && <td className="px-2.5 py-2 border-t-2 border-border text-right tabular-nums">{Math.round(grand(month))}</td>}
                   </tr>
                 </tbody>
               </table>
