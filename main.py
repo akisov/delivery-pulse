@@ -2270,6 +2270,113 @@ async def osp_incidents(months: int = Query(8), refresh: bool = Query(False)):
     payload["updatedAt"] = "только что"
     return JSONResponse(payload)
 
+# Пороги SLE (гарантия 85%): порог LT в днях и трудозатрат в часах, по командам и типам
+OSP_SLE_TARGET = 85
+OSP_SLE = {
+    "POOLING":      {"incident": {"lt": 24, "hours": 30}, "tech": {"lt": 38, "hours": 37}, "story": {"lt": 108, "hours": 217}},
+    "UDOSTAVKA":    {"incident": {"lt": 22, "hours": 26}, "tech": {"lt": 38, "hours": 46}, "story": {"lt": 51, "hours": 104}},
+    "DOSTAVKAPIKO": {"incident": {"lt": 14, "hours": 26}, "tech": {"lt": 22, "hours": 34}, "story": {"lt": 44, "hours": 85}},
+}
+OSP_SLE_CATS = [
+    {"key": "incident", "label": "Инциденты"},
+    {"key": "tech",     "label": "Техдолг + Тех. улучшение"},
+    {"key": "story",    "label": "Story"},
+]
+
+def _sle_cat(type_key, type_display):
+    c = _osp_category(type_key, type_display)
+    if c == "incident":
+        return "incident"
+    if c in ("techDebt", "techImpr"):
+        return "tech"
+    if c == "story":
+        return "story"
+    return None
+
+@app.get("/osp-sle")
+async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
+    """Попадание в SLE: доля завершённых задач, уложившихся в порог по LT (дни в работе)
+    и по трудозатратам (часы), против цели 85% — по типам и командам."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    months = max(1, min(int(months or 6), 24))
+    ckey = f"sle-{months}-v1"
+    if not refresh:
+        try:
+            res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
+            rows = rows_to_dicts(res[0]) if res else []
+            if rows and rows[0].get("data"):
+                ua = rows[0].get("updated_at") or ""
+                try:
+                    age = (datetime.utcnow() - datetime.strptime(ua[:19], "%Y-%m-%d %H:%M:%S")).total_seconds()
+                except Exception:
+                    age = 1e18
+                if age < OSP_SNAPSHOT_TTL_H * 3600:
+                    obj = json.loads(rows[0]["data"]); obj["updatedAt"] = ua
+                    return JSONResponse(obj)
+        except Exception as e:
+            print(f"[osp-sle load] {e}")
+
+    cutoff = _osp_month_list(months)[0] + "-01"
+
+    async def _fetch(client, q):
+        return await tracker_query(client, f'Queue: {q} Resolution: notEmpty() Resolved: >= "{cutoff}"')
+
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            results = await asyncio.gather(*[_fetch(client, q) for q in OSP_QUEUES])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+    # сбор LT (дни) и часов по queue×cat
+    acc = {q: {c["key"]: {"lt": [], "hours": []} for c in OSP_SLE_CATS} for q in OSP_QUEUES}
+    for q, issues in zip(OSP_QUEUES, results):
+        for iss in issues:
+            if not _osp_resolution_ok(iss.get("resolution") or {}):
+                continue
+            t = iss.get("type") or {}
+            sc = _sle_cat(t.get("key"), t.get("display"))
+            if not sc:
+                continue
+            dw = _osp_days_field(iss)
+            if dw is None:
+                dw = _osp_days_in_work((iss.get("start") or "")[:10], (iss.get("resolvedAt") or "")[:10])
+            if dw is not None:
+                acc[q][sc]["lt"].append(dw)
+            sh = _iso_dur_hours(iss.get("spent"))
+            if sh > 0:
+                acc[q][sc]["hours"].append(sh)
+
+    def _pct(vals, thr):
+        if not vals:
+            return None
+        return round(sum(1 for v in vals if v <= thr) / len(vals) * 100)
+
+    sle = {}
+    for q in OSP_QUEUES:
+        sle[q] = {}
+        for c in OSP_SLE_CATS:
+            ck = c["key"]
+            thr = OSP_SLE.get(q, {}).get(ck, {})
+            lt, hrs = acc[q][ck]["lt"], acc[q][ck]["hours"]
+            sle[q][ck] = {
+                "ltThr": thr.get("lt"), "hoursThr": thr.get("hours"),
+                "ltBase": len(lt), "ltPct": _pct(lt, thr.get("lt", 1e9)),
+                "hrsBase": len(hrs), "hrsPct": _pct(hrs, thr.get("hours", 1e9)),
+            }
+
+    payload = {"ok": True, "queues": OSP_QUEUES, "cats": OSP_SLE_CATS,
+               "target": OSP_SLE_TARGET, "sle": sle}
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ckey, json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[osp-sle save] {e}")
+    payload["updatedAt"] = "только что"
+    return JSONResponse(payload)
+
 def _date_only(s: str):
     try:
         return date.fromisoformat((s or "")[:10])
