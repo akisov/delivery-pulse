@@ -2201,7 +2201,7 @@ async def osp_incidents(months: int = Query(8), refresh: bool = Query(False)):
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
     months = max(1, min(int(months or 8), 24))
-    ckey = f"inc-{months}-v1"
+    ckey = f"inc-{months}-v2"
     if not refresh:
         try:
             res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
@@ -2241,12 +2241,14 @@ async def osp_incidents(months: int = Query(8), refresh: bool = Query(False)):
             if mo not in buckets:
                 continue
             buckets[mo][q] += 1
+            st = iss.get("status") or {}
             items.append({
                 "month": mo, "queue": q, "key": iss.get("key"),
                 "summary": iss.get("summary") or "—",
                 "url": f"https://tracker.yandex.ru/{iss.get('key')}",
                 "created": _msk_date(iss.get("createdAt") or ""),
-                "status": (iss.get("status") or {}).get("display", ""),
+                "status": st.get("display", ""), "statusKey": st.get("key", ""),
+                "daysInWork": _osp_days_field(iss),
                 "assignee": (iss.get("assignee") or {}).get("display", "—"),
             })
 
