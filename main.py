@@ -4,7 +4,7 @@ import asyncio
 import httpx
 from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import json
@@ -1991,6 +1991,9 @@ async def run_osp_worklog_job(year: int):
             # 2. worklog по каждой задаче (чанками, бережём rate limit)
             B, done = 3, 0
             for i in range(0, total, B):
+                if _wl_status.get("cancel"):
+                    _wl_status = {"running": False, "pct": 0, "msg": "Остановлено", "error": ""}
+                    return
                 chunk = todo[i:i + B]
                 wls = await asyncio.gather(*[_wl_fetch(client, k) for (k, _, _) in chunk],
                                            return_exceptions=True)
@@ -2192,8 +2195,7 @@ async def osp_worklog():
     except Exception as e:
         print(f"[osp-wl load] {e}")
     if snap is None:
-        if not _wl_status["running"]:
-            asyncio.create_task(run_osp_worklog_job(year))
+        # НЕ запускаем медленный сбор автоматически — данные заливаем через /osp-worklog/set
         return JSONResponse({"ok": True, "data": None, "status": _wl_status})
     snap["updatedAt"], snap["status"] = ts, _wl_status
     return JSONResponse(snap)
@@ -2204,6 +2206,33 @@ async def osp_worklog_build():
         return JSONResponse({"ok": False, "error": "Сбор уже идёт"})
     asyncio.create_task(run_osp_worklog_job(date.today().year))
     return JSONResponse({"ok": True})
+
+@app.post("/osp-worklog/stop")
+async def osp_worklog_stop():
+    _wl_status["cancel"] = True
+    return JSONResponse({"ok": True})
+
+@app.post("/osp-worklog/set")
+async def osp_worklog_set(request: Request):
+    """Прямая заливка агрегата worklog в БД (минуя медленный сбор по API).
+    Тело — JSON вида {year, months:[...], queues:{...}, types:[...], data:{month:{queue:{type:hours}}}}."""
+    try:
+        payload = await request.json()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"bad json: {e}"})
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
+        return JSONResponse({"ok": False, "error": "нужен объект с полем data"})
+    year = int(payload.get("year") or date.today().year)
+    payload["ok"] = True
+    payload.setdefault("queues", OSP_QUEUES)
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [f"wl-{year}-v{OSP_WL_VERSION}", json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    return JSONResponse({"ok": True, "year": year, "months": payload.get("months")})
 
 @app.get("/osp-worklog/status")
 async def osp_worklog_status():
