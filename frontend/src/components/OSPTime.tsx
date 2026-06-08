@@ -15,10 +15,16 @@ const TYPE_COLORS: Record<string, string> = {
 function typeColor(t: string) { return TYPE_COLORS[t] || "#94A3B8" }
 
 interface Status { running: boolean; pct: number; msg: string; error: string }
+interface Emp { name: string; total: number; by: Record<string, number>; pct: number }
+interface CrossOut { name: string; cols: Record<string, number>; total: number }
+interface CrossIn { name: string; team: string; hours: number }
 interface Resp {
   ok: boolean; error?: string
   data: Record<string, Record<string, Record<string, number>>> | null  // month -> queue -> type -> hours
   months?: string[]; queues?: Record<string, string>; types?: string[]
+  employees?: Record<string, Record<string, Emp[]>>   // month -> queue -> сотрудники
+  crossOut?: Record<string, Record<string, CrossOut[]>>
+  crossIn?: Record<string, Record<string, CrossIn[]>>
   updatedAt?: string; status?: Status
 }
 
@@ -40,6 +46,96 @@ function Trend({ cur, prev }: { cur: number; prev: number | undefined }) {
       up ? "text-emerald-500" : "text-rose-500")}>
       {up ? "▲" : "▼"}{up ? "+" : ""}{Math.round(d)}ч{pct != null ? ` ${up ? "+" : ""}${pct}%` : ""}
     </span>
+  )
+}
+
+const TH = "text-right px-2.5 py-2 border-b border-border whitespace-nowrap"
+const TD = "px-2.5 py-2 border-b border-border/50 text-right"
+
+// Доп. таблицы по выбранной команде: по сотрудникам, в чужих очередях, чужие здесь
+function TeamTables({ resp, month, q }: { resp: Resp; month: string; q: string }) {
+  const types = resp.types ?? []
+  const emps = resp.employees?.[month]?.[q] ?? []
+  const cout = resp.crossOut?.[month]?.[q] ?? []
+  const cin = resp.crossIn?.[month]?.[q] ?? []
+  const outCols = Array.from(new Set(cout.flatMap(r => Object.keys(r.cols || {}))))
+  if (!emps.length && !cout.length && !cin.length) return null
+  return (
+    <div className="mt-6 space-y-6">
+      {emps.length > 0 && (
+        <div>
+          <h4 className="text-xs font-black uppercase tracking-wide text-foreground mb-2">👤 Часы по сотрудникам</h4>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-separate border-spacing-0">
+              <thead><tr className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                <th className="text-left px-2.5 py-2 border-b border-border">Сотрудник</th>
+                <th className={TH}>Всего</th>
+                {types.map(t => <th key={t} className={TH} style={{ color: typeColor(t) }}>{t}</th>)}
+                <th className={TH}>%</th>
+              </tr></thead>
+              <tbody>
+                {emps.map(e => (
+                  <tr key={e.name} className="hover:bg-accent/30 transition-colors">
+                    <td className="px-2.5 py-2 border-b border-border/50 whitespace-nowrap text-foreground">{e.name}</td>
+                    <td className={TD}><H n={e.total} bold /></td>
+                    {types.map(t => <td key={t} className={TD}><H n={e.by?.[t] || 0} /></td>)}
+                    <td className={cn(TD, "tabular-nums text-muted-foreground")}>{e.pct}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {cout.length > 0 && (
+        <div>
+          <h4 className="text-xs font-black uppercase tracking-wide text-foreground mb-2">↗ Часы команды в других очередях</h4>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-separate border-spacing-0">
+              <thead><tr className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                <th className="text-left px-2.5 py-2 border-b border-border">Сотрудник</th>
+                {outCols.map(c => <th key={c} className={TH}>{c}</th>)}
+                <th className={TH}>Итого вне своей</th>
+              </tr></thead>
+              <tbody>
+                {cout.map(r => (
+                  <tr key={r.name} className="hover:bg-accent/30 transition-colors">
+                    <td className="px-2.5 py-2 border-b border-border/50 whitespace-nowrap text-foreground">{r.name}</td>
+                    {outCols.map(c => <td key={c} className={TD}><H n={r.cols?.[c] || 0} /></td>)}
+                    <td className={TD}><H n={r.total} bold /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {cin.length > 0 && (
+        <div>
+          <h4 className="text-xs font-black uppercase tracking-wide text-foreground mb-2">↘ Сотрудники других команд в этой очереди</h4>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-separate border-spacing-0">
+              <thead><tr className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                <th className="text-left px-2.5 py-2 border-b border-border">Сотрудник</th>
+                <th className="text-left px-2.5 py-2 border-b border-border">Команда</th>
+                <th className={TH}>Часы</th>
+              </tr></thead>
+              <tbody>
+                {cin.map((r, i) => (
+                  <tr key={r.name + i} className="hover:bg-accent/30 transition-colors">
+                    <td className="px-2.5 py-2 border-b border-border/50 whitespace-nowrap text-foreground">{r.name}</td>
+                    <td className="px-2.5 py-2 border-b border-border/50 text-muted-foreground whitespace-nowrap">{r.team}</td>
+                    <td className={TD}><H n={r.hours} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -106,6 +202,11 @@ export function OSPTime({ queue }: { queue?: string }) {
   // итог по выбранной команде/командам
   const selTotal = (m: string | undefined) => showTotal ? grand(m) : (teams[0] ? colTotal(m, teams[0]) : 0)
   const visibleTypes = types.filter(t => typeTotal(month, t) > 0)
+  const pct = (m: string | undefined, t: string) => {
+    const tot = selTotal(m); return tot ? Math.round(typeTotal(m, t) / tot * 1000) / 10 : 0
+  }
+  // выбрана одна команда → показываем посотрудниковый разрез и кросс-очередь
+  const singleQ = queue && queue !== "all" ? queue : null
 
   const status = resp?.status
 
@@ -169,7 +270,7 @@ export function OSPTime({ queue }: { queue?: string }) {
               </div>
             </div>
 
-            {/* таблица тип × команда */}
+            {/* таблица тип × команда (+ % и тренд) */}
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-separate border-spacing-0">
                 <thead>
@@ -177,6 +278,8 @@ export function OSPTime({ queue }: { queue?: string }) {
                     <th className="text-left px-2.5 py-2 border-b border-border">Тип</th>
                     {teams.map(q => <th key={q} className="text-right px-2.5 py-2 border-b border-border whitespace-nowrap">{resp.queues?.[q]}, ч</th>)}
                     {showTotal && <th className="text-right px-2.5 py-2 border-b border-border">Итого, ч</th>}
+                    <th className="text-right px-2.5 py-2 border-b border-border">%</th>
+                    <th className="text-right px-2.5 py-2 border-b border-border whitespace-nowrap">Δ м/м</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -186,21 +289,11 @@ export function OSPTime({ queue }: { queue?: string }) {
                         <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm" style={{ background: typeColor(t) }} />{t}</span>
                       </td>
                       {teams.map(q => (
-                        <td key={q} className="px-2.5 py-2 border-b border-border/50 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <H n={hoursFor(month, q, t)} />
-                            {!showTotal && <Trend cur={hoursFor(month, q, t)} prev={prevMonth ? hoursFor(prevMonth, q, t) : undefined} />}
-                          </div>
-                        </td>
+                        <td key={q} className="px-2.5 py-2 border-b border-border/50 text-right"><H n={hoursFor(month, q, t)} bold={!showTotal} /></td>
                       ))}
-                      {showTotal && (
-                        <td className="px-2.5 py-2 border-b border-border/50 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <H n={rowTotal(month, t)} bold />
-                            <Trend cur={rowTotal(month, t)} prev={prevMonth ? rowTotal(prevMonth, t) : undefined} />
-                          </div>
-                        </td>
-                      )}
+                      {showTotal && <td className="px-2.5 py-2 border-b border-border/50 text-right"><H n={rowTotal(month, t)} bold /></td>}
+                      <td className="px-2.5 py-2 border-b border-border/50 text-right tabular-nums text-muted-foreground">{pct(month, t)}%</td>
+                      <td className="px-2.5 py-2 border-b border-border/50 text-right"><Trend cur={typeTotal(month, t)} prev={prevMonth ? typeTotal(prevMonth, t) : undefined} /></td>
                     </tr>
                   ))}
                   <tr className="font-bold">
@@ -209,10 +302,15 @@ export function OSPTime({ queue }: { queue?: string }) {
                       <td key={q} className="px-2.5 py-2 border-t-2 border-border text-right"><H n={colTotal(month, q)} bold /></td>
                     ))}
                     {showTotal && <td className="px-2.5 py-2 border-t-2 border-border text-right"><H n={grand(month)} bold /></td>}
+                    <td className="px-2.5 py-2 border-t-2 border-border text-right tabular-nums text-muted-foreground">100%</td>
+                    <td className="px-2.5 py-2 border-t-2 border-border text-right"><Trend cur={selTotal(month)} prev={prevMonth ? selTotal(prevMonth) : undefined} /></td>
                   </tr>
                 </tbody>
               </table>
             </div>
+
+            {/* Доп. таблицы по одной команде */}
+            {singleQ && <TeamTables resp={resp} month={month} q={singleQ} />}
           </>
         )}
       </CardContent>
