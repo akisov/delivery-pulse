@@ -1886,6 +1886,17 @@ def _local_value(iss: dict, field: dict | None) -> str:
         return ", ".join((x.get("display") if isinstance(x, dict) else str(x)) for x in v)
     return str(v) if v is not None else ""
 
+def _osp_resolution_ok(res: dict | None) -> bool:
+    """Учитываем как «сделано» только резолюции «Решён» и «Отменено с часами»
+    (не Дубликат / Не делаем / Отменено без часов и т.п.)."""
+    d = ((res or {}).get("display") or "").lower()
+    k = ((res or {}).get("key") or "").lower()
+    if "решен" in d or "решён" in d or k == "fixed":
+        return True
+    if "отменено с часами" in d or "с часами" in d:
+        return True
+    return False
+
 def _osp_days_in_work(start: str, resolved: str):
     """Дней в работе ≈ дата завершения − дата начала (календарные дни)."""
     if not start or not resolved:
@@ -1898,7 +1909,7 @@ def _osp_days_in_work(start: str, resolved: str):
         return None
 
 OSP_SNAPSHOT_TTL_H = 12  # сколько часов кэш считается свежим
-OSP_SNAPSHOT_VERSION = 2  # поднимать при изменении состава полей задачи (инвалидирует кэш)
+OSP_SNAPSHOT_VERSION = 3  # поднимать при изменении состава полей/логики (инвалидирует кэш)
 
 @app.get("/osp-delivery")
 async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
@@ -1960,6 +1971,7 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     buckets = {m: {q: zero() for q in OSP_QUEUES} for m in month_list}
     totals = {c: 0 for c in cats}
     seen_types: dict[str, int] = {}
+    seen_res: dict[str, int] = {}
     items: list[dict] = []  # задачи для модалки (по клику на тип/столбец)
 
     for q, issues in zip(OSP_QUEUES, results):
@@ -1968,6 +1980,11 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
             mo = ra[:7]
             if mo not in buckets:
                 continue
+            res = iss.get("resolution") or {}
+            rdisp = res.get("display") or res.get("key") or "—"
+            seen_res[rdisp] = seen_res.get(rdisp, 0) + 1
+            if not _osp_resolution_ok(res):
+                continue  # учитываем только Решён / Отменено с часами
             t = iss.get("type") or {}
             disp = t.get("display") or t.get("key") or "—"
             seen_types[disp] = seen_types.get(disp, 0) + 1
@@ -2007,7 +2024,8 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
 
     payload = {"ok": True, "queues": OSP_QUEUES, "categories": OSP_CATEGORIES,
                "months": month_list, "data": data, "totals": totals, "items": items,
-               "seenTypes": dict(sorted(seen_types.items(), key=lambda x: -x[1]))}
+               "seenTypes": dict(sorted(seen_types.items(), key=lambda x: -x[1])),
+               "seenResolutions": dict(sorted(seen_res.items(), key=lambda x: -x[1]))}
 
     # 2. сохраняем снапшот в БД
     try:

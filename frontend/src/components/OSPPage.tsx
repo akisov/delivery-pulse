@@ -30,6 +30,7 @@ interface Resp {
   totals: Record<string, number>
   items: OSPItem[]
   seenTypes: Record<string, number>
+  seenResolutions?: Record<string, number>
   updatedAt?: string
   cached?: boolean
 }
@@ -231,7 +232,7 @@ export function OSPPage() {
                 <CardTitle>📦 Сколько мы сделали — по месяцам</CardTitle>
                 <span className="text-xs text-muted-foreground">{queueTabs.find(([v]) => v === queue)?.[1]}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Завершённые задачи (по дате завершения) · нажми на тип — оставить только его на графике · клик по столбцу — список задач</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Сделано (резолюция «Решён» или «Отменено с часами», по дате завершения) · нажми на тип — оставить только его на графике · клик по столбцу — список задач</p>
             </CardHeader>
             <CardContent>
               {totals.total === 0 ? (
@@ -300,12 +301,24 @@ export function OSPPage() {
                 типы задач в выборке ({Object.keys(data.seenTypes).length})
               </button>
               {showTypes && (
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {Object.entries(data.seenTypes).map(([t, n]) => (
-                    <span key={t} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground">
-                      {t} <span className="font-bold text-foreground">{n}</span>
-                    </span>
-                  ))}
+                <div className="mt-1.5 space-y-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(data.seenTypes).map(([t, n]) => (
+                      <span key={t} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground">
+                        {t} <span className="font-bold text-foreground">{n}</span>
+                      </span>
+                    ))}
+                  </div>
+                  {data.seenResolutions && Object.keys(data.seenResolutions).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/70">резолюции:</span>
+                      {Object.entries(data.seenResolutions).map(([t, n]) => (
+                        <span key={t} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground">
+                          {t} <span className="font-bold text-foreground">{n}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
