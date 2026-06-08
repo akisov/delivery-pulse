@@ -2438,6 +2438,16 @@ async def osp_pulse_submit(team: str = Query(...), month: str = Query(...), requ
             return JSONResponse({"ok": False, "error": str(e)})
     return JSONResponse({"ok": True, "saved": len(stmts)})
 
+@app.post("/osp-pulse/clear")
+async def osp_pulse_clear(team: str = Query(...), month: str = Query(...)):
+    if team not in OSP_QUEUES:
+        return JSONResponse({"ok": False, "error": "неизвестная команда"})
+    try:
+        await turso_execute([stmt("DELETE FROM osp_pulse WHERE team=? AND month=?", [team, month])])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    return JSONResponse({"ok": True})
+
 @app.post("/osp-pulse/set")
 async def osp_pulse_set(request: Request):
     """Массовая заливка: {data: {team: {month: {criterion: score}}}}."""
