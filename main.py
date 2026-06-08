@@ -1835,6 +1835,57 @@ async def flow_metrics():
                          "sleBreakdown": sle_break, "week": week, "target": FLOW_TARGET,
                          "history": history})
 
+@app.get("/flow-completed")
+async def flow_completed(months: int = Query(8), refresh: bool = Query(False)):
+    """Сколько задач PUTKURERA перешло в «Завершено» по месяцам (по дате завершения)."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    months = max(1, min(int(months or 8), 24))
+    ckey = f"flowdone-{months}-v1"
+    if not refresh:
+        try:
+            res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
+            rows = rows_to_dicts(res[0]) if res else []
+            if rows and rows[0].get("data"):
+                obj = json.loads(rows[0]["data"]); obj["updatedAt"] = rows[0].get("updated_at") or ""
+                return JSONResponse(obj)
+        except Exception as e:
+            print(f"[flow-completed load] {e}")
+
+    month_list = _osp_month_list(months)
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            issues = await tracker_query(client, "Type: newFeature Queue: PUTKURERA Status: zaverseno, analizRezults, closed")
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+    counts = {m: 0 for m in month_list}
+    items: list[dict] = []
+    for iss in issues:
+        endraw = iss.get("end") or iss.get("resolvedAt") or ""
+        mo = _msk_month(endraw)
+        if mo not in counts:
+            continue
+        counts[mo] += 1
+        items.append({
+            "month": mo, "key": iss.get("key"), "summary": iss.get("summary") or "—",
+            "url": f"https://tracker.yandex.ru/{iss.get('key')}",
+            "end": _msk_date(endraw) if endraw else "",
+            "status": (iss.get("status") or {}).get("display", ""),
+            "assignee": (iss.get("assignee") or {}).get("display", "—"),
+        })
+    data = [{"month": m, "label": _osp_label(m), "count": counts[m]} for m in month_list]
+    payload = {"ok": True, "months": month_list, "data": data, "items": items, "total": sum(counts.values())}
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ckey, json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[flow-completed save] {e}")
+    payload["updatedAt"] = "только что"
+    return JSONResponse(payload)
+
 # ── ОСП: обзор сервиса поставки (3 очереди курьеров) ────────────────────────────
 
 # очереди курьеров → отображаемые имена
