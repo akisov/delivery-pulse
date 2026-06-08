@@ -11,10 +11,11 @@ import { cn } from "@/lib/utils"
 
 const CAT_COLORS: Record<string, string> = {
   story:    "#3B82F6", // Story (Работа по ТЗ)
-  tech:     "#F59E0B", // Тех. долг (+ Тех. улучшение)
+  techDebt: "#F59E0B", // ТехДолг
+  techImpr: "#A78BFA", // Тех. улучшение
   incident: "#EF4444", // Инциденты
 }
-interface CatCounts { story: number; tech: number; incident: number; total: number }
+interface CatCounts { total: number; [k: string]: number }
 interface Row { month: string; label: string; all: CatCounts; [q: string]: any }
 interface OSPItem {
   key: string; summary: string; url: string; queue: string; category: string; month: string
@@ -150,12 +151,15 @@ export function OSPPage() {
   }
   useEffect(() => { load() }, [])
 
-  // данные графика для выбранной очереди (или сумма по всем)
+  // данные графика для выбранной очереди (или сумма по всем) — ключи категорий динамические
   const chartData = useMemo(() => {
     if (!data) return []
+    const keys = data.categories.map(c => c.key)
     return data.data.map(row => {
       const c: CatCounts = queue === "all" ? row.all : row[queue]
-      return { month: row.month, label: row.label, story: c.story, tech: c.tech, incident: c.incident, total: c.total }
+      const o: Record<string, any> = { month: row.month, label: row.label, total: c.total }
+      keys.forEach(k => { o[k] = c[k] || 0 })
+      return o
     })
   }, [data, queue])
 
@@ -166,10 +170,12 @@ export function OSPPage() {
 
   // суммы по выбранной очереди за весь период
   const totals = useMemo(() => {
-    const t = { story: 0, tech: 0, incident: 0, total: 0 }
-    chartData.forEach(r => { t.story += r.story; t.tech += r.tech; t.incident += r.incident; t.total += r.total })
+    const keys = data?.categories.map(c => c.key) ?? []
+    const t: Record<string, number> = { total: 0 }
+    keys.forEach(k => { t[k] = 0 })
+    chartData.forEach(r => { keys.forEach(k => { t[k] += r[k] || 0 }); t.total += r.total })
     return t
-  }, [chartData])
+  }, [chartData, data])
 
   const cats = data?.categories ?? []
   const shownCats = catFilter ? cats.filter(c => c.key === catFilter) : cats
@@ -220,7 +226,7 @@ export function OSPPage() {
       ) : data && (
         <>
           {/* Сводка по категориям */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="rounded-xl border border-border bg-card px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(108,99,255,0.1)]">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Всего сделано</p>
               <p className="text-2xl font-black tracking-tight leading-none mt-1 text-foreground">{totals.total}</p>

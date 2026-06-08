@@ -1821,8 +1821,9 @@ async def flow_metrics():
 OSP_QUEUES = {"POOLING": "Курьеры X", "UDOSTAVKA": "Курьеры U", "DOSTAVKAPIKO": "Курьеры R"}
 # категории «сколько сделали»
 OSP_CATEGORIES = [
-    {"key": "story",    "label": "Story"},         # Работа по ТЗ
-    {"key": "tech",     "label": "Тех. долг"},     # ТехДолг + Тех. улучшение
+    {"key": "story",    "label": "Story"},            # Работа по ТЗ
+    {"key": "techDebt", "label": "ТехДолг"},
+    {"key": "techImpr", "label": "Тех. улучшение"},
     {"key": "incident", "label": "Инциденты"},
 ]
 _RU_MON = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
@@ -1834,9 +1835,10 @@ def _osp_category(type_key: str | None, type_display: str | None) -> str | None:
     d = (type_display or "").lower()
     if "incident" in k or "инцидент" in d:
         return "incident"
-    if ("techdebt" in k or "debt" in k or "техдолг" in d or "тех. долг" in d or "технический долг" in d
-            or "improvement" in k or "улучшен" in d):
-        return "tech"
+    if "improvement" in k or "улучшен" in d:  # Тех. улучшение — раньше ТехДолга
+        return "techImpr"
+    if "techdebt" in k or "debt" in k or "техдолг" in d or "тех. долг" in d or "технический долг" in d:
+        return "techDebt"
     if "story" in k or "работа по тз" in d or "по тз" in d:
         return "story"
     return None
@@ -1951,7 +1953,7 @@ def _osp_days_in_work(start: str, resolved: str):
         return None
 
 OSP_SNAPSHOT_TTL_H = 12  # сколько часов кэш считается свежим
-OSP_SNAPSHOT_VERSION = 7  # поднимать при изменении состава полей/логики (инвалидирует кэш)
+OSP_SNAPSHOT_VERSION = 8  # поднимать при изменении состава полей/логики (инвалидирует кэш)
 
 # ── ОСП: распределение времени (worklog) ────────────────────────────────────────
 OSP_WL_VERSION = 1  # версия снапшота worklog
