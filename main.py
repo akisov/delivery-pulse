@@ -2226,9 +2226,12 @@ async def osp_blockings(months: int = Query(6)):
     today = date.today()
     try:
         res = await turso_execute([stmt(
-            "SELECT reason, queue, start_date, end_date, status FROM blockings "
-            "WHERE queue IN (?,?,?) AND start_date != '' AND start_date <= ? "
-            "AND (status != 'closed' OR (end_date != '' AND end_date >= ?))",
+            "SELECT b.reason as reason, b.queue as queue, b.start_date as start_date, "
+            "b.end_date as end_date, b.status as status, b.key as bkey, b.parent_key as parent_key, "
+            "b.title as btitle, p.title as parent_title "
+            "FROM blockings b LEFT JOIN parent_tasks p ON p.key=b.parent_key "
+            "WHERE b.queue IN (?,?,?) AND b.start_date != '' AND b.start_date <= ? "
+            "AND (b.status != 'closed' OR (b.end_date != '' AND b.end_date >= ?))",
             ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO", month_list[-1] + "-31", m0])])
         rows = rows_to_dicts(res[0]) if res else []
     except Exception as e:
@@ -2237,6 +2240,7 @@ async def osp_blockings(months: int = Query(6)):
     bounds = {m: _month_bounds(m) for m in month_list}
     data = {m: {q: {} for q in OSP_QUEUES} for m in month_list}
     reason_tot: dict = {}
+    items: list[dict] = []
     for r in rows:
         q = r.get("queue")
         if q not in OSP_QUEUES:
@@ -2249,6 +2253,7 @@ async def osp_blockings(months: int = Query(6)):
         if not e or e < s:
             e = s
         reason = r.get("reason") or "Не указана"
+        pkey = r.get("parent_key") or r.get("bkey") or ""
         for m in month_list:
             m0d, m1d = bounds[m]
             lo, hi = max(s, m0d), min(e, m1d)
@@ -2257,6 +2262,13 @@ async def osp_blockings(months: int = Query(6)):
             days = (hi - lo).days + 1
             data[m][q][reason] = data[m][q].get(reason, 0) + days
             reason_tot[reason] = reason_tot.get(reason, 0) + days
+            items.append({
+                "month": m, "queue": q, "reason": reason, "key": pkey,
+                "title": r.get("parent_title") or r.get("btitle") or "—",
+                "url": f"https://tracker.yandex.ru/{pkey}",
+                "start": s.isoformat(), "end": e.isoformat(),
+                "days": days, "active": not closed,
+            })
 
     reasons = [r for r, _ in sorted(reason_tot.items(), key=lambda x: -x[1])]
     out = []
@@ -2270,7 +2282,7 @@ async def osp_blockings(months: int = Query(6)):
         row["all"] = allr
         out.append(row)
     return JSONResponse({"ok": True, "queues": OSP_QUEUES, "months": month_list,
-                         "reasons": reasons, "data": out, "reasonTotals": reason_tot})
+                         "reasons": reasons, "data": out, "reasonTotals": reason_tot, "items": items})
 
 @app.get("/osp-worklog")
 async def osp_worklog():
