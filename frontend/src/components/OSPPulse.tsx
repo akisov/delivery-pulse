@@ -77,7 +77,7 @@ interface Resp {
   data: Record<string, Record<string, Record<string, number>>>  // team -> month -> crit -> score
 }
 
-export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: number }) {
+export function OSPPulse({ queue, month: upTo, refreshKey }: { queue?: string; month?: string; refreshKey?: number }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -117,7 +117,7 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
     return Array.from(set).sort().reverse()
   }, [resp])
 
-  useEffect(() => { if (!fMonth && formMonths.length) setFMonth(formMonths[0]) }, [formMonths, fMonth])
+  useEffect(() => { if (upTo) setFMonth(upTo); else if (!fMonth && formMonths.length) setFMonth(formMonths[0]) }, [upTo, formMonths])
   // подставляем уже сохранённые оценки за выбранный месяц
   useEffect(() => {
     if (single && fMonth) setFScores({ ...(resp?.data?.[single]?.[fMonth] || {}) })
@@ -132,7 +132,7 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
   }
   const chartData = useMemo(() => {
     if (!resp) return []
-    return resp.months.map(m => {
+    return resp.months.filter(m => !upTo || m <= upTo).map(m => {
       const row: Record<string, any> = { label: mlabel(m), month: m }
       if (single) {
         const a = avgOf(single, m); if (a != null) row.avg = a
@@ -144,7 +144,7 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
       }
       return row
     })
-  }, [resp, single, criteria])
+  }, [resp, single, criteria, upTo])
 
   const hasChart = chartData.some(r => single ? r.avg != null : teamsAll.some(q => r[q] != null))
 

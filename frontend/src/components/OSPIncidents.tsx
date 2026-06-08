@@ -27,7 +27,7 @@ interface Resp {
   months: string[]; data: Row[]; items: IncItem[]
 }
 
-export function OSPIncidents({ queue, refreshKey, onOpenDashboard }: { queue?: string; refreshKey?: number; onOpenDashboard?: () => void }) {
+export function OSPIncidents({ queue, month, refreshKey, onOpenDashboard }: { queue?: string; month?: string; refreshKey?: number; onOpenDashboard?: () => void }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -50,12 +50,12 @@ export function OSPIncidents({ queue, refreshKey, onOpenDashboard }: { queue?: s
 
   const chartData = useMemo(() => {
     if (!resp) return []
-    return resp.data.map(row => {
+    return resp.data.filter(row => !month || row.month <= month).map(row => {
       const o: Record<string, any> = { month: row.month, label: row.label, total: 0 }
       teams.forEach(q => { o[q] = row[q] || 0; o.total += row[q] || 0 })
       return o
     })
-  }, [resp, queue])
+  }, [resp, queue, month])
 
   const grandTotal = chartData.reduce((s, r) => s + r.total, 0)
 

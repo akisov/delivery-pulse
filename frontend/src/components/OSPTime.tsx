@@ -179,10 +179,9 @@ function TeamTables({ resp, month, q }: { resp: Resp; month: string; q: string }
   )
 }
 
-export function OSPTime({ queue, refreshKey }: { queue?: string; refreshKey?: number }) {
+export function OSPTime({ queue, month: gMonth, refreshKey }: { queue?: string; month?: string; refreshKey?: number }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
-  const [month, setMonth] = useState<string>("")
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchData = (): Promise<Resp | null> =>
@@ -211,11 +210,6 @@ export function OSPTime({ queue, refreshKey }: { queue?: string; refreshKey?: nu
   // общий рефреш из шапки ОСП — просто перечитываем кэш (без пересбора worklog)
   useEffect(() => { if (refreshKey) fetchData() }, [refreshKey])
 
-  // выбираем последний месяц по умолчанию
-  useEffect(() => {
-    if (resp?.months?.length && !month) setMonth(resp.months[resp.months.length - 1])
-  }, [resp, month])
-
   const build = async () => {
     await fetch("/osp-worklog/build", { method: "POST" }).catch(() => {})
     setResp(prev => prev ? { ...prev, status: { running: true, pct: 2, msg: "Запускаем…", error: "" } } : prev)
@@ -223,6 +217,12 @@ export function OSPTime({ queue, refreshKey }: { queue?: string; refreshKey?: nu
   }
 
   const months = resp?.months ?? []
+  // отчётный месяц задаётся глобально; если его нет в данных — берём последний доступный ≤ него
+  const month = useMemo(() => {
+    if (gMonth && months.includes(gMonth)) return gMonth
+    const le = months.filter(m => !gMonth || m <= gMonth)
+    return le.length ? le[le.length - 1] : (months[months.length - 1] || "")
+  }, [gMonth, months])
   const prevMonth = useMemo(() => {
     const i = months.indexOf(month)
     return i > 0 ? months[i - 1] : undefined
@@ -289,17 +289,9 @@ export function OSPTime({ queue, refreshKey }: { queue?: string; refreshKey?: nu
           </div>
         ) : (
           <>
-            {/* переключатель месяца + чип итога часов рядом */}
+            {/* отчётный месяц (задаётся глобально) + чип итога часов */}
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-              <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
-                {months.map(m => (
-                  <button key={m} onClick={() => setMonth(m)}
-                    className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all capitalize",
-                      month === m ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
-                    {mlabel(m)}
-                  </button>
-                ))}
-              </div>
+              <span className="text-sm font-bold text-foreground capitalize">{mlabel(month)}</span>
               <div className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/[0.05] px-3 py-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Итого</span>
                 <span className="text-base font-black tracking-tight text-foreground">{Math.round(selTotal(month))}<span className="text-xs font-bold text-muted-foreground"> ч</span></span>

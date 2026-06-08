@@ -9,6 +9,7 @@ import { Modal } from "@/components/ui/modal"
 import { OSPTime } from "@/components/OSPTime"
 import { OSPSle } from "@/components/OSPSle"
 import { OSPPulse } from "@/components/OSPPulse"
+import { OSPAiSummary } from "@/components/OSPAiSummary"
 import { OSPBlockings } from "@/components/OSPBlockings"
 import { OSPIncidents } from "@/components/OSPIncidents"
 import { cn } from "@/lib/utils"
@@ -142,6 +143,7 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [queue, setQueue] = useState<string>("all")  // по умолчанию — все команды
+  const [month, setMonth] = useState<string>("")     // отчётный месяц (всё позже — обрезается)
   const [showTypes, setShowTypes] = useState(false)
   const [sel, setSel] = useState<Sel | null>(null)  // выбранный тип/месяц для модалки
   const [catFilter, setCatFilter] = useState<string | null>(null)  // оставить на графике только один тип
@@ -157,17 +159,24 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
   }
   useEffect(() => { load() }, [])
 
-  // данные графика для выбранной очереди (или сумма по всем) — ключи категорий динамические
+  // дефолтный отчётный месяц — последний доступный
+  useEffect(() => {
+    if (data?.months?.length && !month) setMonth(data.months[data.months.length - 1])
+  }, [data, month])
+
+  // данные графика: только месяцы ≤ выбранного (будущее обрезаем)
   const chartData = useMemo(() => {
     if (!data) return []
     const keys = data.categories.map(c => c.key)
-    return data.data.map(row => {
-      const c: CatCounts = queue === "all" ? row.all : row[queue]
-      const o: Record<string, any> = { month: row.month, label: row.label, total: c.total }
-      keys.forEach(k => { o[k] = c[k] || 0 })
-      return o
-    })
-  }, [data, queue])
+    return data.data
+      .filter(row => !month || row.month <= month)
+      .map(row => {
+        const c: CatCounts = queue === "all" ? row.all : row[queue]
+        const o: Record<string, any> = { month: row.month, label: row.label, total: c.total }
+        keys.forEach(k => { o[k] = c[k] || 0 })
+        return o
+      })
+  }, [data, queue, month])
 
   const monthLabels = useMemo(
     () => Object.fromEntries((data?.data ?? []).map(r => [r.month, r.label])),
@@ -207,18 +216,32 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
 
-      {/* Выбор команды — отчёт показываем по одной команде за месяц */}
+      {/* Выбор команды и отчётного месяца — всё позже месяца обрезается */}
       {data && (
-        <div className="flex items-center gap-3 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
-          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
-          <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
-            {queueTabs.map(([v, label]) => (
-              <button key={v} onClick={() => setQueue(v)}
-                className={cn("px-3.5 py-1.5 rounded-md text-sm font-semibold transition-all whitespace-nowrap",
-                  queue === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
-                {label}
-              </button>
-            ))}
+        <div className="flex items-center gap-4 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
+            <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
+              {queueTabs.map(([v, label]) => (
+                <button key={v} onClick={() => setQueue(v)}
+                  className={cn("px-3.5 py-1.5 rounded-md text-sm font-semibold transition-all whitespace-nowrap",
+                    queue === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Месяц</span>
+            <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
+              {(data.months ?? []).map(m => (
+                <button key={m} onClick={() => setMonth(m)}
+                  className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap capitalize",
+                    month === m ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
+                  {monthLabels[m] || m}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -366,19 +389,22 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
       )}
 
       {/* Попадание в SLE — по LT (дни) и трудозатратам (часы) */}
-      <OSPSle queue={queue} refreshKey={refreshKey} />
+      <OSPSle queue={queue} month={month} refreshKey={refreshKey} />
 
       {/* Распределение времени (worklog) — управляется общим фильтром команды */}
-      <OSPTime queue={queue} refreshKey={refreshKey} />
+      <OSPTime queue={queue} month={month} refreshKey={refreshKey} />
 
       {/* Инцидентов создано — по месяцам */}
-      <OSPIncidents queue={queue} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
+      <OSPIncidents queue={queue} month={month} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
 
       {/* Блокировки — динамика по месяцам + ссылка на дашборд */}
-      <OSPBlockings queue={queue} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
+      <OSPBlockings queue={queue} month={month} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
+
+      {/* AI-вывод по выбранному месяцу — перед оценкой продакта, только для одной команды */}
+      <OSPAiSummary queue={queue} month={month} monthLabel={monthLabels[month]} refreshKey={refreshKey} />
 
       {/* Оценка продакта — запрашиваем в самом конце */}
-      <OSPPulse queue={queue} refreshKey={refreshKey} />
+      <OSPPulse queue={queue} month={month} refreshKey={refreshKey} />
     </div>
   )
 }

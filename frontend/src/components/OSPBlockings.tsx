@@ -43,7 +43,7 @@ function pluralDays(n: number) {
   return "дней"
 }
 
-export function OSPBlockings({ queue, refreshKey, onOpenDashboard }: { queue?: string; refreshKey?: number; onOpenDashboard?: () => void }) {
+export function OSPBlockings({ queue, month, refreshKey, onOpenDashboard }: { queue?: string; month?: string; refreshKey?: number; onOpenDashboard?: () => void }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -65,13 +65,13 @@ export function OSPBlockings({ queue, refreshKey, onOpenDashboard }: { queue?: s
 
   const chartData = useMemo(() => {
     if (!resp) return []
-    return resp.data.map(row => {
+    return resp.data.filter(row => !month || row.month <= month).map(row => {
       const src: Record<string, number> = (queue && queue !== "all") ? (row[queue] || {}) : row.all
       const o: Record<string, any> = { month: row.month, label: row.label, total: 0 }
       resp.reasons.forEach(rs => { o[rs] = src[rs] || 0; o.total += src[rs] || 0 })
       return o
     })
-  }, [resp, queue])
+  }, [resp, queue, month])
 
   // причины с ненулевыми данными в выборке
   const reasonsAll = useMemo(

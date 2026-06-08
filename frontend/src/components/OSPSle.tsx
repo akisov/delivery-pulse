@@ -33,7 +33,7 @@ function Pct({ pct, base, target }: { pct: number | null; base: number; target: 
 
 interface Sel { q: string; cat: string; metric: "lt" | "hours"; thr: number | null }
 
-export function OSPSle({ queue, refreshKey }: { queue?: string; refreshKey?: number }) {
+export function OSPSle({ queue, month, refreshKey }: { queue?: string; month?: string; refreshKey?: number }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -54,14 +54,34 @@ export function OSPSle({ queue, refreshKey }: { queue?: string; refreshKey?: num
   const cats = resp?.cats ?? []
   const target = resp?.target ?? 85
 
+  // попадание в SLE с учётом отчётного месяца (всё позже — обрезаем, считаем из items)
+  const sleData = useMemo(() => {
+    if (!resp) return {} as Record<string, Record<string, CatSle>>
+    if (!month) return resp.sle
+    const pctOf = (vals: number[], t: number | null | undefined) =>
+      (vals.length && t != null) ? Math.round(vals.filter(v => v <= t).length / vals.length * 100) : null
+    const out: Record<string, Record<string, CatSle>> = {}
+    for (const q of Object.keys(resp.sle || {})) {
+      out[q] = {}
+      for (const c of cats) {
+        const thr = resp.sle[q]?.[c.key] || ({} as CatSle)
+        const its = (resp.items ?? []).filter(it => it.queue === q && it.cat === c.key && (it.resolved || "").slice(0, 7) <= month)
+        const lt = its.map(i => i.days).filter(v => v != null) as number[]
+        const hrs = its.map(i => i.hours).filter(v => v != null) as number[]
+        out[q][c.key] = { ltThr: thr.ltThr, hoursThr: thr.hoursThr, ltBase: lt.length, ltPct: pctOf(lt, thr.ltThr), hrsBase: hrs.length, hrsPct: pctOf(hrs, thr.hoursThr) }
+      }
+    }
+    return out
+  }, [resp, month, cats])
+
   // задачи, не попавшие в SLE по выбранной метрике
   const missList = useMemo(() => {
     if (!sel || !resp?.items || sel.thr == null) return []
     return resp.items
-      .filter(it => it.queue === sel.q && it.cat === sel.cat)
+      .filter(it => it.queue === sel.q && it.cat === sel.cat && (!month || (it.resolved || "").slice(0, 7) <= month))
       .filter(it => sel.metric === "lt" ? (it.days != null && it.days > sel.thr!) : (it.hours != null && it.hours > sel.thr!))
       .sort((a, b) => (sel.metric === "lt" ? (b.days! - a.days!) : (b.hours! - a.hours!)))
-  }, [sel, resp])
+  }, [sel, resp, month])
 
   const catLabel = (k: string) => cats.find(c => c.key === k)?.label || k
   const open = (q: string, cat: string, metric: "lt" | "hours", thr: number | null) => {
@@ -87,7 +107,7 @@ export function OSPSle({ queue, refreshKey }: { queue?: string; refreshKey?: num
         ) : !resp ? null : (
           <div className="space-y-5">
             {teams.map(q => {
-              const teamSle = resp.sle?.[q] || {}
+              const teamSle = sleData?.[q] || {}
               return (
                 <div key={q}>
                   {teams.length > 1 && (
