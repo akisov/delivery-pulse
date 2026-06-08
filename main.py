@@ -2055,21 +2055,15 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     months = max(1, min(int(months or 6), 24))
     key = f"{months}-v{OSP_SNAPSHOT_VERSION}"
 
-    # 1. читаем кэш из БД (быстро). Пересчитываем при refresh или если кэш протух.
+    # 1. читаем кэш из БД и отдаём мгновенно (любой свежести). Пересчёт — только по refresh.
     if not refresh:
         try:
             res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [key])])
             rows = rows_to_dicts(res[0]) if res else []
             if rows and rows[0].get("data"):
-                ua = rows[0].get("updated_at") or ""
-                try:
-                    age = (datetime.utcnow() - datetime.strptime(ua[:19], "%Y-%m-%d %H:%M:%S")).total_seconds()
-                except Exception:
-                    age = 1e18
-                if age < OSP_SNAPSHOT_TTL_H * 3600:
-                    obj = json.loads(rows[0]["data"])
-                    obj["updatedAt"], obj["cached"] = ua, True
-                    return JSONResponse(obj)
+                obj = json.loads(rows[0]["data"])
+                obj["updatedAt"], obj["cached"] = rows[0].get("updated_at") or "", True
+                return JSONResponse(obj)
         except Exception as e:
             print(f"[osp-snapshot load] {e}")
 
@@ -2207,14 +2201,8 @@ async def osp_incidents(months: int = Query(8), refresh: bool = Query(False)):
             res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
             rows = rows_to_dicts(res[0]) if res else []
             if rows and rows[0].get("data"):
-                ua = rows[0].get("updated_at") or ""
-                try:
-                    age = (datetime.utcnow() - datetime.strptime(ua[:19], "%Y-%m-%d %H:%M:%S")).total_seconds()
-                except Exception:
-                    age = 1e18
-                if age < OSP_SNAPSHOT_TTL_H * 3600:
-                    obj = json.loads(rows[0]["data"]); obj["updatedAt"] = ua
-                    return JSONResponse(obj)
+                obj = json.loads(rows[0]["data"]); obj["updatedAt"] = rows[0].get("updated_at") or ""
+                return JSONResponse(obj)
         except Exception as e:
             print(f"[osp-inc load] {e}")
 
@@ -2305,14 +2293,8 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
             res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
             rows = rows_to_dicts(res[0]) if res else []
             if rows and rows[0].get("data"):
-                ua = rows[0].get("updated_at") or ""
-                try:
-                    age = (datetime.utcnow() - datetime.strptime(ua[:19], "%Y-%m-%d %H:%M:%S")).total_seconds()
-                except Exception:
-                    age = 1e18
-                if age < OSP_SNAPSHOT_TTL_H * 3600:
-                    obj = json.loads(rows[0]["data"]); obj["updatedAt"] = ua
-                    return JSONResponse(obj)
+                obj = json.loads(rows[0]["data"]); obj["updatedAt"] = rows[0].get("updated_at") or ""
+                return JSONResponse(obj)
         except Exception as e:
             print(f"[osp-sle load] {e}")
 
