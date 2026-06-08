@@ -1873,18 +1873,28 @@ def _fmt_spent(s) -> str:
     if mi: parts.append(f"{mi}м")
     return " ".join(parts)
 
-def _local_value(iss: dict, field: dict | None) -> str:
-    """Значение локального поля очереди (напр. «Категория работы») из задачи."""
-    if not field:
-        return ""
-    v = iss.get(field.get("id") or "")
-    if v is None and field.get("key"):
-        v = _field(iss, "--" + field["key"])
+def _osp_grab(v) -> str:
     if isinstance(v, dict):
         return v.get("display") or v.get("name") or ""
     if isinstance(v, list):
         return ", ".join((x.get("display") if isinstance(x, dict) else str(x)) for x in v)
-    return str(v) if v is not None else ""
+    return str(v) if v not in (None, "") else ""
+
+def _osp_jobcat(iss: dict, field: dict | None, suffixes: list[str]) -> str:
+    """Значение «Категории работы». Сначала пробуем поле этой очереди, затем —
+    ключи, найденные в других очередях (локальные поля часто имеют общий ключ)."""
+    if field:
+        v = iss.get(field.get("id") or "")
+        if v is None and field.get("key"):
+            v = _field(iss, "--" + field["key"])
+        s = _osp_grab(v)
+        if s:
+            return s
+    for suf in suffixes:
+        s = _osp_grab(_field(iss, suf))
+        if s:
+            return s
+    return ""
 
 def _osp_resolution_ok(res: dict | None) -> bool:
     """Учитываем как «сделано» только резолюции «Решён» и «Отменено с часами»
@@ -1919,7 +1929,7 @@ def _osp_days_in_work(start: str, resolved: str):
         return None
 
 OSP_SNAPSHOT_TTL_H = 12  # сколько часов кэш считается свежим
-OSP_SNAPSHOT_VERSION = 4  # поднимать при изменении состава полей/логики (инвалидирует кэш)
+OSP_SNAPSHOT_VERSION = 5  # поднимать при изменении состава полей/логики (инвалидирует кэш)
 
 @app.get("/osp-delivery")
 async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
@@ -1961,9 +1971,16 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
         # локальное поле очереди «Категория работы» — у каждой очереди своё
         try:
             lf = await tracker_request(client, "GET", f"/v2/queues/{q}/localFields")
+            cand = None
             for f in (lf or []):
-                if "категори" in (f.get("name") or "").lower():
-                    return f
+                name = (f.get("name") or "").lower()
+                if "категор" in name:  # Категория работы / Категории …
+                    if "работ" in name:  # точное «Категория работы» — приоритет
+                        return f
+                    cand = cand or f
+                elif ("categor" in (f.get("key") or "").lower()) and cand is None:
+                    cand = f
+            return cand
         except Exception as e:
             print(f"[osp localFields {q}] {e}")
         return None
@@ -1975,6 +1992,15 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
     catfield_by_q = dict(zip(OSP_QUEUES, catfields))
+    # суффиксы ключей всех найденных полей — пробуем кросс-очередь (часто ключ общий)
+    cat_suffixes = []
+    for f in catfields:
+        if f and f.get("key"):
+            suf = "--" + f["key"]
+            if suf not in cat_suffixes:
+                cat_suffixes.append(suf)
+    if "--jobCategory" not in cat_suffixes:
+        cat_suffixes.append("--jobCategory")
 
     cats = [c["key"] for c in OSP_CATEGORIES]
     zero = lambda: {**{c: 0 for c in cats}, "total": 0}
@@ -2020,7 +2046,7 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
                 "parentSummary": par.get("display") or "",
                 "start": start,
                 "daysInWork": dwork,
-                "jobCategory": _local_value(iss, catfield_by_q.get(q)),
+                "jobCategory": _osp_jobcat(iss, catfield_by_q.get(q), cat_suffixes),
                 "spent": _fmt_spent(iss.get("spent")),
             })
 
@@ -2038,7 +2064,9 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     payload = {"ok": True, "queues": OSP_QUEUES, "categories": OSP_CATEGORIES,
                "months": month_list, "data": data, "totals": totals, "items": items,
                "seenTypes": dict(sorted(seen_types.items(), key=lambda x: -x[1])),
-               "seenResolutions": dict(sorted(seen_res.items(), key=lambda x: -x[1]))}
+               "seenResolutions": dict(sorted(seen_res.items(), key=lambda x: -x[1])),
+               "catFields": {q: ({"name": f.get("name"), "key": f.get("key")} if f else None)
+                             for q, f in catfield_by_q.items()}}
 
     # 2. сохраняем снапшот в БД
     try:

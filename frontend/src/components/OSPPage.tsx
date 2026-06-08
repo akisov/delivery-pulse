@@ -31,6 +31,7 @@ interface Resp {
   items: OSPItem[]
   seenTypes: Record<string, number>
   seenResolutions?: Record<string, number>
+  catFields?: Record<string, { name: string; key: string } | null>
   updatedAt?: string
   cached?: boolean
 }
@@ -38,7 +39,7 @@ interface Resp {
 // аккуратный чип
 function Chip({ label, color }: { label: string; color: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold"
+    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap"
       style={{ background: `${color}1A`, color }}>
       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />{label}
     </span>
@@ -51,6 +52,14 @@ function fmtDate(iso: string) {
   if (!iso) return "—"
   const p = iso.slice(0, 10).split("-")
   return p.length === 3 ? `${p[2]}.${p[1]}.${p[0].slice(2)}` : iso
+}
+
+// сокращаем длинные категории работы (чтобы чип не переносился)
+function shortCat(s: string) {
+  return (s || "")
+    .replace(/User\s*Stor(?:y|ies)/gi, "US")
+    .replace(/Маленьки[ехй]/gi, "Мал.")
+    .trim()
 }
 
 // Модалка «Что конкретно мы сделали» — таблица задач выбранного типа (по клику на столбец)
@@ -105,8 +114,10 @@ function OSPTasksModal({ sel, items, queues, cats, queue, monthLabels, onClose }
                   </td>
                   <td className="border-b border-border/50 px-2.5 py-2 text-right font-bold text-foreground">{it.daysInWork ?? "—"}</td>
                   <td className="border-b border-border/50 px-2.5 py-2 whitespace-nowrap text-muted-foreground">{fmtDate(it.start)}</td>
-                  <td className="border-b border-border/50 px-2.5 py-2 text-right">
-                    {it.jobCategory ? <Chip label={it.jobCategory} color={color} /> : <span className="text-muted-foreground">—</span>}
+                  <td className="border-b border-border/50 px-2.5 py-2 whitespace-nowrap">
+                    {it.jobCategory
+                      ? <span title={it.jobCategory}><Chip label={shortCat(it.jobCategory)} color={color} /></span>
+                      : <span className="text-muted-foreground">—</span>}
                   </td>
                   <td className="border-b border-border/50 px-2.5 py-2 text-right whitespace-nowrap text-muted-foreground">{it.spent || "—"}</td>
                 </tr>
@@ -315,6 +326,16 @@ export function OSPPage() {
                       {Object.entries(data.seenResolutions).map(([t, n]) => (
                         <span key={t} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground">
                           {t} <span className="font-bold text-foreground">{n}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {data.catFields && (
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground/70">поле «категория работы»:</span>
+                      {Object.entries(data.catFields).map(([q, f]) => (
+                        <span key={q} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground">
+                          {data.queues[q] || q}: <span className="font-bold text-foreground">{f ? `${f.name} (${f.key})` : "не найдено"}</span>
                         </span>
                       ))}
                     </div>
