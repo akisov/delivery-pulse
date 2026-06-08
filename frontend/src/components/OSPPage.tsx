@@ -368,9 +368,6 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
       {/* Попадание в SLE — по LT (дни) и трудозатратам (часы) */}
       <OSPSle queue={queue} refreshKey={refreshKey} />
 
-      {/* Оценка продакта — динамика по критериям + форма */}
-      <OSPPulse queue={queue} refreshKey={refreshKey} />
-
       {/* Распределение времени (worklog) — управляется общим фильтром команды */}
       <OSPTime queue={queue} refreshKey={refreshKey} />
 
@@ -379,6 +376,9 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
 
       {/* Блокировки — динамика по месяцам + ссылка на дашборд */}
       <OSPBlockings queue={queue} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
+
+      {/* Оценка продакта — запрашиваем в самом конце */}
+      <OSPPulse queue={queue} refreshKey={refreshKey} />
     </div>
   )
 }
