@@ -6,6 +6,7 @@ import { RefreshCw, ChevronDown, ChevronUp, ExternalLink, ListFilter, X } from "
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
+import { OSPTime } from "@/components/OSPTime"
 import { cn } from "@/lib/utils"
 
 const CAT_COLORS: Record<string, string> = {
@@ -350,6 +351,9 @@ export function OSPPage() {
             queue={queue} monthLabels={monthLabels} onClose={() => setSel(null)} />
         </>
       )}
+
+      {/* Распределение времени (worklog) — независимый блок со своими данными */}
+      <OSPTime />
     </div>
   )
 }

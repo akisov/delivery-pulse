@@ -1931,6 +1931,96 @@ def _osp_days_in_work(start: str, resolved: str):
 OSP_SNAPSHOT_TTL_H = 12  # сколько часов кэш считается свежим
 OSP_SNAPSHOT_VERSION = 6  # поднимать при изменении состава полей/логики (инвалидирует кэш)
 
+# ── ОСП: распределение времени (worklog) ────────────────────────────────────────
+OSP_WL_VERSION = 1  # версия снапшота worklog
+_QTEAM = {"POOLING": "X", "UDOSTAVKA": "U", "DOSTAVKAPIKO": "R"}
+_wl_status: dict = {"running": False, "pct": 0, "msg": "", "error": ""}
+
+def _iso_dur_hours(s) -> float:
+    """ISO-8601 длительность worklog → часы. Трекер: 1д = 8ч, 1н = 40ч."""
+    if not s or not isinstance(s, str):
+        return 0.0
+    m = re.match(r"P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$", s)
+    if not m:
+        return 0.0
+    w, d, h, mi, sec = m.groups()
+    return (int(w or 0) * 40 + int(d or 0) * 8 + int(h or 0)
+            + int(mi or 0) / 60 + float(sec or 0) / 3600)
+
+async def _wl_fetch(client, key):
+    try:
+        return await tracker_request(client, "GET", f"/v2/issues/{key}/worklog")
+    except Exception:
+        return []
+
+async def run_osp_worklog_job(year: int):
+    """Фоном собирает worklog по 3 очередям с начала года и пишет агрегат в osp_snapshot.
+    Часы группируются по месяцу × команде (очередь по ключу) × типу работ."""
+    global _wl_status
+    _wl_status = {"running": True, "pct": 2, "msg": "Ищем задачи со списаниями…", "error": ""}
+    try:
+        jan1 = f"{year}-01-01"
+        today = date.today()
+        last_m = today.month if year == today.year else 12
+        months = [f"{year}-{m:02d}" for m in range(1, last_m + 1)]
+        agg = {mo: {q: {} for q in OSP_QUEUES} for mo in months}
+        seen_types: set = set()
+        async with httpx.AsyncClient(timeout=60) as client:
+            # 1. задачи трёх очередей, обновлённые в этом году, со списанным временем
+            todo: list[tuple] = []
+            for q in OSP_QUEUES:
+                page = 1
+                while True:
+                    data = await tracker_request(client, "POST",
+                        f"/v2/issues/_search?perPage=100&page={page}",
+                        {"filter": {"queue": q, "updatedAt": {"from": f"{jan1}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+                    chunk = data if isinstance(data, list) else []
+                    for iss in chunk:
+                        if not iss.get("spent"):
+                            continue  # без списаний worklog пустой
+                        todo.append((iss["key"], q, (iss.get("type") or {}).get("display") or "—"))
+                    if len(chunk) < 100:
+                        break
+                    page += 1
+                    await asyncio.sleep(0.4)
+            total = len(todo)
+            _wl_status["msg"] = f"Задач со списаниями: {total}. Тянем worklog…"
+            # 2. worklog по каждой задаче (чанками, бережём rate limit)
+            B, done = 3, 0
+            for i in range(0, total, B):
+                chunk = todo[i:i + B]
+                wls = await asyncio.gather(*[_wl_fetch(client, k) for (k, _, _) in chunk],
+                                           return_exceptions=True)
+                for (k, q, tp), wl in zip(chunk, wls):
+                    if not isinstance(wl, list):
+                        continue
+                    for e in wl:
+                        mo = (e.get("start") or "")[:7]
+                        if mo not in agg:
+                            continue
+                        hrs = _iso_dur_hours(e.get("duration"))
+                        if hrs <= 0:
+                            continue
+                        seen_types.add(tp)
+                        agg[mo][q][tp] = agg[mo][q].get(tp, 0.0) + hrs
+                done += len(chunk)
+                await asyncio.sleep(0.3)
+                _wl_status["pct"] = 5 + round(done / max(total, 1) * 92)
+                _wl_status["msg"] = f"worklog {done}/{total}"
+        for mo in agg:
+            for q in agg[mo]:
+                for tp in list(agg[mo][q]):
+                    agg[mo][q][tp] = round(agg[mo][q][tp], 2)
+        payload = {"ok": True, "year": year, "months": months, "queues": OSP_QUEUES,
+                   "types": sorted(seen_types), "data": agg}
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [f"wl-{year}-v{OSP_WL_VERSION}", json.dumps(payload, ensure_ascii=False)])])
+        _wl_status = {"running": False, "pct": 100, "msg": "Готово", "error": ""}
+    except Exception as e:
+        _wl_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
+
 @app.get("/osp-delivery")
 async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     """Сколько сделали (завершено) по месяцам: Story / Тех. долг / Инциденты
@@ -2081,6 +2171,40 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
 
     payload["updatedAt"], payload["cached"] = "только что", False
     return JSONResponse(payload)
+
+@app.get("/osp-worklog")
+async def osp_worklog():
+    """Агрегат worklog по месяцам (часы × команда × тип). Если снапшота нет —
+    запускаем фоновый сбор и отдаём пустой ответ со статусом."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    year = date.today().year
+    snap, ts = None, None
+    try:
+        res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?",
+                                        [f"wl-{year}-v{OSP_WL_VERSION}"])])
+        rows = rows_to_dicts(res[0]) if res else []
+        if rows and rows[0].get("data"):
+            snap, ts = json.loads(rows[0]["data"]), rows[0].get("updated_at")
+    except Exception as e:
+        print(f"[osp-wl load] {e}")
+    if snap is None:
+        if not _wl_status["running"]:
+            asyncio.create_task(run_osp_worklog_job(year))
+        return JSONResponse({"ok": True, "data": None, "status": _wl_status})
+    snap["updatedAt"], snap["status"] = ts, _wl_status
+    return JSONResponse(snap)
+
+@app.post("/osp-worklog/build")
+async def osp_worklog_build():
+    if _wl_status["running"]:
+        return JSONResponse({"ok": False, "error": "Сбор уже идёт"})
+    asyncio.create_task(run_osp_worklog_job(date.today().year))
+    return JSONResponse({"ok": True})
+
+@app.get("/osp-worklog/status")
+async def osp_worklog_status():
+    return JSONResponse(_wl_status)
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 
