@@ -9,7 +9,17 @@ import { Badge } from "@/components/ui/badge"
 const TEAM_ORDER = ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"]
 const QUEUE_COLORS: Record<string, string> = { POOLING: "#6C63FF", UDOSTAVKA: "#06B6D4", DOSTAVKAPIKO: "#10B981" }
 
-interface IncItem { month: string; queue: string; key: string; summary: string; url: string; created: string; status: string; assignee: string }
+interface IncItem { month: string; queue: string; key: string; summary: string; url: string; created: string; status: string; statusKey: string; daysInWork: number | null; assignee: string }
+
+// цвет статуса для подсветки чипа
+function statusColor(key: string, display: string) {
+  const s = `${key || ""} ${display || ""}`.toLowerCase()
+  if (/clos|done|resolv|закры|готов|решен|решён|заверш/.test(s)) return "#10B981"   // зелёный — закрыт/решён
+  if (/test|тест|review|провер/.test(s)) return "#EAB308"                            // жёлтый — тестирование/проверка
+  if (/progress|work|разработ|в работе|анализ/.test(s)) return "#3B82F6"             // синий — в работе
+  if (/backlog|open|new|откры|нов|бэклог|продуктов/.test(s)) return "#94A3B8"        // серый — открыт/бэклог
+  return "#F59E0B"                                                                    // прочее
+}
 interface Row { month: string; label: string; all: number; [q: string]: any }
 interface Resp {
   ok: boolean; error?: string
@@ -121,7 +131,17 @@ export function OSPIncidents({ queue, refreshKey, onOpenDashboard }: { queue?: s
                       {t.key} <ExternalLink className="w-3 h-3" />
                     </a>
                     <Badge variant="outline" className="text-[10px]">{t.queue}</Badge>
-                    {t.status && <span className="text-[10px] text-muted-foreground">{t.status}</span>}
+                    {t.status && (
+                      <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold"
+                        style={{ background: `${statusColor(t.statusKey, t.status)}1A`, color: statusColor(t.statusKey, t.status) }}>
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: statusColor(t.statusKey, t.status) }} />{t.status}
+                      </span>
+                    )}
+                    {t.daysInWork != null && (
+                      <span className="inline-flex items-center rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-bold text-foreground">
+                        {t.daysInWork} дн. в работе
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5 truncate">{t.summary}</p>
                   <p className="text-[11px] text-muted-foreground/70 mt-0.5">создан {t.created} · {t.assignee}</p>
