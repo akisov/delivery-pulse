@@ -2438,6 +2438,132 @@ async def osp_pulse_submit(team: str = Query(...), month: str = Query(...), requ
             return JSONResponse({"ok": False, "error": str(e)})
     return JSONResponse({"ok": True, "saved": len(stmts)})
 
+async def _osp_snap(which: str):
+    try:
+        res = await turso_execute([stmt("SELECT data FROM osp_snapshot WHERE which=?", [which])])
+        rows = rows_to_dicts(res[0]) if res else []
+        if rows and rows[0].get("data"):
+            return json.loads(rows[0]["data"])
+    except Exception:
+        pass
+    return None
+
+def _prev_month(m: str) -> str:
+    y, mo = int(m[:4]), int(m[5:7]); mo -= 1
+    if mo == 0:
+        y, mo = y - 1, 12
+    return f"{y}-{mo:02d}"
+
+async def _osp_blocking_days(q: str, ym: str) -> int:
+    m0, m1 = _month_bounds(ym)
+    try:
+        res = await turso_execute([stmt(
+            "SELECT start_date, end_date, status FROM blockings WHERE queue=? AND start_date!='' "
+            "AND start_date <= ? AND (status!='closed' OR (end_date!='' AND end_date >= ?))",
+            [q, m1.isoformat(), m0.isoformat()])])
+        rows = rows_to_dicts(res[0]) if res else []
+    except Exception:
+        return 0
+    today, total = date.today(), 0
+    for r in rows:
+        s = _date_only(r.get("start_date"))
+        if not s:
+            continue
+        closed = r.get("status") == "closed"
+        e = _date_only(r.get("end_date")) if (closed and r.get("end_date")) else today
+        if not e or e < s:
+            e = s
+        lo, hi = max(s, m0), min(e, m1)
+        if hi >= lo:
+            total += (hi - lo).days + 1
+    return total
+
+async def _osp_ai_summary_build(team: str, month: str) -> str | None:
+    if not MISTRAL_API_KEY:
+        return None
+    prev = _prev_month(month)
+    deliv = await _osp_snap(f"6-v{OSP_SNAPSHOT_VERSION}")
+    inc = await _osp_snap("inc-8-v2")
+    wl = await _osp_snap(f"wl-{date.today().year}-v{OSP_WL_VERSION}")
+
+    def drow(m):
+        for r in (deliv or {}).get("data", []):
+            if r.get("month") == m:
+                return r.get(team) or {}
+        return {}
+    def irow(m):
+        for r in (inc or {}).get("data", []):
+            if r.get("month") == m:
+                return r.get(team) or 0
+        return 0
+    def wrow(m):
+        return ((wl or {}).get("data", {}).get(m, {}) or {}).get(team, {}) or {}
+
+    dM, dP = drow(month), drow(prev)
+    iM, iP = irow(month), irow(prev)
+    wM, wP = wrow(month), wrow(prev)
+    bM, bP = await _osp_blocking_days(team, month), await _osp_blocking_days(team, prev)
+
+    def d(a, b):
+        a, b = a or 0, b or 0
+        return f"{a} (было {b}, {'+' if a-b>=0 else ''}{round(a-b,1)})"
+    cat_lbl = {"story": "Story", "techDebt": "ТехДолг", "techImpr": "Тех.улучшение", "analytics": "Аналитика", "incident": "Инциденты"}
+    lines = [
+        f"Команда: {OSP_QUEUES.get(team, team)}. Отчётный месяц: {_osp_label(month)} (сравнение с {_osp_label(prev)}).",
+        f"Сделано задач всего: {d(dM.get('total'), dP.get('total'))}.",
+        "  по типам: " + ", ".join(f"{cat_lbl[k]} {d(dM.get(k), dP.get(k))}" for k in cat_lbl),
+        f"Инцидентов заведено за месяц: {d(iM, iP)}.",
+        f"Дней блокировок (в этом месяце): {d(bM, bP)}.",
+        f"Списано часов всего: {d(round(sum(wM.values()),1), round(sum(wP.values()),1))}.",
+        "  часы по типам: " + ", ".join(f"{k} {d(wM.get(k), wP.get(k))}" for k in sorted(set(list(wM) + list(wP)))) if (wM or wP) else "  часы: нет данных",
+    ]
+    facts = "\n".join(lines)
+    system = (
+        "Ты — аналитик процессов поставки (delivery) в команде курьеров. На вход — метрики команды "
+        "за отчётный месяц и сравнение с предыдущим. Твоя задача — подсветить 2–4 ГЛАВНЫХ узких места "
+        "и тревожных тренда, на которые стоит обратить внимание продакту.\n"
+        "Примеры полезных наблюдений: инцидентов завели больше, а закрыли меньше; времени на техдолг стало "
+        "больше при том же объёме; выросли дни блокировок; перекос в сторону инцидентов в ущерб Story.\n"
+        "Формат: маркированный список (• ...), 2–4 пункта, каждый — одно короткое живое предложение. "
+        "Без вступления и воды. Только на основе чисел, ничего не выдумывай. Если данных мало — так и скажи одним пунктом. "
+        "Тон простой, по-человечески, без канцелярита."
+    )
+    body = {"model": MISTRAL_MODEL,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": facts}],
+            "temperature": 0.3, "max_tokens": 320}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post("https://api.mistral.ai/v1/chat/completions",
+                                  headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
+            r.raise_for_status()
+            return (r.json()["choices"][0]["message"]["content"] or "").strip()
+    except Exception as e:
+        print(f"[osp-ai] {e}")
+        return None
+
+@app.get("/osp-ai-summary")
+async def osp_ai_summary(team: str = Query(...), month: str = Query(...), refresh: bool = Query(False)):
+    if team not in OSP_QUEUES:
+        return JSONResponse({"ok": False, "error": "неизвестная команда"})
+    if not re.match(r"^\d{4}-\d{2}$", month or ""):
+        return JSONResponse({"ok": False, "error": "месяц в формате YYYY-MM"})
+    ck = f"ai-{team}-{month}-v1"
+    if not refresh:
+        snap = await _osp_snap(ck)
+        if snap:
+            return JSONResponse(snap)
+    text = await _osp_ai_summary_build(team, month)
+    payload = {"ok": True, "team": team, "month": month, "summary": text or ""}
+    if text:
+        try:
+            await turso_execute([stmt(
+                "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+                "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+                [ck, json.dumps(payload, ensure_ascii=False)])])
+        except Exception as e:
+            print(f"[osp-ai save] {e}")
+    return JSONResponse(payload)
+
 @app.post("/osp-pulse/clear")
 async def osp_pulse_clear(team: str = Query(...), month: str = Query(...)):
     if team not in OSP_QUEUES:
