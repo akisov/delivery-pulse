@@ -1,8 +1,8 @@
-import { Lock, Target, Sparkles, BarChart3, Workflow } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Workflow, Truck } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Props {
-  onGo: (section: "blockings" | "sle" | "flow") => void
+  onGo: (section: "blockings" | "sle" | "flow" | "osp") => void
 }
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
@@ -55,6 +55,8 @@ const NAV_CARDS = [
     title: "Анализ SLE", desc: "Кластеризация причин нарушения SLE по PUTKURERA, скрытые блокировки." },
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",
     title: "Поток", desc: "Возраст работы в Discovery/Delivery (WIP Age P90), WIP-лимиты и недельный тренд." },
+  { section: "osp" as const, icon: Truck, color: "#F59E0B",
+    title: "ОСП", desc: "Обзор сервиса поставки: сколько сделали по месяцам (Работа по ТЗ, тех. долг, инциденты) по очередям курьеров." },
 ]
 
 export function HomePage({ onGo }: Props) {

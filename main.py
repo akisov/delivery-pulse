@@ -1580,8 +1580,25 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
     which = which if which in SLE_QUERIES else "current"
 
-    # 1. читаем из БД-снапшота (мгновенно), либо пересчитываем по refresh/отсутствию
-    snap, ts = (None, None) if refresh else await load_snapshot(which)
+    # 1. читаем из БД-снапшота (мгновенно), либо пересчитываем по refresh/отсутствию.
+    # Снапшот и overrides тянем одним пайплайном = один round-trip в Turso.
+    snap, ts, ov, ov_loaded = None, None, {}, False
+    if not refresh:
+        try:
+            res = await turso_execute([
+                stmt("SELECT data, updated_at FROM sle_snapshot WHERE which=?", [which]),
+                stmt("SELECT task_key, cluster FROM sle_overrides"),
+            ])
+            srows = rows_to_dicts(res[0]) if len(res) > 0 else []
+            if srows and srows[0].get("data"):
+                obj = json.loads(srows[0]["data"])
+                if isinstance(obj, dict) and obj.get("v") == SLE_SNAPSHOT_VERSION:
+                    snap, ts = obj.get("tasks", []), srows[0].get("updated_at")
+            ov = {r["task_key"]: r["cluster"] for r in (rows_to_dicts(res[1]) if len(res) > 1 else [])}
+            ov_loaded = True
+        except Exception as e:
+            print(f"[sle-clusters read] {e}")
+
     if snap is not None:
         tasks = snap
     else:
@@ -1620,11 +1637,13 @@ async def sle_clusters(which: str = Query("current"), refresh: bool = Query(Fals
         ts = "только что"
 
     # 2. приоритет: ручная правка > эталонная разметка (seed) > ИИ
-    try:
-        ores = await turso_execute([stmt("SELECT task_key, cluster FROM sle_overrides")])
-        ov = {r["task_key"]: r["cluster"] for r in (rows_to_dicts(ores[0]) if ores else [])}
-    except Exception:
-        ov = {}
+    # overrides уже прочитаны вместе со снапшотом; добираем только если шли по refresh-пути
+    if not ov_loaded:
+        try:
+            ores = await turso_execute([stmt("SELECT task_key, cluster FROM sle_overrides")])
+            ov = {r["task_key"]: r["cluster"] for r in (rows_to_dicts(ores[0]) if ores else [])}
+        except Exception:
+            ov = {}
     for t in tasks:
         ai = t.get("aiCluster")
         if ov.get(t["key"]):
@@ -1729,8 +1748,11 @@ async def flow_metrics():
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            disc = await tracker_query(client, FLOW_DISCOVERY_QUERY)
-            deliv = await tracker_query(client, FLOW_DELIVERY_QUERY)
+            # обе очереди тянем параллельно (один клиент, два конкурентных запроса)
+            disc, deliv = await asyncio.gather(
+                tracker_query(client, FLOW_DISCOVERY_QUERY),
+                tracker_query(client, FLOW_DELIVERY_QUERY),
+            )
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
@@ -1749,14 +1771,17 @@ async def flow_metrics():
     today = date.today().isoformat()
     rows = []
     try:
-        res = await turso_execute([stmt("SELECT week, discovery_p90, discovery_count, delivery_p90, delivery_count, saved_at FROM flow_snapshot ORDER BY saved_at")])
+        # SELECT (читает состояние до апсёрта) + INSERT одним пайплайном = один round-trip
+        res = await turso_execute([
+            stmt("SELECT week, discovery_p90, discovery_count, delivery_p90, delivery_count, saved_at FROM flow_snapshot ORDER BY saved_at"),
+            stmt(
+                "INSERT INTO flow_snapshot(week,discovery_p90,discovery_count,delivery_p90,delivery_count,saved_at) "
+                "VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(week) DO UPDATE SET "
+                "discovery_p90=excluded.discovery_p90, discovery_count=excluded.discovery_count, "
+                "delivery_p90=excluded.delivery_p90, delivery_count=excluded.delivery_count, saved_at=excluded.saved_at",
+                [week, discovery["p90"], discovery["count"], delivery["p90"], delivery["count"]]),
+        ])
         rows = rows_to_dicts(res[0]) if res else []
-        await turso_execute([stmt(
-            "INSERT INTO flow_snapshot(week,discovery_p90,discovery_count,delivery_p90,delivery_count,saved_at) "
-            "VALUES(?,?,?,?,?,datetime('now')) ON CONFLICT(week) DO UPDATE SET "
-            "discovery_p90=excluded.discovery_p90, discovery_count=excluded.discovery_count, "
-            "delivery_p90=excluded.delivery_p90, delivery_count=excluded.delivery_count, saved_at=excluded.saved_at",
-            [week, discovery["p90"], discovery["count"], delivery["p90"], delivery["count"]])])
         cur = next((r for r in rows if r["week"] == week), None)
         vals = {"discovery_p90": discovery["p90"], "discovery_count": discovery["count"],
                 "delivery_p90": delivery["p90"], "delivery_count": delivery["count"], "saved_at": today}
@@ -1783,6 +1808,106 @@ async def flow_metrics():
     return JSONResponse({"ok": True, "discovery": discovery, "delivery": delivery,
                          "sleBreakdown": sle_break, "week": week, "target": FLOW_TARGET,
                          "history": history})
+
+# ── ОСП: обзор сервиса поставки (3 очереди курьеров) ────────────────────────────
+
+# очереди курьеров → отображаемые имена
+OSP_QUEUES = {"POOLING": "Курьеры X", "UDOSTAVKA": "Курьеры U", "DOSTAVKAPIKO": "Курьеры R"}
+# категории «сколько сделали»
+OSP_CATEGORIES = [
+    {"key": "story",    "label": "Работа по ТЗ"},
+    {"key": "tech",     "label": "Тех. долг"},     # ТехДолг + Тех. улучшение
+    {"key": "incident", "label": "Инциденты"},
+]
+_RU_MON = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+
+def _osp_category(type_key: str | None, type_display: str | None) -> str | None:
+    """Категория задачи по типу Трекера. Сопоставляем и по ключу, и по названию —
+    устойчиво к тому, какой именно ключ у типа в очередях курьеров."""
+    k = (type_key or "").lower()
+    d = (type_display or "").lower()
+    if "incident" in k or "инцидент" in d:
+        return "incident"
+    if ("techdebt" in k or "debt" in k or "техдолг" in d or "тех. долг" in d or "технический долг" in d
+            or "improvement" in k or "улучшен" in d):
+        return "tech"
+    if "story" in k or "работа по тз" in d or "по тз" in d:
+        return "story"
+    return None
+
+def _osp_month_list(n: int) -> list[str]:
+    today = date.today()
+    y, m, out = today.year, today.month, []
+    for _ in range(n):
+        out.append(f"{y}-{m:02d}")
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    return list(reversed(out))
+
+def _osp_label(ym: str) -> str:
+    try:
+        y, m = ym.split("-")
+        return f"{_RU_MON[int(m) - 1]} {y[2:]}"
+    except Exception:
+        return ym
+
+@app.get("/osp-delivery")
+async def osp_delivery(months: int = Query(9)):
+    """Сколько сделали (завершено) по месяцам: Story / Тех. долг / Инциденты
+    по трём очередям курьеров. Группировка — по дате завершения (resolvedAt)."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    months = max(1, min(int(months or 9), 24))
+    month_list = _osp_month_list(months)
+    cutoff = month_list[0] + "-01"
+
+    async def _fetch(client, q):
+        # завершённые (есть резолюция) с датой решения от cutoff
+        query = f'Queue: {q} Resolution: notEmpty() Resolved: >= "{cutoff}"'
+        return await tracker_query(client, query)
+
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            results = await asyncio.gather(*[_fetch(client, q) for q in OSP_QUEUES])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+    cats = [c["key"] for c in OSP_CATEGORIES]
+    zero = lambda: {**{c: 0 for c in cats}, "total": 0}
+    buckets = {m: {q: zero() for q in OSP_QUEUES} for m in month_list}
+    totals = {c: 0 for c in cats}
+    seen_types: dict[str, int] = {}
+
+    for q, issues in zip(OSP_QUEUES, results):
+        for iss in issues:
+            mo = (iss.get("resolvedAt") or "")[:7]
+            if mo not in buckets:
+                continue
+            t = iss.get("type") or {}
+            disp = t.get("display") or t.get("key") or "—"
+            seen_types[disp] = seen_types.get(disp, 0) + 1
+            cat = _osp_category(t.get("key"), t.get("display"))
+            if not cat:
+                continue
+            buckets[mo][q][cat] += 1
+            buckets[mo][q]["total"] += 1
+            totals[cat] += 1
+
+    data = []
+    for m in month_list:
+        row: dict = {"month": m, "label": _osp_label(m)}
+        allc = zero()
+        for q in OSP_QUEUES:
+            row[q] = buckets[m][q]
+            for c in cats + ["total"]:
+                allc[c] += buckets[m][q][c]
+        row["all"] = allc
+        data.append(row)
+
+    return JSONResponse({"ok": True, "queues": OSP_QUEUES, "categories": OSP_CATEGORIES,
+                         "months": month_list, "data": data, "totals": totals,
+                         "seenTypes": dict(sorted(seen_types.items(), key=lambda x: -x[1]))})
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 
