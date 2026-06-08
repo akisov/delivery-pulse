@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { OSPTime } from "@/components/OSPTime"
+import { OSPSle } from "@/components/OSPSle"
 import { OSPBlockings } from "@/components/OSPBlockings"
 import { OSPIncidents } from "@/components/OSPIncidents"
 import { cn } from "@/lib/utils"
@@ -362,6 +363,9 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
             queue={queue} monthLabels={monthLabels} onClose={() => setSel(null)} />
         </>
       )}
+
+      {/* Попадание в SLE — по LT (дни) и трудозатратам (часы) */}
+      <OSPSle queue={queue} refreshKey={refreshKey} />
 
       {/* Распределение времени (worklog) — управляется общим фильтром команды */}
       <OSPTime queue={queue} refreshKey={refreshKey} />
