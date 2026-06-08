@@ -2204,6 +2204,79 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     payload["updatedAt"], payload["cached"] = "только что", False
     return JSONResponse(payload)
 
+@app.get("/osp-incidents")
+async def osp_incidents(months: int = Query(8), refresh: bool = Query(False)):
+    """Сколько инцидентов заведено (создано) по месяцам — по дате создания."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    months = max(1, min(int(months or 8), 24))
+    ckey = f"inc-{months}-v1"
+    if not refresh:
+        try:
+            res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
+            rows = rows_to_dicts(res[0]) if res else []
+            if rows and rows[0].get("data"):
+                ua = rows[0].get("updated_at") or ""
+                try:
+                    age = (datetime.utcnow() - datetime.strptime(ua[:19], "%Y-%m-%d %H:%M:%S")).total_seconds()
+                except Exception:
+                    age = 1e18
+                if age < OSP_SNAPSHOT_TTL_H * 3600:
+                    obj = json.loads(rows[0]["data"]); obj["updatedAt"] = ua
+                    return JSONResponse(obj)
+        except Exception as e:
+            print(f"[osp-inc load] {e}")
+
+    month_list = _osp_month_list(months)
+    cutoff = month_list[0] + "-01"
+
+    async def _fetch(client, q):
+        return await tracker_query(client, f'Queue: {q} Created: >= "{cutoff}"')
+
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            results = await asyncio.gather(*[_fetch(client, q) for q in OSP_QUEUES])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+    buckets = {m: {q: 0 for q in OSP_QUEUES} for m in month_list}
+    items: list[dict] = []
+    for q, issues in zip(OSP_QUEUES, results):
+        for iss in issues:
+            t = iss.get("type") or {}
+            if _osp_category(t.get("key"), t.get("display")) != "incident":
+                continue
+            mo = _msk_month(iss.get("createdAt") or "")
+            if mo not in buckets:
+                continue
+            buckets[mo][q] += 1
+            items.append({
+                "month": mo, "queue": q, "key": iss.get("key"),
+                "summary": iss.get("summary") or "—",
+                "url": f"https://tracker.yandex.ru/{iss.get('key')}",
+                "created": _msk_date(iss.get("createdAt") or ""),
+                "status": (iss.get("status") or {}).get("display", ""),
+                "assignee": (iss.get("assignee") or {}).get("display", "—"),
+            })
+
+    data = []
+    for m in month_list:
+        row = {"month": m, "label": _osp_label(m), "all": 0}
+        for q in OSP_QUEUES:
+            row[q] = buckets[m][q]
+            row["all"] += buckets[m][q]
+        data.append(row)
+    payload = {"ok": True, "queues": OSP_QUEUES, "months": month_list, "data": data, "items": items}
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ckey, json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[osp-inc save] {e}")
+    payload["updatedAt"] = "только что"
+    return JSONResponse(payload)
+
 def _date_only(s: str):
     try:
         return date.fromisoformat((s or "")[:10])
