@@ -138,7 +138,7 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [queue, setQueue] = useState<string>("POOLING")  // отчёт показываем по одной команде
+  const [queue, setQueue] = useState<string>("all")  // по умолчанию — все команды
   const [showTypes, setShowTypes] = useState(false)
   const [sel, setSel] = useState<Sel | null>(null)  // выбранный тип/месяц для модалки
   const [catFilter, setCatFilter] = useState<string | null>(null)  // оставить на графике только один тип
@@ -181,8 +181,8 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
 
   const cats = data?.categories ?? []
   const shownCats = catFilter ? cats.filter(c => c.key === catFilter) : cats
-  // команды (очереди курьеров) — выбираем одну; «Все» в конце как опция
-  const queueTabs: [string, string][] = [...Object.entries(data?.queues ?? {}), ["all", "Все команды"]]
+  // команды (очереди курьеров) — «Все команды» первым (по умолчанию), затем X/U/R
+  const queueTabs: [string, string][] = [["all", "Все команды"], ...Object.entries(data?.queues ?? {})]
 
   return (
     <div className="space-y-6">
