@@ -243,7 +243,7 @@ export function OSPPage() {
                 <CardTitle>📦 Сколько мы сделали — по месяцам</CardTitle>
                 <span className="text-xs text-muted-foreground">{queueTabs.find(([v]) => v === queue)?.[1]}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Сделано (резолюция «Решён» или «Отменено с часами», по дате завершения) · нажми на тип — оставить только его на графике · клик по столбцу — список задач</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Сделано по дате завершения · Story и тех. долг — резолюция «Решён»/«Отменено с часами», инциденты — все закрытые · нажми на тип — оставить только его · клик по столбцу — список задач</p>
             </CardHeader>
             <CardContent>
               {totals.total === 0 ? (

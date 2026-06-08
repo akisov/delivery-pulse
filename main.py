@@ -1929,7 +1929,7 @@ def _osp_days_in_work(start: str, resolved: str):
         return None
 
 OSP_SNAPSHOT_TTL_H = 12  # сколько часов кэш считается свежим
-OSP_SNAPSHOT_VERSION = 5  # поднимать при изменении состава полей/логики (инвалидирует кэш)
+OSP_SNAPSHOT_VERSION = 6  # поднимать при изменении состава полей/логики (инвалидирует кэш)
 
 @app.get("/osp-delivery")
 async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
@@ -2019,13 +2019,15 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
             res = iss.get("resolution") or {}
             rdisp = res.get("display") or res.get("key") or "—"
             seen_res[rdisp] = seen_res.get(rdisp, 0) + 1
-            if not _osp_resolution_ok(res):
-                continue  # учитываем только Решён / Отменено с часами
             t = iss.get("type") or {}
             disp = t.get("display") or t.get("key") or "—"
             seen_types[disp] = seen_types.get(disp, 0) + 1
             cat = _osp_category(t.get("key"), t.get("display"))
             if not cat:
+                continue
+            # инциденты считаем при любой резолюции (любой закрытый);
+            # story / тех. долг — только «Решён» и «Отменено с часами»
+            if cat != "incident" and not _osp_resolution_ok(res):
                 continue
             buckets[mo][q][cat] += 1
             buckets[mo][q]["total"] += 1
