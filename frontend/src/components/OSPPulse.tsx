@@ -6,10 +6,31 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
 const TEAM_ORDER = ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"]
-const CRIT_COLORS = ["#3B82F6", "#8B5CF6", "#F59E0B", "#06B6D4", "#10B981"]
+const QUEUE_COLORS: Record<string, string> = { POOLING: "#6C63FF", UDOSTAVKA: "#06B6D4", DOSTAVKAPIKO: "#10B981" }
 const RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
 function mlabel(m: string) { const [y, mo] = m.split("-"); return `${RU[+mo - 1]} ${y.slice(2)}` }
 const SCORE_COLORS: Record<number, string> = { 1: "#EF4444", 2: "#F97316", 3: "#EAB308", 4: "#84CC16", 5: "#10B981" }
+
+// тултип: для команды — средняя + разбивка по критериям; для всех — средняя по командам
+function PulseTip({ active, payload, label, single, criteria, queues, teams }: any) {
+  if (!active || !payload?.length) return null
+  const row = payload[0].payload
+  return (
+    <div className="bg-card border border-border rounded-xl px-3 py-2 shadow-2xl text-xs space-y-0.5">
+      <p className="font-bold text-foreground">{label}</p>
+      {single ? (
+        <>
+          {row.avg != null && <p className="font-semibold" style={{ color: "#8B5CF6" }}>Средняя: {row.avg}</p>}
+          {criteria.map((c: string) => row.byCrit?.[c] != null && (
+            <p key={c} className="text-muted-foreground">{c}: <b className="text-foreground">{row.byCrit[c]}</b></p>
+          ))}
+        </>
+      ) : teams.map((q: string) => row[q] != null && (
+        <p key={q} className="text-muted-foreground">{queues?.[q]}: <b className="text-foreground">{row[q]}</b></p>
+      ))}
+    </div>
+  )
+}
 
 interface Resp {
   ok: boolean; error?: string
@@ -59,16 +80,30 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
     if (single && fMonth) setFScores({ ...(resp?.data?.[single]?.[fMonth] || {}) })
   }, [single, fMonth, resp])
 
+  const teamsAll = TEAM_ORDER.filter(q => resp?.queues?.[q])
+  const avgOf = (q: string, m: string): number | null => {
+    const obj = resp?.data?.[q]?.[m]
+    if (!obj) return null
+    const vals = criteria.map(c => obj[c]).filter(v => v != null) as number[]
+    return vals.length ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 100) / 100 : null
+  }
   const chartData = useMemo(() => {
-    if (!resp || !single) return []
+    if (!resp) return []
     return resp.months.map(m => {
-      const row: Record<string, any> = { label: mlabel(m) }
-      criteria.forEach(c => { const v = resp.data?.[single]?.[m]?.[c]; if (v != null) row[c] = v })
+      const row: Record<string, any> = { label: mlabel(m), month: m }
+      if (single) {
+        const a = avgOf(single, m); if (a != null) row.avg = a
+        const bc: Record<string, number> = {}
+        criteria.forEach(c => { const v = resp.data?.[single]?.[m]?.[c]; if (v != null) bc[c] = v })
+        row.byCrit = bc
+      } else {
+        teamsAll.forEach(q => { const a = avgOf(q, m); if (a != null) row[q] = a })
+      }
       return row
     })
   }, [resp, single, criteria])
 
-  const hasChart = single && chartData.some(r => criteria.some(c => r[c] != null))
+  const hasChart = chartData.some(r => single ? r.avg != null : teamsAll.some(q => r[q] != null))
 
   const submit = async () => {
     if (!single || !fMonth) return
@@ -140,12 +175,9 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
               </div>
             )}
 
-            {!single ? (
-              // сводка по всем командам (последний месяц с данными)
-              <AllTeamsTable resp={resp} />
-            ) : !hasChart ? (
+            {!hasChart ? (
               <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
-                Нет оценок — нажми «Оценить», чтобы добавить
+                {single ? "Нет оценок — нажми «Оценить», чтобы добавить" : "Оценок пока нет"}
               </div>
             ) : (
               <>
@@ -154,17 +186,23 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
                     <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
                     <YAxis domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-                    {criteria.map((c, i) => (
-                      <Line key={c} type="monotone" dataKey={c} name={c} stroke={CRIT_COLORS[i % CRIT_COLORS.length]}
+                    <Tooltip content={(p: any) => <PulseTip {...p} single={single} criteria={criteria} queues={resp.queues} teams={teamsAll} />} />
+                    {single ? (
+                      <Line type="monotone" dataKey="avg" name="Средняя оценка" stroke="#8B5CF6" strokeWidth={3} dot={{ r: 3 }} connectNulls />
+                    ) : teamsAll.map(q => (
+                      <Line key={q} type="monotone" dataKey={q} name={resp.queues?.[q] || q} stroke={QUEUE_COLORS[q] || "#8B5CF6"}
                         strokeWidth={2.5} dot={{ r: 2.5 }} connectNulls />
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
                 <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2 justify-center">
-                  {criteria.map((c, i) => (
-                    <span key={c} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <span className="w-3 h-0.5 rounded-full" style={{ background: CRIT_COLORS[i % CRIT_COLORS.length] }} />{c}
+                  {single ? (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <span className="w-3 h-0.5 rounded-full" style={{ background: "#8B5CF6" }} />Средняя оценка (наведи — разбивка по критериям)
+                    </span>
+                  ) : teamsAll.map(q => (
+                    <span key={q} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <span className="w-3 h-0.5 rounded-full" style={{ background: QUEUE_COLORS[q] }} />{resp.queues?.[q]}
                     </span>
                   ))}
                 </div>
@@ -174,41 +212,5 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
         )}
       </CardContent>
     </Card>
-  )
-}
-
-function AllTeamsTable({ resp }: { resp: Resp }) {
-  const teams = TEAM_ORDER.filter(q => resp.queues?.[q])
-  // последний месяц с данными по команде
-  const lastMonth = (q: string) => {
-    const ms = Object.keys(resp.data?.[q] || {}).sort()
-    return ms[ms.length - 1]
-  }
-  const rows = teams.map(q => ({ q, m: lastMonth(q) })).filter(r => r.m)
-  if (rows.length === 0) return <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">Оценок пока нет — выберите команду и нажмите «Оценить»</div>
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs border-separate border-spacing-0">
-        <thead><tr className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-          <th className="text-left px-2.5 py-2 border-b border-border">Команда</th>
-          {resp.criteria.map(c => <th key={c} className="text-right px-2.5 py-2 border-b border-border align-bottom" style={{ minWidth: 90 }}>{c}</th>)}
-          <th className="text-right px-2.5 py-2 border-b border-border">Месяц</th>
-        </tr></thead>
-        <tbody>
-          {rows.map(({ q, m }) => (
-            <tr key={q} className="hover:bg-accent/30 transition-colors">
-              <td className="px-2.5 py-2 border-b border-border/50 whitespace-nowrap text-foreground font-semibold">{resp.queues?.[q]}</td>
-              {resp.criteria.map(c => {
-                const v = resp.data?.[q]?.[m]?.[c]
-                return <td key={c} className="px-2.5 py-2 border-b border-border/50 text-right tabular-nums">
-                  {v != null ? <span className="inline-flex items-center justify-center w-7 h-6 rounded-md text-white font-bold" style={{ background: SCORE_COLORS[Math.round(v)] }}>{v}</span> : <span className="text-muted-foreground/40">—</span>}
-                </td>
-              })}
-              <td className="px-2.5 py-2 border-b border-border/50 text-right text-muted-foreground whitespace-nowrap capitalize">{mlabel(m)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   )
 }
