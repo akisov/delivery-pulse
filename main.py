@@ -1177,61 +1177,53 @@ async def downtime_analysis(
 ):
     selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
     q_ph = ",".join("?" * len(selected))
-    args: list = [*selected]
-    date_filter = ""
-    if date_from:
-        date_filter += " AND start_date >= ?"
-        args.append(date_from)
-    if date_to:
-        date_filter += " AND start_date <= ?"
-        args.append(date_to)
+    # окно периода: дни блокировки считаем С ОБРЕЗКОЙ по [date_from, date_to]
+    # (как в ОСП и в Power BI) — блокировка попадает в период своей частью, а не вся по дате старта
+    today = date.today()
+    win_start = _date_only(date_from) if date_from else None
+    win_end = (_date_only(date_to) if date_to else None) or today
 
-    days_expr_b = """CASE
-        WHEN b.status='closed' AND b.start_date!='' AND b.end_date!=''
-            THEN CAST(julianday(b.end_date)-julianday(b.start_date) AS INTEGER)+1
-        WHEN b.status!='closed' AND b.start_date!=''
-            THEN CAST(julianday(date('now'))-julianday(b.start_date) AS INTEGER)+1
-        ELSE 0 END"""
-    date_filter_b = date_filter.replace("start_date", "b.start_date")
+    where = f"b.queue IN ({q_ph}) AND b.start_date != '' AND b.start_date <= ?"
+    args: list = [*selected, win_end.isoformat()]
+    if win_start:
+        where += " AND (b.status != 'closed' OR (b.end_date != '' AND b.end_date >= ?))"
+        args.append(win_start.isoformat())
 
     results = await turso_execute([
-        stmt(f"""
-        SELECT
-            reason,
-            SUM(CASE
-                WHEN status = 'closed' AND start_date != '' AND end_date != ''
-                    THEN CAST(julianday(end_date) - julianday(start_date) AS INTEGER) + 1
-                WHEN status != 'closed' AND start_date != ''
-                    THEN CAST(julianday(date('now')) - julianday(start_date) AS INTEGER) + 1
-                ELSE 0
-            END) AS total_days,
-            COUNT(*) as cnt
-        FROM blockings
-        WHERE queue IN ({q_ph}){date_filter}
-        GROUP BY reason
-        ORDER BY total_days DESC
-    """, args),
-        # задачи по каждой причине (со стадией для группировки)
         stmt(f"""SELECT b.reason as reason, b.key as blocking_key, b.parent_key as parent_key,
                     b.start_date, b.end_date, b.status as b_status, b.queue,
-                    p.title as parent_title, bs.status_display as stage,
-                    {days_expr_b} as days_val
+                    p.title as parent_title, bs.status_display as stage
                  FROM blockings b
                  LEFT JOIN parent_tasks p ON p.key=b.parent_key
                  LEFT JOIN blocking_status bs ON bs.blocking_key=b.key
-                 WHERE b.queue IN ({q_ph}){date_filter_b}""", args),
+                 WHERE {where}""", args),
     ])
-
     rows = rows_to_dicts(results[0]) if results else []
-    task_rows = rows_to_dicts(results[1]) if len(results) > 1 else []
 
     by_reason: dict = {}
-    for r in task_rows:
-        try: d = int(float(r.get("days_val") or 0))
-        except: d = 0
-        if d <= 0: continue
-        by_reason.setdefault(r.get("reason") or "Не указана", []).append({
-            "blockingKey": r.get("blocking_key", ""),
+    reason_days: dict = {}
+    seen: set = set()
+    for r in rows:
+        bkey = r.get("blocking_key", "")
+        if bkey in seen:  # LEFT JOIN со стадиями мог продублировать строку
+            continue
+        seen.add(bkey)
+        s = _date_only(r.get("start_date"))
+        if not s:
+            continue
+        closed = r.get("b_status") == "closed"
+        e = _date_only(r.get("end_date")) if (closed and r.get("end_date")) else today
+        if not e or e < s:
+            e = s
+        lo = max(s, win_start) if win_start else s
+        hi = min(e, win_end)
+        if hi < lo:
+            continue
+        d = (hi - lo).days + 1
+        reason = r.get("reason") or "Не указана"
+        reason_days[reason] = reason_days.get(reason, 0) + d
+        by_reason.setdefault(reason, []).append({
+            "blockingKey": bkey,
             "parentKey":   r.get("parent_key", ""),
             "parentTitle": r.get("parent_title") or "—",
             "url":         f"https://tracker.yandex.ru/{r.get('parent_key','')}",
@@ -1239,25 +1231,24 @@ async def downtime_analysis(
             "stage":       r.get("stage") or "Без этапа",
             "startDate":   (r.get("start_date") or "")[:10],
             "endDate":     (r.get("end_date") or "")[:10],
-            "isActive":    r.get("b_status") != "closed",
+            "isActive":    not closed,
             "days":        d,
         })
     for k in by_reason:
         by_reason[k].sort(key=lambda t: t["days"], reverse=True)
 
-    total = sum(int(float(r["total_days"] or 0)) for r in rows)
+    total = sum(reason_days.values())
     items = []
-    for r in rows:
-        d = int(float(r["total_days"] or 0))
-        if d > 0:
-            reason = r["reason"] or "Не указана"
-            items.append({
-                "reason":     reason,
-                "totalDays":  d,
-                "count":      int(r["cnt"] or 0),
-                "pct":        round(d / total * 100, 1) if total else 0,
-                "tasks":      by_reason.get(reason, []),
-            })
+    for reason, d in sorted(reason_days.items(), key=lambda x: -x[1]):
+        if d <= 0:
+            continue
+        items.append({
+            "reason":    reason,
+            "totalDays": d,
+            "count":     len(by_reason.get(reason, [])),
+            "pct":       round(d / total * 100, 1) if total else 0,
+            "tasks":     by_reason.get(reason, []),
+        })
 
     return JSONResponse({"items": items, "totalDays": total})
 
