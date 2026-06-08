@@ -1897,8 +1897,18 @@ def _osp_resolution_ok(res: dict | None) -> bool:
         return True
     return False
 
+def _osp_days_field(iss: dict):
+    """Поле Трекера «Дней в работе» (daysInTheWork); суффиксный матч ловит и локальный префикс."""
+    v = _field(iss, "daysInTheWork")
+    if isinstance(v, dict):
+        v = v.get("value") if v.get("value") is not None else v.get("display")
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
 def _osp_days_in_work(start: str, resolved: str):
-    """Дней в работе ≈ дата завершения − дата начала (календарные дни)."""
+    """Фолбэк: дней в работе ≈ дата завершения − дата начала (календарные дни)."""
     if not start or not resolved:
         return None
     try:
@@ -1909,7 +1919,7 @@ def _osp_days_in_work(start: str, resolved: str):
         return None
 
 OSP_SNAPSHOT_TTL_H = 12  # сколько часов кэш считается свежим
-OSP_SNAPSHOT_VERSION = 3  # поднимать при изменении состава полей/логики (инвалидирует кэш)
+OSP_SNAPSHOT_VERSION = 4  # поднимать при изменении состава полей/логики (инвалидирует кэш)
 
 @app.get("/osp-delivery")
 async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
@@ -1996,6 +2006,9 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
             totals[cat] += 1
             par = iss.get("parent") or {}
             start = (iss.get("start") or "")[:10]
+            dwork = _osp_days_field(iss)
+            if dwork is None:
+                dwork = _osp_days_in_work(start, ra)
             items.append({
                 "key": iss.get("key"), "summary": iss.get("summary") or "—",
                 "url": f"https://tracker.yandex.ru/{iss.get('key')}",
@@ -2006,7 +2019,7 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
                 "parentKey": par.get("key") or "",
                 "parentSummary": par.get("display") or "",
                 "start": start,
-                "daysInWork": _osp_days_in_work(start, ra),
+                "daysInWork": dwork,
                 "jobCategory": _local_value(iss, catfield_by_q.get(q)),
                 "spent": _fmt_spent(iss.get("spent")),
             })
