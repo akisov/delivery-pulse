@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from "recharts"
-import { RefreshCw, Lock, ExternalLink, Clock, CheckCircle } from "lucide-react"
+import { Lock, ExternalLink, Clock, CheckCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
@@ -43,7 +43,7 @@ function pluralDays(n: number) {
   return "дней"
 }
 
-export function OSPBlockings({ queue, onOpenDashboard }: { queue?: string; onOpenDashboard?: () => void }) {
+export function OSPBlockings({ queue, refreshKey, onOpenDashboard }: { queue?: string; refreshKey?: number; onOpenDashboard?: () => void }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -58,6 +58,7 @@ export function OSPBlockings({ queue, onOpenDashboard }: { queue?: string; onOpe
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
+  useEffect(() => { if (refreshKey) load() }, [refreshKey])
 
   const teamLabel = !queue || queue === "all" ? "Все команды" : (resp?.queues?.[queue] || queue)
   const rColor = (r: string) => REASON_COLORS[r] ?? EXTRA[(resp?.reasons.indexOf(r) ?? 0) % EXTRA.length]
@@ -109,10 +110,6 @@ export function OSPBlockings({ queue, onOpenDashboard }: { queue?: string; onOpe
                 Дашборд блокировок <ExternalLink className="w-3.5 h-3.5" />
               </button>
             )}
-            <button onClick={load} disabled={loading} title="Обновить"
-              className="flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-              <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-            </button>
           </div>
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">

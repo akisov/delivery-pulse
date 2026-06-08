@@ -179,7 +179,7 @@ function TeamTables({ resp, month, q }: { resp: Resp; month: string; q: string }
   )
 }
 
-export function OSPTime({ queue }: { queue?: string }) {
+export function OSPTime({ queue, refreshKey }: { queue?: string; refreshKey?: number }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [month, setMonth] = useState<string>("")
@@ -207,6 +207,9 @@ export function OSPTime({ queue }: { queue?: string }) {
     })
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
+
+  // общий рефреш из шапки ОСП — просто перечитываем кэш (без пересбора worklog)
+  useEffect(() => { if (refreshKey) fetchData() }, [refreshKey])
 
   // выбираем последний месяц по умолчанию
   useEffect(() => {
@@ -255,13 +258,7 @@ export function OSPTime({ queue }: { queue?: string }) {
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="flex items-center gap-2"><Clock className="w-4 h-4" /> Распределение времени</CardTitle>
-          <div className="flex items-center gap-2">
-            {resp?.updatedAt && <span className="text-[11px] text-muted-foreground">обновлено: {resp.updatedAt}</span>}
-            <button onClick={build} disabled={status?.running} title="Пересобрать worklog из Трекера"
-              className="flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-              <RefreshCw className={cn("w-4 h-4", status?.running && "animate-spin")} />
-            </button>
-          </div>
+          {resp?.updatedAt && <span className="text-[11px] text-muted-foreground">обновлено: {resp.updatedAt}</span>}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">Часы списаны в пределах месяца (по дате worklog), а не по дате задачи · по типам и командам · тренд — к предыдущему месяцу</p>
       </CardHeader>

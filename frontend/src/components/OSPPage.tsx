@@ -143,6 +143,7 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
   const [showTypes, setShowTypes] = useState(false)
   const [sel, setSel] = useState<Sel | null>(null)  // выбранный тип/месяц для модалки
   const [catFilter, setCatFilter] = useState<string | null>(null)  // оставить на графике только один тип
+  const [refreshKey, setRefreshKey] = useState(0)  // общий рефреш всех блоков
 
   // период фиксирован — пол года; refresh форсит пересчёт мимо кэша
   const load = (refresh = false) => {
@@ -195,9 +196,10 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
             {data?.updatedAt && <span className="ml-1">· обновлено: {data.updatedAt}</span>}
           </p>
         </div>
-        <button onClick={() => load(true)} disabled={loading} title="Пересчитать заново (мимо кэша)"
-          className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+        <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading}
+          title="Обновить все блоки ОСП (пересчитать заново)"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
         </button>
       </div>
 
@@ -362,13 +364,13 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
       )}
 
       {/* Распределение времени (worklog) — управляется общим фильтром команды */}
-      <OSPTime queue={queue} />
+      <OSPTime queue={queue} refreshKey={refreshKey} />
 
       {/* Инцидентов создано — по месяцам */}
-      <OSPIncidents queue={queue} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
+      <OSPIncidents queue={queue} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
 
       {/* Блокировки — динамика по месяцам + ссылка на дашборд */}
-      <OSPBlockings queue={queue} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
+      <OSPBlockings queue={queue} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
     </div>
   )
 }

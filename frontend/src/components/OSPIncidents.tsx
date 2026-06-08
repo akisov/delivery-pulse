@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from "recharts"
-import { RefreshCw, AlertTriangle, ExternalLink } from "lucide-react"
+import { AlertTriangle, ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
 
 const TEAM_ORDER = ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"]
 const QUEUE_COLORS: Record<string, string> = { POOLING: "#6C63FF", UDOSTAVKA: "#06B6D4", DOSTAVKAPIKO: "#10B981" }
@@ -18,7 +17,7 @@ interface Resp {
   months: string[]; data: Row[]; items: IncItem[]
 }
 
-export function OSPIncidents({ queue, onOpenDashboard }: { queue?: string; onOpenDashboard?: () => void }) {
+export function OSPIncidents({ queue, refreshKey, onOpenDashboard }: { queue?: string; refreshKey?: number; onOpenDashboard?: () => void }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -32,6 +31,7 @@ export function OSPIncidents({ queue, onOpenDashboard }: { queue?: string; onOpe
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
+  useEffect(() => { if (refreshKey) load(true) }, [refreshKey])
 
   const single = queue && queue !== "all" ? queue : null
   const teams = single ? [single] : TEAM_ORDER.filter(q => resp?.queues?.[q])
@@ -62,13 +62,7 @@ export function OSPIncidents({ queue, onOpenDashboard }: { queue?: string; onOpe
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-rose-500" /> Инцидентов создано — по месяцам</CardTitle>
-          <div className="flex items-center gap-2">
-            {!loading && <span className="text-xs text-muted-foreground">{grandTotal} за период</span>}
-            <button onClick={() => load(true)} disabled={loading} title="Обновить"
-              className="flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-              <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-            </button>
-          </div>
+          {!loading && <span className="text-xs text-muted-foreground">{grandTotal} за период</span>}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
           Новые инциденты по дате создания · {teamLabel} · клик по столбцу — список инцидентов
