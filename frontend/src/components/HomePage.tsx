@@ -54,7 +54,7 @@ const NAV_CARDS = [
   { section: "sle" as const, icon: Target, color: "#10B981",
     title: "Анализ SLE", desc: "Кластеризация причин нарушения SLE по PUTKURERA, скрытые блокировки." },
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",
-    title: "Поток", desc: "Возраст работы в Discovery/Delivery (WIP Age P90), WIP-лимиты и недельный тренд." },
+    title: "Поток E2E", desc: "Возраст работы в Discovery/Delivery (WIP Age P90), WIP-лимиты и недельный тренд." },
   { section: "osp" as const, icon: Truck, color: "#F59E0B",
     title: "ОСП", desc: "Обзор сервиса поставки: сколько сделали по месяцам (Story, тех. долг, инциденты) по командам курьеров." },
 ]

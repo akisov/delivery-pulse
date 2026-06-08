@@ -248,7 +248,7 @@ export function FlowPage() {
     <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-foreground">Поток — Discovery / Delivery</h1>
+          <h1 className="text-3xl font-black tracking-tight text-foreground">Поток E2E — Discovery / Delivery</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Возраст работы в потоке (WIP Age P90) и WIP-лимиты по очереди PUTKURERA
             {data?.week && <span className="ml-1">· неделя {data.week}</span>}

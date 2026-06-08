@@ -230,7 +230,7 @@ export default function App() {
         <aside className="hidden md:block w-52 shrink-0 py-8 sticky top-14 self-start">
           <nav className="rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-card)]">
             <p className="px-3 pt-1.5 pb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Разделы</p>
-            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["sle", Target, "Анализ SLE"], ["flow", Workflow, "Поток"], ["osp", Truck, "ОСП"]] as const).map(([v, Icon, label]) => {
+            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["sle", Target, "Анализ SLE"], ["flow", Workflow, "Поток E2E"], ["osp", Truck, "ОСП"]] as const).map(([v, Icon, label]) => {
               const active = section === v
               return (
                 <button key={v} onClick={() => setSection(v)}
