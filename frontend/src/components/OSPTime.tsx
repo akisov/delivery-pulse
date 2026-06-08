@@ -107,7 +107,7 @@ export function OSPTime() {
             </button>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">Часы (worklog) по типам работ и командам · тренд — к предыдущему месяцу</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Часы списаны в пределах месяца (по дате worklog), а не по дате задачи · по типам и командам · тренд — к предыдущему месяцу</p>
       </CardHeader>
       <CardContent>
         {loading ? (
