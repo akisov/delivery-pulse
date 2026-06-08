@@ -2291,7 +2291,7 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
     months = max(1, min(int(months or 6), 24))
-    ckey = f"sle-{months}-v2"
+    ckey = f"sle-{months}-v3"
     if not refresh:
         try:
             res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
@@ -2315,6 +2315,7 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
 
     # сбор LT (дни) и часов по queue×cat
     acc = {q: {c["key"]: {"lt": [], "hours": []} for c in OSP_SLE_CATS} for q in OSP_QUEUES}
+    items: list[dict] = []
     for q, issues in zip(OSP_QUEUES, results):
         for iss in issues:
             if not _osp_resolution_ok(iss.get("resolution") or {}):
@@ -2331,6 +2332,14 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
             sh = _iso_dur_hours(iss.get("spent"))
             if sh > 0:
                 acc[q][sc]["hours"].append(sh)
+            items.append({
+                "queue": q, "cat": sc, "key": iss.get("key"),
+                "summary": iss.get("summary") or "—",
+                "url": f"https://tracker.yandex.ru/{iss.get('key')}",
+                "days": dw, "hours": round(sh, 1) if sh > 0 else None,
+                "resolved": _msk_date(iss.get("resolvedAt") or ""),
+                "assignee": (iss.get("assignee") or {}).get("display", "—"),
+            })
 
     def _pct(vals, thr):
         if not vals:
@@ -2351,7 +2360,7 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
             }
 
     payload = {"ok": True, "queues": OSP_QUEUES, "cats": OSP_SLE_CATS,
-               "target": OSP_SLE_TARGET, "sle": sle}
+               "target": OSP_SLE_TARGET, "sle": sle, "items": items}
     try:
         await turso_execute([stmt(
             "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
