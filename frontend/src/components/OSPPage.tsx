@@ -1,20 +1,26 @@
 import { useEffect, useMemo, useState } from "react"
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
 } from "recharts"
-import { RefreshCw, ChevronDown, ChevronUp } from "lucide-react"
+import { RefreshCw, ChevronDown, ChevronUp, ExternalLink, ListFilter } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Modal } from "@/components/ui/modal"
 import { cn } from "@/lib/utils"
 
 const CAT_COLORS: Record<string, string> = {
-  story:    "#3B82F6", // Работа по ТЗ
+  story:    "#3B82F6", // Story (Работа по ТЗ)
   tech:     "#F59E0B", // Тех. долг (+ Тех. улучшение)
   incident: "#EF4444", // Инциденты
+}
+// цвета команд для чипов
+const QUEUE_COLORS: Record<string, string> = {
+  POOLING: "#6C63FF", UDOSTAVKA: "#06B6D4", DOSTAVKAPIKO: "#10B981",
 }
 
 interface CatCounts { story: number; tech: number; incident: number; total: number }
 interface Row { month: string; label: string; all: CatCounts; [q: string]: any }
+interface OSPItem { key: string; summary: string; url: string; queue: string; category: string; month: string; type: string; resolvedAt: string; assignee: string }
 interface Resp {
   ok: boolean; error?: string
   queues: Record<string, string>
@@ -22,10 +28,70 @@ interface Resp {
   months: string[]
   data: Row[]
   totals: Record<string, number>
+  items: OSPItem[]
   seenTypes: Record<string, number>
 }
 
 const PERIODS = [["6", "6 мес."], ["9", "9 мес."], ["12", "12 мес."]] as const
+
+// аккуратный чип
+function Chip({ label, color }: { label: string; color: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold"
+      style={{ background: `${color}1A`, color }}>
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />{label}
+    </span>
+  )
+}
+
+interface Sel { category: string; month?: string }
+
+// Модалка со списком завершённых задач выбранного типа (по клику на столбец/чип)
+function OSPTasksModal({ sel, items, queues, cats, queue, monthLabels, onClose }: {
+  sel: Sel | null; items: OSPItem[]; queues: Record<string, string>
+  cats: { key: string; label: string }[]; queue: string
+  monthLabels: Record<string, string>; onClose: () => void
+}) {
+  if (!sel) return null
+  const cat = cats.find(c => c.key === sel.category)
+  const color = CAT_COLORS[sel.category] || "#94A3B8"
+  const list = items
+    .filter(it => it.category === sel.category
+      && (queue === "all" || it.queue === queue)
+      && (!sel.month || it.month === sel.month))
+    .sort((a, b) => (b.resolvedAt || "").localeCompare(a.resolvedAt || ""))
+  const teamLabel = queue === "all" ? "все команды" : (queues[queue] || queue)
+  const sub = `${list.length} задач · ${teamLabel} · ${sel.month ? (monthLabels[sel.month] || sel.month) : "за период"}`
+  return (
+    <Modal open={!!sel} onClose={onClose} title={cat?.label || "Задачи"} subtitle={sub} wide>
+      {list.length === 0 ? (
+        <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">Нет задач</div>
+      ) : (
+        <div className="space-y-2">
+          {list.map(it => (
+            <div key={it.key} className="rounded-lg border border-border bg-card px-3 py-2.5 hover:bg-accent/30 transition-colors">
+              <div className="flex items-start gap-2.5">
+                <span className="mt-1.5 w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+                      {it.key} <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <Chip label={queues[it.queue] || it.queue} color={QUEUE_COLORS[it.queue] || "#94A3B8"} />
+                    {monthLabels[it.month] && <Chip label={monthLabels[it.month]} color={color} />}
+                    <span className="text-[10px] text-muted-foreground">{it.type}</span>
+                  </div>
+                  <p className="text-sm text-foreground mt-1 leading-snug">{it.summary}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{it.assignee} · завершено {it.resolvedAt}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 export function OSPPage() {
   const [data, setData] = useState<Resp | null>(null)
@@ -34,6 +100,7 @@ export function OSPPage() {
   const [months, setMonths] = useState("6")
   const [queue, setQueue] = useState<string>("POOLING")  // отчёт показываем по одной команде
   const [showTypes, setShowTypes] = useState(false)
+  const [sel, setSel] = useState<Sel | null>(null)  // выбранный тип/месяц для модалки
 
   const load = (m = months) => {
     setLoading(true); setError(null)
@@ -49,9 +116,14 @@ export function OSPPage() {
     if (!data) return []
     return data.data.map(row => {
       const c: CatCounts = queue === "all" ? row.all : row[queue]
-      return { label: row.label, story: c.story, tech: c.tech, incident: c.incident, total: c.total }
+      return { month: row.month, label: row.label, story: c.story, tech: c.tech, incident: c.incident, total: c.total }
     })
   }, [data, queue])
+
+  const monthLabels = useMemo(
+    () => Object.fromEntries((data?.data ?? []).map(r => [r.month, r.label])),
+    [data]
+  )
 
   // суммы по выбранной очереди за весь период
   const totals = useMemo(() => {
@@ -142,31 +214,54 @@ export function OSPPage() {
                 <CardTitle>📦 Сколько мы сделали — по месяцам</CardTitle>
                 <span className="text-xs text-muted-foreground">{queueTabs.find(([v]) => v === queue)?.[1]}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Завершённые задачи (по дате завершения), с накоплением по категориям</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Завершённые задачи (по дате завершения), с накоплением по категориям · нажми на столбец или тип — покажем задачи</p>
             </CardHeader>
             <CardContent>
               {totals.total === 0 ? (
                 <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">Нет завершённых задач за период</div>
               ) : (
-                <ResponsiveContainer width="100%" height={340}>
-                  <BarChart data={chartData} margin={{ top: 16, right: 16, left: 0, bottom: 4 }} barSize={28}>
-                    <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                    <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
-                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    {cats.map((c, i) => (
-                      <Bar key={c.key} dataKey={c.key} stackId="a" name={c.label} fill={CAT_COLORS[c.key]}
-                        radius={i === cats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}>
-                        {i === cats.length - 1 && (
-                          <LabelList dataKey="total" position="top"
-                            style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
-                        )}
-                      </Bar>
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
+                <>
+                  <ResponsiveContainer width="100%" height={340}>
+                    <BarChart data={chartData} margin={{ top: 16, right: 16, left: 0, bottom: 4 }} barSize={28}>
+                      <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                      <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
+                        contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
+                      {cats.map((c, i) => (
+                        <Bar key={c.key} dataKey={c.key} stackId="a" name={c.label} fill={CAT_COLORS[c.key]}
+                          radius={i === cats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                          style={{ cursor: "pointer" }}
+                          onClick={(d: any) => setSel({ category: c.key, month: d?.payload?.month })}>
+                          {i === cats.length - 1 && (
+                            <LabelList dataKey="total" position="top"
+                              style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
+                          )}
+                        </Bar>
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+
+                  {/* Кликабельные чипы-категории (легенда + переход к списку за весь период) */}
+                  <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+                    {cats.map(c => {
+                      const color = CAT_COLORS[c.key]
+                      return (
+                        <button key={c.key} onClick={() => setSel({ category: c.key })}
+                          className="group inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all hover:-translate-y-0.5 hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)]"
+                          style={{ borderColor: `${color}55`, background: `${color}14`, color }}
+                          title={`${c.label}: показать задачи за период`}>
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
+                          {c.label}
+                          <span className="rounded-full px-1.5 py-px text-[11px] font-black" style={{ background: `${color}26` }}>
+                            {(totals as any)[c.key]}
+                          </span>
+                          <ListFilter className="w-3 h-3 opacity-40 group-hover:opacity-90 transition-opacity" />
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -190,6 +285,10 @@ export function OSPPage() {
               )}
             </div>
           )}
+
+          {/* Модалка со списком задач выбранного типа */}
+          <OSPTasksModal sel={sel} items={data.items} queues={data.queues} cats={cats}
+            queue={queue} monthLabels={monthLabels} onClose={() => setSel(null)} />
         </>
       )}
     </div>

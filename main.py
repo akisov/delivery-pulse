@@ -1878,10 +1878,12 @@ async def osp_delivery(months: int = Query(9)):
     buckets = {m: {q: zero() for q in OSP_QUEUES} for m in month_list}
     totals = {c: 0 for c in cats}
     seen_types: dict[str, int] = {}
+    items: list[dict] = []  # задачи для модалки (по клику на тип/столбец)
 
     for q, issues in zip(OSP_QUEUES, results):
         for iss in issues:
-            mo = (iss.get("resolvedAt") or "")[:7]
+            ra = iss.get("resolvedAt") or ""
+            mo = ra[:7]
             if mo not in buckets:
                 continue
             t = iss.get("type") or {}
@@ -1893,6 +1895,13 @@ async def osp_delivery(months: int = Query(9)):
             buckets[mo][q][cat] += 1
             buckets[mo][q]["total"] += 1
             totals[cat] += 1
+            items.append({
+                "key": iss.get("key"), "summary": iss.get("summary") or "—",
+                "url": f"https://tracker.yandex.ru/{iss.get('key')}",
+                "queue": q, "category": cat, "month": mo, "type": disp,
+                "resolvedAt": ra[:10],
+                "assignee": (iss.get("assignee") or {}).get("display", "—"),
+            })
 
     data = []
     for m in month_list:
@@ -1906,7 +1915,7 @@ async def osp_delivery(months: int = Query(9)):
         data.append(row)
 
     return JSONResponse({"ok": True, "queues": OSP_QUEUES, "categories": OSP_CATEGORIES,
-                         "months": month_list, "data": data, "totals": totals,
+                         "months": month_list, "data": data, "totals": totals, "items": items,
                          "seenTypes": dict(sorted(seen_types.items(), key=lambda x: -x[1]))})
 
 # ── Static (React build) ──────────────────────────────────────────────────────
