@@ -161,6 +161,11 @@ async def init_db():
             delivery_p90 REAL, delivery_count INTEGER,
             saved_at TEXT
         )"""),
+        stmt("""CREATE TABLE IF NOT EXISTS osp_snapshot (
+            which TEXT PRIMARY KEY,
+            data TEXT,
+            updated_at TEXT
+        )"""),
     ])
     # Миграция: добавляем колонки если не существуют (игнорируем ошибку если уже есть)
     for col_sql in [
@@ -1852,13 +1857,36 @@ def _osp_label(ym: str) -> str:
     except Exception:
         return ym
 
+OSP_SNAPSHOT_TTL_H = 12  # сколько часов кэш считается свежим
+
 @app.get("/osp-delivery")
-async def osp_delivery(months: int = Query(9)):
+async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     """Сколько сделали (завершено) по месяцам: Story / Тех. долг / Инциденты
-    по трём очередям курьеров. Группировка — по дате завершения (resolvedAt)."""
+    по трём очередям курьеров. Группировка — по дате завершения (resolvedAt).
+    Результат кэшируется в БД (osp_snapshot); пересчёт — при refresh или протухании."""
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
-    months = max(1, min(int(months or 9), 24))
+    months = max(1, min(int(months or 6), 24))
+    key = str(months)
+
+    # 1. читаем кэш из БД (быстро). Пересчитываем при refresh или если кэш протух.
+    if not refresh:
+        try:
+            res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [key])])
+            rows = rows_to_dicts(res[0]) if res else []
+            if rows and rows[0].get("data"):
+                ua = rows[0].get("updated_at") or ""
+                try:
+                    age = (datetime.utcnow() - datetime.strptime(ua[:19], "%Y-%m-%d %H:%M:%S")).total_seconds()
+                except Exception:
+                    age = 1e18
+                if age < OSP_SNAPSHOT_TTL_H * 3600:
+                    obj = json.loads(rows[0]["data"])
+                    obj["updatedAt"], obj["cached"] = ua, True
+                    return JSONResponse(obj)
+        except Exception as e:
+            print(f"[osp-snapshot load] {e}")
+
     month_list = _osp_month_list(months)
     cutoff = month_list[0] + "-01"
 
@@ -1914,9 +1942,21 @@ async def osp_delivery(months: int = Query(9)):
         row["all"] = allc
         data.append(row)
 
-    return JSONResponse({"ok": True, "queues": OSP_QUEUES, "categories": OSP_CATEGORIES,
-                         "months": month_list, "data": data, "totals": totals, "items": items,
-                         "seenTypes": dict(sorted(seen_types.items(), key=lambda x: -x[1]))})
+    payload = {"ok": True, "queues": OSP_QUEUES, "categories": OSP_CATEGORIES,
+               "months": month_list, "data": data, "totals": totals, "items": items,
+               "seenTypes": dict(sorted(seen_types.items(), key=lambda x: -x[1]))}
+
+    # 2. сохраняем снапшот в БД
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [key, json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[osp-snapshot save] {e}")
+
+    payload["updatedAt"], payload["cached"] = "только что", False
+    return JSONResponse(payload)
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 

@@ -30,9 +30,9 @@ interface Resp {
   totals: Record<string, number>
   items: OSPItem[]
   seenTypes: Record<string, number>
+  updatedAt?: string
+  cached?: boolean
 }
-
-const PERIODS = [["6", "6 мес."], ["9", "9 мес."], ["12", "12 мес."]] as const
 
 // аккуратный чип
 function Chip({ label, color }: { label: string; color: string }) {
@@ -97,19 +97,19 @@ export function OSPPage() {
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [months, setMonths] = useState("6")
   const [queue, setQueue] = useState<string>("POOLING")  // отчёт показываем по одной команде
   const [showTypes, setShowTypes] = useState(false)
   const [sel, setSel] = useState<Sel | null>(null)  // выбранный тип/месяц для модалки
 
-  const load = (m = months) => {
+  // период фиксирован — пол года; refresh форсит пересчёт мимо кэша
+  const load = (refresh = false) => {
     setLoading(true); setError(null)
-    fetch(`/osp-delivery?months=${m}`).then(r => r.json())
+    fetch(`/osp-delivery${refresh ? "?refresh=true" : ""}`).then(r => r.json())
       .then((d: Resp) => { if (d.ok) setData(d); else setError(d.error || "Ошибка") })
       .catch(e => setError(String(e)))
       .finally(() => setLoading(false))
   }
-  useEffect(() => { load() }, [months])
+  useEffect(() => { load() }, [])
 
   // данные графика для выбранной очереди (или сумма по всем)
   const chartData = useMemo(() => {
@@ -142,24 +142,14 @@ export function OSPPage() {
         <div>
           <h1 className="text-3xl font-black tracking-tight text-foreground">ОСП — обзор сервиса поставки</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Сколько сделали по месяцам · Story · Тех. долг · Инциденты · по командам курьеров (X / U / R)
+            Сколько сделали по месяцам (пол года) · Story · Тех. долг · Инциденты · по командам курьеров (X / U / R)
+            {data?.updatedAt && <span className="ml-1">· обновлено: {data.updatedAt}</span>}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
-            {PERIODS.map(([v, label]) => (
-              <button key={v} onClick={() => setMonths(v)}
-                className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
-                  months === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => load()} disabled={loading} title="Обновить"
-            className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          </button>
-        </div>
+        <button onClick={() => load(true)} disabled={loading} title="Пересчитать заново (мимо кэша)"
+          className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+        </button>
       </div>
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
