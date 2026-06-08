@@ -24,7 +24,11 @@ import { cn } from "@/lib/utils"
 const QUEUES = ["ALL", "POOLING", "DOSTAVKAPIKO", "UDOSTAVKA"] as const
 type Queue = typeof QUEUES[number]
 
-function fmt(d: Date) { return d.toISOString().slice(0, 10) }
+function fmt(d: Date) {
+  // локальная дата YYYY-MM-DD (toISOString сдвигал бы на день в МСК)
+  const m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${m}-${day}`
+}
 
 function plural(n: number) {
   const m10 = n % 10, m100 = n % 100
