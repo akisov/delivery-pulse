@@ -2204,6 +2204,74 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     payload["updatedAt"], payload["cached"] = "только что", False
     return JSONResponse(payload)
 
+def _date_only(s: str):
+    try:
+        return date.fromisoformat((s or "")[:10])
+    except Exception:
+        return None
+
+def _month_bounds(ym: str):
+    y, m = int(ym[:4]), int(ym[5:7])
+    first = date(y, m, 1)
+    nxt = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+    return first, nxt - timedelta(days=1)
+
+@app.get("/osp-blockings")
+async def osp_blockings(months: int = Query(6)):
+    """Динамика блокировок по месяцам: дни блокировки, попадающие в каждый месяц
+    (с обрезкой по границам), с разбивкой по причинам и командам."""
+    months = max(1, min(int(months or 6), 24))
+    month_list = _osp_month_list(months)
+    m0 = month_list[0] + "-01"
+    today = date.today()
+    try:
+        res = await turso_execute([stmt(
+            "SELECT reason, queue, start_date, end_date, status FROM blockings "
+            "WHERE queue IN (?,?,?) AND start_date != '' AND start_date <= ? "
+            "AND (status != 'closed' OR (end_date != '' AND end_date >= ?))",
+            ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO", month_list[-1] + "-31", m0])])
+        rows = rows_to_dicts(res[0]) if res else []
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+    bounds = {m: _month_bounds(m) for m in month_list}
+    data = {m: {q: {} for q in OSP_QUEUES} for m in month_list}
+    reason_tot: dict = {}
+    for r in rows:
+        q = r.get("queue")
+        if q not in OSP_QUEUES:
+            continue
+        s = _date_only(r.get("start_date"))
+        if not s:
+            continue
+        closed = r.get("status") == "closed"
+        e = _date_only(r.get("end_date")) if (closed and r.get("end_date")) else today
+        if not e or e < s:
+            e = s
+        reason = r.get("reason") or "Не указана"
+        for m in month_list:
+            m0d, m1d = bounds[m]
+            lo, hi = max(s, m0d), min(e, m1d)
+            if hi < lo:
+                continue
+            days = (hi - lo).days + 1
+            data[m][q][reason] = data[m][q].get(reason, 0) + days
+            reason_tot[reason] = reason_tot.get(reason, 0) + days
+
+    reasons = [r for r, _ in sorted(reason_tot.items(), key=lambda x: -x[1])]
+    out = []
+    for m in month_list:
+        row = {"month": m, "label": _osp_label(m)}
+        allr: dict = {}
+        for q in OSP_QUEUES:
+            row[q] = data[m][q]
+            for rs, d in data[m][q].items():
+                allr[rs] = allr.get(rs, 0) + d
+        row["all"] = allr
+        out.append(row)
+    return JSONResponse({"ok": True, "queues": OSP_QUEUES, "months": month_list,
+                         "reasons": reasons, "data": out, "reasonTotals": reason_tot})
+
 @app.get("/osp-worklog")
 async def osp_worklog():
     """Агрегат worklog по месяцам (часы × команда × тип). Если снапшота нет —
