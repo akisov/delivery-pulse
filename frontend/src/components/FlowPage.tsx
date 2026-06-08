@@ -4,6 +4,7 @@ import { ExternalLink, RefreshCw, AlertTriangle, CheckCircle } from "lucide-reac
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
+import { FlowCompleted } from "@/components/FlowCompleted"
 import { cn } from "@/lib/utils"
 
 interface FlowTask { key: string; summary: string; assignee: string; status?: string; statusKey: string; url: string; days: number; sleRisk: string }
@@ -339,6 +340,9 @@ export function FlowPage() {
           })()}
         </>
       )}
+
+      {/* Завершено задач по месяцам — динамика throughput */}
+      <FlowCompleted />
 
       <ProductModal row={product} onClose={() => setProduct(null)} />
     </div>
