@@ -2279,18 +2279,17 @@ OSP_SLE = {
 }
 OSP_SLE_CATS = [
     {"key": "incident", "label": "Инциденты"},
-    {"key": "tech",     "label": "Техдолг + Тех. улучшение"},
+    {"key": "techDebt", "label": "ТехДолг"},
+    {"key": "techImpr", "label": "Тех. улучшение"},
     {"key": "story",    "label": "Story"},
 ]
+# ТехДолг и Тех. улучшение делят общий порог «tech» (см. OSP_SLE)
+_SLE_THR_KEY = {"incident": "incident", "techDebt": "tech", "techImpr": "tech", "story": "story"}
 
 def _sle_cat(type_key, type_display):
     c = _osp_category(type_key, type_display)
-    if c == "incident":
-        return "incident"
-    if c in ("techDebt", "techImpr"):
-        return "tech"
-    if c == "story":
-        return "story"
+    if c in ("incident", "techDebt", "techImpr", "story"):
+        return c
     return None
 
 @app.get("/osp-sle")
@@ -2300,7 +2299,7 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
     months = max(1, min(int(months or 6), 24))
-    ckey = f"sle-{months}-v1"
+    ckey = f"sle-{months}-v2"
     if not refresh:
         try:
             res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
@@ -2357,7 +2356,7 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
         sle[q] = {}
         for c in OSP_SLE_CATS:
             ck = c["key"]
-            thr = OSP_SLE.get(q, {}).get(ck, {})
+            thr = OSP_SLE.get(q, {}).get(_SLE_THR_KEY.get(ck, ck), {})
             lt, hrs = acc[q][ck]["lt"], acc[q][ck]["hours"]
             sle[q][ck] = {
                 "ltThr": thr.get("lt"), "hoursThr": thr.get("hours"),
