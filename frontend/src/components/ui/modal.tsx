@@ -10,9 +10,10 @@ interface ModalProps {
   subtitle?: string
   children: React.ReactNode
   wide?: boolean
+  xl?: boolean
 }
 
-export function Modal({ open, onClose, title, subtitle, children, wide }: ModalProps) {
+export function Modal({ open, onClose, title, subtitle, children, wide, xl }: ModalProps) {
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
@@ -27,7 +28,7 @@ export function Modal({ open, onClose, title, subtitle, children, wide }: ModalP
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className={cn(
         "relative bg-card border border-border rounded-2xl shadow-2xl flex flex-col max-h-[85vh] w-full",
-        wide ? "max-w-3xl" : "max-w-xl"
+        xl ? "max-w-6xl" : wide ? "max-w-3xl" : "max-w-xl"
       )}>
         <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-border shrink-0">
           <div>

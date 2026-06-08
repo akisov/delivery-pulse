@@ -13,14 +13,14 @@ const CAT_COLORS: Record<string, string> = {
   tech:     "#F59E0B", // Тех. долг (+ Тех. улучшение)
   incident: "#EF4444", // Инциденты
 }
-// цвета команд для чипов
-const QUEUE_COLORS: Record<string, string> = {
-  POOLING: "#6C63FF", UDOSTAVKA: "#06B6D4", DOSTAVKAPIKO: "#10B981",
-}
-
 interface CatCounts { story: number; tech: number; incident: number; total: number }
 interface Row { month: string; label: string; all: CatCounts; [q: string]: any }
-interface OSPItem { key: string; summary: string; url: string; queue: string; category: string; month: string; type: string; resolvedAt: string; assignee: string }
+interface OSPItem {
+  key: string; summary: string; url: string; queue: string; category: string; month: string
+  type: string; resolvedAt: string; assignee: string; status: string
+  parentKey: string; parentSummary: string; start: string; daysInWork: number | null
+  jobCategory: string; spent: string
+}
 interface Resp {
   ok: boolean; error?: string
   queues: Record<string, string>
@@ -46,7 +46,13 @@ function Chip({ label, color }: { label: string; color: string }) {
 
 interface Sel { category: string; month?: string }
 
-// Модалка со списком завершённых задач выбранного типа (по клику на столбец/чип)
+function fmtDate(iso: string) {
+  if (!iso) return "—"
+  const p = iso.slice(0, 10).split("-")
+  return p.length === 3 ? `${p[2]}.${p[1]}.${p[0].slice(2)}` : iso
+}
+
+// Модалка «Что конкретно мы сделали» — таблица задач выбранного типа (по клику на столбец)
 function OSPTasksModal({ sel, items, queues, cats, queue, monthLabels, onClose }: {
   sel: Sel | null; items: OSPItem[]; queues: Record<string, string>
   cats: { key: string; label: string }[]; queue: string
@@ -61,32 +67,51 @@ function OSPTasksModal({ sel, items, queues, cats, queue, monthLabels, onClose }
       && (!sel.month || it.month === sel.month))
     .sort((a, b) => (b.resolvedAt || "").localeCompare(a.resolvedAt || ""))
   const teamLabel = queue === "all" ? "все команды" : (queues[queue] || queue)
-  const sub = `${list.length} задач · ${teamLabel} · ${sel.month ? (monthLabels[sel.month] || sel.month) : "за период"}`
+  const sub = `Что конкретно сделали · ${cat?.label} · ${teamLabel} · ${sel.month ? (monthLabels[sel.month] || sel.month) : "за период"} · ${list.length} задач`
+  const COLS = ["Ключ", "Задача", "Исполнитель", "Статус", "Дней в работе", "Дата начала", "Категория работы", "Затрачено времени"]
   return (
-    <Modal open={!!sel} onClose={onClose} title={cat?.label || "Задачи"} subtitle={sub} wide>
+    <Modal open={!!sel} onClose={onClose} title={cat?.label || "Задачи"} subtitle={sub} xl>
       {list.length === 0 ? (
         <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">Нет задач</div>
       ) : (
-        <div className="space-y-2">
-          {list.map(it => (
-            <div key={it.key} className="rounded-lg border border-border bg-card px-3 py-2.5 hover:bg-accent/30 transition-colors">
-              <div className="flex items-start gap-2.5">
-                <span className="mt-1.5 w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+        <div className="overflow-x-auto -mx-2">
+          <table className="w-full text-xs border-separate border-spacing-0">
+            <thead>
+              <tr className="text-left text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                {COLS.map((c, i) => (
+                  <th key={c} className={cn("sticky top-0 bg-card border-b border-border px-2.5 py-2 whitespace-nowrap",
+                    (i === 4 || i === 6 || i === 7) && "text-right")}>{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {list.map(it => (
+                <tr key={it.key} className="hover:bg-accent/30 transition-colors align-top">
+                  <td className="border-b border-border/50 px-2.5 py-2 whitespace-nowrap">
+                    <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline inline-flex items-center gap-1">
                       {it.key} <ExternalLink className="w-3 h-3" />
                     </a>
-                    <Chip label={queues[it.queue] || it.queue} color={QUEUE_COLORS[it.queue] || "#94A3B8"} />
-                    {monthLabels[it.month] && <Chip label={monthLabels[it.month]} color={color} />}
-                    <span className="text-[10px] text-muted-foreground">{it.type}</span>
-                  </div>
-                  <p className="text-sm text-foreground mt-1 leading-snug">{it.summary}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{it.assignee} · завершено {it.resolvedAt}</p>
-                </div>
-              </div>
-            </div>
-          ))}
+                  </td>
+                  <td className="border-b border-border/50 px-2.5 py-2 min-w-[260px] max-w-[360px]">
+                    {it.parentKey && <div className="text-[10px] text-muted-foreground truncate">{it.parentKey}: {it.parentSummary}</div>}
+                    <div className="text-foreground leading-snug">{it.summary}</div>
+                  </td>
+                  <td className="border-b border-border/50 px-2.5 py-2 whitespace-nowrap text-muted-foreground">{it.assignee}</td>
+                  <td className="border-b border-border/50 px-2.5 py-2 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 text-[10px] font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{it.status || "—"}
+                    </span>
+                  </td>
+                  <td className="border-b border-border/50 px-2.5 py-2 text-right font-bold text-foreground">{it.daysInWork ?? "—"}</td>
+                  <td className="border-b border-border/50 px-2.5 py-2 whitespace-nowrap text-muted-foreground">{fmtDate(it.start)}</td>
+                  <td className="border-b border-border/50 px-2.5 py-2 text-right">
+                    {it.jobCategory ? <Chip label={it.jobCategory} color={color} /> : <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="border-b border-border/50 px-2.5 py-2 text-right whitespace-nowrap text-muted-foreground">{it.spent || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </Modal>

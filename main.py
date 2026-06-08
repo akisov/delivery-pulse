@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 import httpx
 from datetime import date, datetime, timedelta
@@ -1857,7 +1858,47 @@ def _osp_label(ym: str) -> str:
     except Exception:
         return ym
 
+def _fmt_spent(s) -> str:
+    """ISO-8601 длительность Трекера (P1W4DT4H45M) → «1н 4д 4ч 45м»."""
+    if not s or not isinstance(s, str):
+        return ""
+    m = re.match(r"P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$", s)
+    if not m:
+        return ""
+    w, d, h, mi, _sec = [int(x) if x else 0 for x in m.groups()]
+    parts = []
+    if w: parts.append(f"{w}н")
+    if d: parts.append(f"{d}д")
+    if h: parts.append(f"{h}ч")
+    if mi: parts.append(f"{mi}м")
+    return " ".join(parts)
+
+def _local_value(iss: dict, field: dict | None) -> str:
+    """Значение локального поля очереди (напр. «Категория работы») из задачи."""
+    if not field:
+        return ""
+    v = iss.get(field.get("id") or "")
+    if v is None and field.get("key"):
+        v = _field(iss, "--" + field["key"])
+    if isinstance(v, dict):
+        return v.get("display") or v.get("name") or ""
+    if isinstance(v, list):
+        return ", ".join((x.get("display") if isinstance(x, dict) else str(x)) for x in v)
+    return str(v) if v is not None else ""
+
+def _osp_days_in_work(start: str, resolved: str):
+    """Дней в работе ≈ дата завершения − дата начала (календарные дни)."""
+    if not start or not resolved:
+        return None
+    try:
+        d1 = datetime.strptime(start[:10], "%Y-%m-%d")
+        d2 = datetime.strptime(resolved[:10], "%Y-%m-%d")
+        return max((d2 - d1).days, 0)
+    except Exception:
+        return None
+
 OSP_SNAPSHOT_TTL_H = 12  # сколько часов кэш считается свежим
+OSP_SNAPSHOT_VERSION = 2  # поднимать при изменении состава полей задачи (инвалидирует кэш)
 
 @app.get("/osp-delivery")
 async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
@@ -1867,7 +1908,7 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
     months = max(1, min(int(months or 6), 24))
-    key = str(months)
+    key = f"{months}-v{OSP_SNAPSHOT_VERSION}"
 
     # 1. читаем кэш из БД (быстро). Пересчитываем при refresh или если кэш протух.
     if not refresh:
@@ -1895,11 +1936,24 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
         query = f'Queue: {q} Resolution: notEmpty() Resolved: >= "{cutoff}"'
         return await tracker_query(client, query)
 
+    async def _catfield(client, q):
+        # локальное поле очереди «Категория работы» — у каждой очереди своё
+        try:
+            lf = await tracker_request(client, "GET", f"/v2/queues/{q}/localFields")
+            for f in (lf or []):
+                if "категори" in (f.get("name") or "").lower():
+                    return f
+        except Exception as e:
+            print(f"[osp localFields {q}] {e}")
+        return None
+
     try:
         async with httpx.AsyncClient(timeout=90) as client:
             results = await asyncio.gather(*[_fetch(client, q) for q in OSP_QUEUES])
+            catfields = await asyncio.gather(*[_catfield(client, q) for q in OSP_QUEUES])
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
+    catfield_by_q = dict(zip(OSP_QUEUES, catfields))
 
     cats = [c["key"] for c in OSP_CATEGORIES]
     zero = lambda: {**{c: 0 for c in cats}, "total": 0}
@@ -1923,12 +1977,21 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
             buckets[mo][q][cat] += 1
             buckets[mo][q]["total"] += 1
             totals[cat] += 1
+            par = iss.get("parent") or {}
+            start = (iss.get("start") or "")[:10]
             items.append({
                 "key": iss.get("key"), "summary": iss.get("summary") or "—",
                 "url": f"https://tracker.yandex.ru/{iss.get('key')}",
                 "queue": q, "category": cat, "month": mo, "type": disp,
                 "resolvedAt": ra[:10],
                 "assignee": (iss.get("assignee") or {}).get("display", "—"),
+                "status": (iss.get("status") or {}).get("display", ""),
+                "parentKey": par.get("key") or "",
+                "parentSummary": par.get("display") or "",
+                "start": start,
+                "daysInWork": _osp_days_in_work(start, ra),
+                "jobCategory": _local_value(iss, catfield_by_q.get(q)),
+                "spent": _fmt_spent(iss.get("spent")),
             })
 
     data = []
