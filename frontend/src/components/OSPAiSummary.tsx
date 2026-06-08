@@ -5,6 +5,13 @@ import { cn } from "@/lib/utils"
 
 interface Resp { ok: boolean; error?: string; summary?: string; updatedAt?: string }
 
+// простой рендер **жирного**
+function renderMd(s: string) {
+  return s.split(/\*\*/).map((p, i) => i % 2 === 1
+    ? <strong key={i} className="font-bold text-foreground">{p}</strong>
+    : <span key={i}>{p}</span>)
+}
+
 export function OSPAiSummary({ queue, month, monthLabel, refreshKey }: {
   queue?: string; month: string; monthLabel?: string; refreshKey?: number
 }) {
@@ -53,12 +60,11 @@ export function OSPAiSummary({ queue, month, monthLabel, refreshKey }: {
             {resp && !resp.ok ? `⚠️ ${resp.error}` : "Нет данных для вывода (или ИИ-ключ не задан)."}
           </div>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {lines.map((l, i) => (
-              <p key={i} className="text-sm text-foreground leading-relaxed flex gap-2">
-                <span className="text-primary shrink-0">•</span>
-                <span>{l.replace(/^[•\-*]\s*/, "")}</span>
-              </p>
+              <div key={i} className="text-sm text-foreground leading-relaxed rounded-xl border border-border/60 bg-card/60 px-3 py-2 animate-fade-in-up" style={{ animationDelay: `${i * 0.05}s` }}>
+                {renderMd(l.replace(/^[•\-*]\s*/, ""))}
+              </div>
             ))}
           </div>
         )}

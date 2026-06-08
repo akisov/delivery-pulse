@@ -65,7 +65,7 @@ export function OSPSle({ queue, month, refreshKey }: { queue?: string; month?: s
       out[q] = {}
       for (const c of cats) {
         const thr = resp.sle[q]?.[c.key] || ({} as CatSle)
-        const its = (resp.items ?? []).filter(it => it.queue === q && it.cat === c.key && (it.resolved || "").slice(0, 7) <= month)
+        const its = (resp.items ?? []).filter(it => it.queue === q && it.cat === c.key && (it.resolved || "").slice(0, 7) === month)
         const lt = its.map(i => i.days).filter(v => v != null) as number[]
         const hrs = its.map(i => i.hours).filter(v => v != null) as number[]
         out[q][c.key] = { ltThr: thr.ltThr, hoursThr: thr.hoursThr, ltBase: lt.length, ltPct: pctOf(lt, thr.ltThr), hrsBase: hrs.length, hrsPct: pctOf(hrs, thr.hoursThr) }
@@ -78,7 +78,7 @@ export function OSPSle({ queue, month, refreshKey }: { queue?: string; month?: s
   const missList = useMemo(() => {
     if (!sel || !resp?.items || sel.thr == null) return []
     return resp.items
-      .filter(it => it.queue === sel.q && it.cat === sel.cat && (!month || (it.resolved || "").slice(0, 7) <= month))
+      .filter(it => it.queue === sel.q && it.cat === sel.cat && (!month || (it.resolved || "").slice(0, 7) === month))
       .filter(it => sel.metric === "lt" ? (it.days != null && it.days > sel.thr!) : (it.hours != null && it.hours > sel.thr!))
       .sort((a, b) => (sel.metric === "lt" ? (b.days! - a.days!) : (b.hours! - a.hours!)))
   }, [sel, resp, month])
@@ -97,7 +97,7 @@ export function OSPSle({ queue, month, refreshKey }: { queue?: string; month?: s
           {resp?.updatedAt && <span className="text-[11px] text-muted-foreground">обновлено: {resp.updatedAt}</span>}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Доля завершённых задач (за полгода) в пределах порога SLE по LT (дни в работе) и трудозатратам (часы) · цель — {target}% · клик по % — задачи вне SLE
+          Доля завершённых задач за выбранный месяц (резолюции «Решён»/«Отменено с часами») в пределах порога SLE по LT (дни) и трудозатратам (часы) · цель — {target}% · клик по % — задачи вне SLE
         </p>
       </CardHeader>
       <CardContent>
