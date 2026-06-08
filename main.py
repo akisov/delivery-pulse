@@ -1858,6 +1858,28 @@ def _osp_label(ym: str) -> str:
     except Exception:
         return ym
 
+def _msk_dt(ts: str):
+    """ISO-таймстамп Трекера (любой офсет) → datetime по МСК (UTC+3)."""
+    if not ts or len(ts) < 19:
+        return None
+    try:
+        base = datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S")
+        off = 0
+        m = re.search(r"([+-])(\d{2}):?(\d{2})", ts[19:])
+        if m:
+            off = (1 if m.group(1) == "+" else -1) * (int(m.group(2)) * 60 + int(m.group(3)))
+        return base - timedelta(minutes=off) + timedelta(minutes=180)  # → UTC → МСК
+    except Exception:
+        return None
+
+def _msk_month(ts: str) -> str:
+    d = _msk_dt(ts)
+    return d.strftime("%Y-%m") if d else (ts or "")[:7]
+
+def _msk_date(ts: str) -> str:
+    d = _msk_dt(ts)
+    return d.strftime("%Y-%m-%d") if d else (ts or "")[:10]
+
 def _fmt_spent(s) -> str:
     """ISO-8601 длительность Трекера (P1W4DT4H45M) → «1н 4д 4ч 45м»."""
     if not s or not isinstance(s, str):
@@ -1929,7 +1951,7 @@ def _osp_days_in_work(start: str, resolved: str):
         return None
 
 OSP_SNAPSHOT_TTL_H = 12  # сколько часов кэш считается свежим
-OSP_SNAPSHOT_VERSION = 6  # поднимать при изменении состава полей/логики (инвалидирует кэш)
+OSP_SNAPSHOT_VERSION = 7  # поднимать при изменении состава полей/логики (инвалидирует кэш)
 
 # ── ОСП: распределение времени (worklog) ────────────────────────────────────────
 OSP_WL_VERSION = 1  # версия снапшота worklog
@@ -2109,7 +2131,7 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
     for q, issues in zip(OSP_QUEUES, results):
         for iss in issues:
             ra = iss.get("resolvedAt") or ""
-            mo = ra[:7]
+            mo = _msk_month(ra)  # месяц по МСК (как «Дата завершения» в Трекере)
             if mo not in buckets:
                 continue
             res = iss.get("resolution") or {}
@@ -2137,7 +2159,7 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
                 "key": iss.get("key"), "summary": iss.get("summary") or "—",
                 "url": f"https://tracker.yandex.ru/{iss.get('key')}",
                 "queue": q, "category": cat, "month": mo, "type": disp,
-                "resolvedAt": ra[:10],
+                "resolvedAt": _msk_date(ra),
                 "assignee": (iss.get("assignee") or {}).get("display", "—"),
                 "status": (iss.get("status") or {}).get("display", ""),
                 "parentKey": par.get("key") or "",
