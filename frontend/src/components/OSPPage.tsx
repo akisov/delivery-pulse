@@ -10,10 +10,11 @@ import { OSPTime } from "@/components/OSPTime"
 import { cn } from "@/lib/utils"
 
 const CAT_COLORS: Record<string, string> = {
-  story:    "#3B82F6", // Story (Работа по ТЗ)
-  techDebt: "#F59E0B", // ТехДолг
-  techImpr: "#A78BFA", // Тех. улучшение
-  incident: "#EF4444", // Инциденты
+  story:     "#3B82F6", // Story (Работа по ТЗ)
+  techDebt:  "#F59E0B", // ТехДолг
+  techImpr:  "#A78BFA", // Тех. улучшение
+  analytics: "#06B6D4", // Аналитика
+  incident:  "#EF4444", // Инциденты
 }
 interface CatCounts { total: number; [k: string]: number }
 interface Row { month: string; label: string; all: CatCounts; [q: string]: any }
@@ -226,7 +227,7 @@ export function OSPPage() {
       ) : data && (
         <>
           {/* Сводка по категориям */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <div className="rounded-xl border border-border bg-card px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(108,99,255,0.1)]">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Всего сделано</p>
               <p className="text-2xl font-black tracking-tight leading-none mt-1 text-foreground">{totals.total}</p>
@@ -250,7 +251,7 @@ export function OSPPage() {
                 <CardTitle>📦 Сколько мы сделали — по месяцам</CardTitle>
                 <span className="text-xs text-muted-foreground">{queueTabs.find(([v]) => v === queue)?.[1]}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Сделано по дате завершения · Story и тех. долг — резолюция «Решён»/«Отменено с часами», инциденты — все закрытые · нажми на тип — оставить только его · клик по столбцу — список задач</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Сделано по дате завершения · только резолюции «Решён»/«Отменено с часами» · нажми на тип — оставить только его · клик по столбцу — список задач</p>
             </CardHeader>
             <CardContent>
               {totals.total === 0 ? (
