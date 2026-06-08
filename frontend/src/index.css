@@ -83,3 +83,35 @@
 .stagger-2 { animation-delay: 0.10s; }
 .stagger-3 { animation-delay: 0.15s; }
 .stagger-4 { animation-delay: 0.20s; }
+
+/* ── Анимации оценки продакта ── */
+@keyframes scorePop {
+  0% { transform: scale(0.7); }
+  55% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+.animate-score-pop { animation: scorePop 0.32s cubic-bezier(.34,1.56,.64,1) both; }
+
+@keyframes floatUp {
+  0% { transform: translate(-50%, 0) scale(0.7); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translate(-50%, -46px) scale(1.5); opacity: 0; }
+}
+.particle { position: absolute; left: 50%; bottom: 100%; pointer-events: none; will-change: transform, opacity; }
+.particle.go { animation: floatUp 0.9s ease-out forwards; }
+
+@keyframes shakeBad {
+  0%,100% { transform: translateX(0) rotate(0); }
+  20% { transform: translateX(-3px) rotate(-8deg); }
+  40% { transform: translateX(3px) rotate(8deg); }
+  60% { transform: translateX(-2px) rotate(-5deg); }
+  80% { transform: translateX(2px) rotate(5deg); }
+}
+.animate-shake { animation: shakeBad 0.45s ease-in-out both; }
+
+@keyframes wobble3 {
+  0%,100% { transform: rotate(0); }
+  30% { transform: rotate(-6deg); }
+  70% { transform: rotate(6deg); }
+}
+.animate-wobble { animation: wobble3 0.5s ease-in-out both; }

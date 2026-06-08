@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import { Star, ChevronDown, ChevronUp, Check } from "lucide-react"
+import { Star, ChevronDown, ChevronUp, Check, Calendar } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
@@ -10,6 +10,42 @@ const QUEUE_COLORS: Record<string, string> = { POOLING: "#6C63FF", UDOSTAVKA: "#
 const RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
 function mlabel(m: string) { const [y, mo] = m.split("-"); return `${RU[+mo - 1]} ${y.slice(2)}` }
 const SCORE_COLORS: Record<number, string> = { 1: "#EF4444", 2: "#F97316", 3: "#EAB308", 4: "#84CC16", 5: "#10B981" }
+const SCORE_EMOJI: Record<number, string> = { 1: "💀", 2: "🩸", 3: "😐", 4: "⭐", 5: "🌟" }
+// частицы, разлетающиеся при выборе оценки
+const PARTICLES: Record<number, { e: string; x: number; d: number; s: string }[]> = {
+  1: [{ e: "💀", x: 30, d: 0, s: "1.2rem" }, { e: "💀", x: 62, d: .1, s: "1rem" }, { e: "🩸", x: 46, d: .05, s: "1.1rem" }],
+  2: [{ e: "🩸", x: 32, d: 0, s: "1.1rem" }, { e: "🩸", x: 64, d: .12, s: "1rem" }, { e: "😬", x: 48, d: .05, s: "1.1rem" }],
+  3: [{ e: "😐", x: 50, d: 0, s: "1.4rem" }],
+  4: [{ e: "⭐", x: 26, d: 0, s: "1.1rem" }, { e: "✨", x: 54, d: .08, s: "1rem" }, { e: "⭐", x: 76, d: .04, s: "1.2rem" }],
+  5: [{ e: "🌟", x: 18, d: 0, s: "1.2rem" }, { e: "✨", x: 44, d: .06, s: "1rem" }, { e: "⭐", x: 64, d: .03, s: "1.2rem" }, { e: "🌟", x: 86, d: .1, s: "1rem" }],
+}
+
+// красивый выбор месяца
+function MonthSelect({ value, options, onChange }: { value: string; options: string[]; onChange: (m: string) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-8 text-xs font-semibold text-foreground capitalize hover:border-primary/50 transition-colors">
+        <Calendar className="w-3.5 h-3.5 text-muted-foreground" /> {mlabel(value)} <ChevronDown className="w-3 h-3 opacity-60" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute z-20 mt-1 max-h-60 w-36 overflow-auto rounded-xl border border-border bg-card p-1 shadow-2xl">
+            {options.map(m => (
+              <button key={m} onClick={() => { onChange(m); setOpen(false) }}
+                className={cn("w-full flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs capitalize hover:bg-secondary transition-colors",
+                  value === m ? "text-primary font-bold" : "text-foreground")}>
+                {mlabel(m)} {value === m && <Check className="w-3.5 h-3.5" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 // тултип: для команды — средняя + разбивка по критериям; для всех — средняя по командам
 function PulseTip({ active, payload, label, single, criteria, queues, teams }: any) {
@@ -49,6 +85,13 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
   const [fMonth, setFMonth] = useState("")
   const [fScores, setFScores] = useState<Record<string, number>>({})
   const [saving, setSaving] = useState(false)
+  const [burst, setBurst] = useState<{ crit: string; n: number; id: number } | null>(null)
+  const burstId = useRef(0)
+  const pick = (c: string, n: number) => {
+    setFScores(s => ({ ...s, [c]: n }))
+    burstId.current += 1
+    setBurst({ crit: c, n, id: burstId.current })
+  }
 
   const load = () => {
     setLoading(true); setError(null)
@@ -140,31 +183,39 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
             {single && formOpen && (
               <div className="rounded-xl border border-border bg-secondary/30 p-4 mb-4 space-y-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-muted-foreground">Месяц</span>
-                  <select value={fMonth} onChange={e => setFMonth(e.target.value)}
-                    className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground capitalize">
-                    {formMonths.map(m => <option key={m} value={m}>{mlabel(m)}</option>)}
-                  </select>
+                  <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Месяц</span>
+                  <MonthSelect value={fMonth} options={formMonths} onChange={setFMonth} />
                 </div>
-                {criteria.map(c => (
-                  <div key={c} className="flex items-center justify-between gap-3 flex-wrap">
-                    <span className="text-xs text-foreground flex-1 min-w-[160px]">{c}</span>
-                    <div className="flex gap-1">
-                      {[1, 2, 3, 4, 5].map(n => {
-                        const on = fScores[c] === n
-                        return (
-                          <button key={n} title={resp.scale[String(n)]}
-                            onClick={() => setFScores(s => ({ ...s, [c]: n }))}
-                            className={cn("w-7 h-7 rounded-md text-xs font-bold transition-all",
-                              on ? "text-white shadow" : "bg-card border border-border text-muted-foreground hover:border-primary/50")}
-                            style={on ? { background: SCORE_COLORS[n] } : undefined}>
-                            {n}
-                          </button>
-                        )
-                      })}
+                {criteria.map(c => {
+                  const cur = fScores[c]
+                  return (
+                    <div key={c} className="flex items-center justify-between gap-3 flex-wrap py-0.5">
+                      <span className="text-sm text-foreground flex-1 min-w-[160px] flex items-center gap-1.5">
+                        {c} {cur ? <span className="text-base leading-none">{SCORE_EMOJI[cur]}</span> : null}
+                      </span>
+                      <div className="relative flex gap-1.5">
+                        {[1, 2, 3, 4, 5].map(n => {
+                          const on = cur === n
+                          return (
+                            <button key={n} title={`${n} — ${resp.scale[String(n)]}`} onClick={() => pick(c, n)}
+                              className={cn("w-10 h-10 rounded-xl text-xl flex items-center justify-center border transition-all duration-150 hover:-translate-y-0.5 hover:scale-110",
+                                on ? "border-transparent shadow-lg animate-score-pop" : "border-border bg-card grayscale opacity-55 hover:opacity-100 hover:grayscale-0")}
+                              style={on ? { background: `${SCORE_COLORS[n]}26`, boxShadow: `0 6px 18px ${SCORE_COLORS[n]}55` } : undefined}>
+                              <span className={cn(on && (n <= 2) && "animate-shake", on && n === 3 && "animate-wobble")}>{SCORE_EMOJI[n]}</span>
+                            </button>
+                          )
+                        })}
+                        {burst?.crit === c && (
+                          <div key={burst.id} className="absolute inset-x-0 bottom-2 h-0 pointer-events-none">
+                            {PARTICLES[burst.n].map((p, i) => (
+                              <span key={i} className="particle go" style={{ left: `${p.x}%`, animationDelay: `${p.d}s`, fontSize: p.s }}>{p.e}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <div className="text-[10px] text-muted-foreground">1 — ожидания не оправданы · 5 — превзошли ожидания</div>
                   <button onClick={submit} disabled={saving || Object.keys(fScores).length === 0}
