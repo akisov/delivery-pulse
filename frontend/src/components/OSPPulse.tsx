@@ -198,10 +198,11 @@ export function OSPPulse({ queue, refreshKey }: { queue?: string; refreshKey?: n
                           const on = cur === n
                           return (
                             <button key={n} title={`${n} — ${resp.scale[String(n)]}`} onClick={() => pick(c, n)}
-                              className={cn("w-10 h-10 rounded-xl text-xl flex items-center justify-center border transition-all duration-150 hover:-translate-y-0.5 hover:scale-110",
-                                on ? "border-transparent shadow-lg animate-score-pop" : "border-border bg-card grayscale opacity-55 hover:opacity-100 hover:grayscale-0")}
+                              className={cn("w-10 h-11 rounded-xl flex flex-col items-center justify-center gap-0 border transition-all duration-150 hover:-translate-y-0.5 hover:scale-110",
+                                on ? "border-transparent shadow-lg animate-score-pop" : "border-border bg-card opacity-65 hover:opacity-100")}
                               style={on ? { background: `${SCORE_COLORS[n]}26`, boxShadow: `0 6px 18px ${SCORE_COLORS[n]}55` } : undefined}>
-                              <span className={cn(on && (n <= 2) && "animate-shake", on && n === 3 && "animate-wobble")}>{SCORE_EMOJI[n]}</span>
+                              <span className={cn("text-lg leading-none", !on && "grayscale", on && (n <= 2) && "animate-shake", on && n === 3 && "animate-wobble")}>{SCORE_EMOJI[n]}</span>
+                              <span className="text-[10px] font-black leading-none mt-0.5" style={{ color: on ? SCORE_COLORS[n] : "hsl(var(--muted-foreground))" }}>{n}</span>
                             </button>
                           )
                         })}
