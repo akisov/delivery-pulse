@@ -1815,7 +1815,7 @@ async def flow_metrics():
 OSP_QUEUES = {"POOLING": "Курьеры X", "UDOSTAVKA": "Курьеры U", "DOSTAVKAPIKO": "Курьеры R"}
 # категории «сколько сделали»
 OSP_CATEGORIES = [
-    {"key": "story",    "label": "Работа по ТЗ"},
+    {"key": "story",    "label": "Story"},         # Работа по ТЗ
     {"key": "tech",     "label": "Тех. долг"},     # ТехДолг + Тех. улучшение
     {"key": "incident", "label": "Инциденты"},
 ]

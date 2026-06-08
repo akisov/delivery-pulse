@@ -31,8 +31,8 @@ export function OSPPage() {
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [months, setMonths] = useState("9")
-  const [queue, setQueue] = useState<string>("all")  // "all" | ключ очереди
+  const [months, setMonths] = useState("6")
+  const [queue, setQueue] = useState<string>("POOLING")  // отчёт показываем по одной команде
   const [showTypes, setShowTypes] = useState(false)
 
   const load = (m = months) => {
@@ -61,7 +61,8 @@ export function OSPPage() {
   }, [chartData])
 
   const cats = data?.categories ?? []
-  const queueTabs: [string, string][] = [["all", "Все очереди"], ...Object.entries(data?.queues ?? {})]
+  // команды (очереди курьеров) — выбираем одну; «Все» в конце как опция
+  const queueTabs: [string, string][] = [...Object.entries(data?.queues ?? {}), ["all", "Все команды"]]
 
   return (
     <div className="space-y-6">
@@ -69,7 +70,7 @@ export function OSPPage() {
         <div>
           <h1 className="text-3xl font-black tracking-tight text-foreground">ОСП — обзор сервиса поставки</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Сколько сделали по месяцам · Работа по ТЗ · Тех. долг · Инциденты · очереди курьеров (X / U / R)
+            Сколько сделали по месяцам · Story · Тех. долг · Инциденты · по командам курьеров (X / U / R)
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -91,16 +92,19 @@ export function OSPPage() {
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
 
-      {/* Переключатель очереди */}
+      {/* Выбор команды — отчёт показываем по одной команде за месяц */}
       {data && (
-        <div className="flex gap-1 bg-card border border-border rounded-lg p-1 w-fit flex-wrap">
-          {queueTabs.map(([v, label]) => (
-            <button key={v} onClick={() => setQueue(v)}
-              className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
-                queue === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
-              {label}
-            </button>
-          ))}
+        <div className="flex items-center gap-3 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
+          <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
+            {queueTabs.map(([v, label]) => (
+              <button key={v} onClick={() => setQueue(v)}
+                className={cn("px-3.5 py-1.5 rounded-md text-sm font-semibold transition-all whitespace-nowrap",
+                  queue === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

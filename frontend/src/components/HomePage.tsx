@@ -56,7 +56,7 @@ const NAV_CARDS = [
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",
     title: "Поток", desc: "Возраст работы в Discovery/Delivery (WIP Age P90), WIP-лимиты и недельный тренд." },
   { section: "osp" as const, icon: Truck, color: "#F59E0B",
-    title: "ОСП", desc: "Обзор сервиса поставки: сколько сделали по месяцам (Работа по ТЗ, тех. долг, инциденты) по очередям курьеров." },
+    title: "ОСП", desc: "Обзор сервиса поставки: сколько сделали по месяцам (Story, тех. долг, инциденты) по командам курьеров." },
 ]
 
 export function HomePage({ onGo }: Props) {
