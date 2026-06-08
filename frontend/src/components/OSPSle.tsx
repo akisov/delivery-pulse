@@ -1,18 +1,21 @@
-import { useEffect, useState } from "react"
-import { Target } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Target, ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { cn } from "@/lib/utils"
+import { Modal } from "@/components/ui/modal"
+import { Badge } from "@/components/ui/badge"
 
 const TEAM_ORDER = ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"]
 
 interface CatSle { ltThr: number | null; hoursThr: number | null; ltBase: number; ltPct: number | null; hrsBase: number; hrsPct: number | null }
+interface SleItem { queue: string; cat: string; key: string; summary: string; url: string; days: number | null; hours: number | null; resolved: string; assignee: string }
 interface Resp {
   ok: boolean; error?: string
   queues: Record<string, string>
   cats: { key: string; label: string }[]
   target: number
   sle: Record<string, Record<string, CatSle>>
+  items?: SleItem[]
   updatedAt?: string
 }
 
@@ -22,18 +25,19 @@ function Pct({ pct, base, target }: { pct: number | null; base: number; target: 
   const color = ok ? "#10B981" : "#EF4444"
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-black" style={{ background: `${color}1A`, color }}>
-        {pct}%
-      </span>
+      <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-black" style={{ background: `${color}1A`, color }}>{pct}%</span>
       <span className="text-[10px] text-muted-foreground">/ {base}</span>
     </span>
   )
 }
 
+interface Sel { q: string; cat: string; metric: "lt" | "hours"; thr: number | null }
+
 export function OSPSle({ queue, refreshKey }: { queue?: string; refreshKey?: number }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [sel, setSel] = useState<Sel | null>(null)
 
   const load = (refresh = false) => {
     setLoading(true); setError(null)
@@ -50,6 +54,21 @@ export function OSPSle({ queue, refreshKey }: { queue?: string; refreshKey?: num
   const cats = resp?.cats ?? []
   const target = resp?.target ?? 85
 
+  // задачи, не попавшие в SLE по выбранной метрике
+  const missList = useMemo(() => {
+    if (!sel || !resp?.items || sel.thr == null) return []
+    return resp.items
+      .filter(it => it.queue === sel.q && it.cat === sel.cat)
+      .filter(it => sel.metric === "lt" ? (it.days != null && it.days > sel.thr!) : (it.hours != null && it.hours > sel.thr!))
+      .sort((a, b) => (sel.metric === "lt" ? (b.days! - a.days!) : (b.hours! - a.hours!)))
+  }, [sel, resp])
+
+  const catLabel = (k: string) => cats.find(c => c.key === k)?.label || k
+  const open = (q: string, cat: string, metric: "lt" | "hours", thr: number | null) => {
+    if (thr == null) return
+    setSel({ q, cat, metric, thr })
+  }
+
   return (
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardHeader className="pb-2">
@@ -58,7 +77,7 @@ export function OSPSle({ queue, refreshKey }: { queue?: string; refreshKey?: num
           {resp?.updatedAt && <span className="text-[11px] text-muted-foreground">обновлено: {resp.updatedAt}</span>}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Доля завершённых задач (за полгода) в пределах порога SLE по LT (дни в работе) и трудозатратам (часы) · цель — {target}% (зелёный ≥ {target}%)
+          Доля завершённых задач (за полгода) в пределах порога SLE по LT (дни в работе) и трудозатратам (часы) · цель — {target}% · клик по % — задачи вне SLE
         </p>
       </CardHeader>
       <CardContent>
@@ -92,9 +111,17 @@ export function OSPSle({ queue, refreshKey }: { queue?: string; refreshKey?: num
                             <tr key={c.key} className="hover:bg-accent/30 transition-colors">
                               <td className="px-2.5 py-2 border-b border-border/50 whitespace-nowrap text-foreground">{c.label}</td>
                               <td className="px-2.5 py-2 border-b border-border/50 text-right text-muted-foreground tabular-nums">{s.ltThr != null ? `≤ ${s.ltThr} дн` : "—"}</td>
-                              <td className="px-2.5 py-2 border-b border-border/50 text-right"><Pct pct={s.ltPct ?? null} base={s.ltBase ?? 0} target={target} /></td>
+                              <td className="px-2.5 py-2 border-b border-border/50 text-right">
+                                <button onClick={() => open(q, c.key, "lt", s.ltThr ?? null)} className="hover:opacity-80 transition-opacity cursor-pointer" title="Показать задачи вне SLE">
+                                  <Pct pct={s.ltPct ?? null} base={s.ltBase ?? 0} target={target} />
+                                </button>
+                              </td>
                               <td className="px-2.5 py-2 border-b border-border/50 text-right text-muted-foreground tabular-nums">{s.hoursThr != null ? `≤ ${s.hoursThr} ч` : "—"}</td>
-                              <td className="px-2.5 py-2 border-b border-border/50 text-right"><Pct pct={s.hrsPct ?? null} base={s.hrsBase ?? 0} target={target} /></td>
+                              <td className="px-2.5 py-2 border-b border-border/50 text-right">
+                                <button onClick={() => open(q, c.key, "hours", s.hoursThr ?? null)} className="hover:opacity-80 transition-opacity cursor-pointer" title="Показать задачи вне SLE">
+                                  <Pct pct={s.hrsPct ?? null} base={s.hrsBase ?? 0} target={target} />
+                                </button>
+                              </td>
                             </tr>
                           )
                         })}
@@ -104,10 +131,39 @@ export function OSPSle({ queue, refreshKey }: { queue?: string; refreshKey?: num
                 </div>
               )
             })}
-            <p className="text-[10px] text-muted-foreground">«/ N» — число завершённых задач с заполненной метрикой, по которым считали попадание</p>
+            <p className="text-[10px] text-muted-foreground">«/ N» — число завершённых задач с метрикой · нажми на % чтобы увидеть тех, кто вне SLE</p>
           </div>
         )}
       </CardContent>
+
+      <Modal open={!!sel} onClose={() => setSel(null)}
+        title={sel ? `Вне SLE — ${catLabel(sel.cat)}` : ""}
+        subtitle={sel ? `${resp?.queues?.[sel.q] || sel.q} · ${sel.metric === "lt" ? `дни в работе > ${sel.thr}` : `часы > ${sel.thr}`} · ${missList.length} задач` : ""} wide>
+        {missList.length === 0 ? (
+          <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">Все задачи в SLE 🎉</div>
+        ) : (
+          <div className="rounded-xl border border-border overflow-hidden">
+            {missList.map((t, i) => (
+              <div key={t.key + i} className="border-b border-border last:border-0 px-4 py-2.5 flex items-start gap-3 hover:bg-accent/30 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a href={t.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+                      {t.key} <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <Badge variant="outline" className="text-[10px]">{t.queue}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{t.summary}</p>
+                  <p className="text-[11px] text-muted-foreground/70 mt-0.5">{t.assignee} · завершено {t.resolved}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-base font-black text-destructive">{sel?.metric === "lt" ? t.days : t.hours}</p>
+                  <p className="text-[10px] text-muted-foreground">{sel?.metric === "lt" ? `дн (порог ${sel?.thr})` : `ч (порог ${sel?.thr})`}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </Card>
   )
 }
