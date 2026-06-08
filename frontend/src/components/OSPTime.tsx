@@ -94,6 +94,11 @@ export function OSPTime({ queue }: { queue?: string }) {
   const colTotal = (m: string | undefined, q: string) => types.reduce((s, t) => s + hoursFor(m, q, t), 0)
   const rowTotal = (m: string | undefined, t: string) => teams.reduce((s, q) => s + hoursFor(m, q, t), 0)
   const grand = (m: string | undefined) => teams.reduce((s, q) => s + colTotal(m, q), 0)
+  // сумма часов по типу в текущей выборке (для скрытия нулевых типов)
+  const typeTotal = (m: string | undefined, t: string) => showTotal ? rowTotal(m, t) : (teams[0] ? hoursFor(m, teams[0], t) : 0)
+  // итог по выбранной команде/командам
+  const selTotal = (m: string | undefined) => showTotal ? grand(m) : (teams[0] ? colTotal(m, teams[0]) : 0)
+  const visibleTypes = types.filter(t => typeTotal(month, t) > 0)
 
   const status = resp?.status
 
@@ -139,33 +144,22 @@ export function OSPTime({ queue }: { queue?: string }) {
           </div>
         ) : (
           <>
-            {/* переключатель месяца */}
-            <div className="flex gap-1 bg-card border border-border rounded-lg p-1 w-fit flex-wrap mb-3">
-              {months.map(m => (
-                <button key={m} onClick={() => setMonth(m)}
-                  className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all capitalize",
-                    month === m ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
-                  {mlabel(m)}
-                </button>
-              ))}
-            </div>
-
-            {/* карточки итогов по командам с трендом */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              {teams.map(q => (
-                <div key={q} className="rounded-xl border border-border bg-card px-4 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{resp.queues?.[q]}</p>
-                  <p className="text-2xl font-black tracking-tight leading-none mt-1 text-foreground">{Math.round(colTotal(month, q))}<span className="text-sm font-bold text-muted-foreground"> ч</span></p>
-                  <div className="mt-1"><Trend cur={colTotal(month, q)} prev={prevMonth ? colTotal(prevMonth, q) : undefined} /></div>
-                </div>
-              ))}
-              {showTotal && (
-                <div className="rounded-xl border border-primary/30 bg-primary/[0.05] px-4 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Всего</p>
-                  <p className="text-2xl font-black tracking-tight leading-none mt-1 text-foreground">{Math.round(grand(month))}<span className="text-sm font-bold text-muted-foreground"> ч</span></p>
-                  <div className="mt-1"><Trend cur={grand(month)} prev={prevMonth ? grand(prevMonth) : undefined} /></div>
-                </div>
-              )}
+            {/* переключатель месяца + чип итога часов рядом */}
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
+                {months.map(m => (
+                  <button key={m} onClick={() => setMonth(m)}
+                    className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all capitalize",
+                      month === m ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
+                    {mlabel(m)}
+                  </button>
+                ))}
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/[0.05] px-3 py-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Итого</span>
+                <span className="text-base font-black tracking-tight text-foreground">{Math.round(selTotal(month))}<span className="text-xs font-bold text-muted-foreground"> ч</span></span>
+                <Trend cur={selTotal(month)} prev={prevMonth ? selTotal(prevMonth) : undefined} />
+              </div>
             </div>
 
             {/* таблица тип × команда */}
@@ -179,7 +173,7 @@ export function OSPTime({ queue }: { queue?: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {types.map(t => (
+                  {visibleTypes.map(t => (
                     <tr key={t} className="hover:bg-accent/30 transition-colors">
                       <td className="px-2.5 py-2 border-b border-border/50 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm" style={{ background: typeColor(t) }} />{t}</span>
