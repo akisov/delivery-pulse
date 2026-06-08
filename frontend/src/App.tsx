@@ -246,7 +246,7 @@ export default function App() {
 
         <main className="flex-1 min-w-0 py-8 space-y-6">
         {section === "home" ? <HomePage onGo={setSection} /> :
-         section === "osp" ? <OSPPage /> :
+         section === "osp" ? <OSPPage onGo={setSection} /> :
          section === "flow" ? <FlowPage /> :
          section === "sle" ? <SLEPage /> : (
         <>

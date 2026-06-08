@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { OSPTime } from "@/components/OSPTime"
+import { OSPBlockings } from "@/components/OSPBlockings"
 import { cn } from "@/lib/utils"
 
 const CAT_COLORS: Record<string, string> = {
@@ -133,7 +134,7 @@ function OSPTasksModal({ sel, items, queues, cats, queue, monthLabels, onClose }
   )
 }
 
-export function OSPPage() {
+export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "osp") => void }) {
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -361,6 +362,9 @@ export function OSPPage() {
 
       {/* Распределение времени (worklog) — управляется общим фильтром команды */}
       <OSPTime queue={queue} />
+
+      {/* Блокировки — динамика по месяцам + ссылка на дашборд */}
+      <OSPBlockings queue={queue} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
     </div>
   )
 }
