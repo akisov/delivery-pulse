@@ -14,6 +14,7 @@ import { FlowPage } from "@/components/FlowPage"
 import { OSPPage } from "@/components/OSPPage"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
+import { BlockingDaysTrend } from "@/components/BlockingDaysTrend"
 import { InsightsPanel } from "@/components/InsightsPanel"
 import { TaskDetailModal } from "@/components/TaskDetailModal"
 import { TaskListModal, type StatFilter } from "@/components/TaskListModal"
@@ -417,6 +418,13 @@ export default function App() {
             {!loading && data && (
               <div className="animate-fade-in-up" style={{ animationDelay: "0.4s" }}>
                 <DowntimeChart dateFrom={dates.from} dateTo={dates.to} queue={queue} />
+              </div>
+            )}
+
+            {/* Дни блокировок по месяцам — тренд */}
+            {!loading && data && (
+              <div className="animate-fade-in-up" style={{ animationDelay: "0.42s" }}>
+                <BlockingDaysTrend queue={queue} />
               </div>
             )}
 
