@@ -52,6 +52,12 @@ function Trend({ cur, prev }: { cur: number; prev: number | undefined }) {
 const TH = "text-right px-2.5 py-2 border-b border-border whitespace-nowrap"
 const TD = "px-2.5 py-2 border-b border-border/50 text-right"
 
+function top<T>(arr: T[], val: (x: T) => number): T | null {
+  let best: T | null = null, bv = 0
+  for (const x of arr) { const v = val(x); if (v > bv) { bv = v; best = x } }
+  return best
+}
+
 // Доп. таблицы по выбранной команде: по сотрудникам, в чужих очередях, чужие здесь
 function TeamTables({ resp, month, q }: { resp: Resp; month: string; q: string }) {
   const types = resp.types ?? []
@@ -60,8 +66,42 @@ function TeamTables({ resp, month, q }: { resp: Resp; month: string; q: string }
   const cin = resp.crossIn?.[month]?.[q] ?? []
   const outCols = Array.from(new Set(cout.flatMap(r => Object.keys(r.cols || {}))))
   if (!emps.length && !cout.length && !cin.length) return null
+
+  // ключевые метрики
+  const mostHours = top(emps, e => e.total)
+  const leadStory = top(emps, e => e.by?.["Story"] || 0)
+  const leadTech = top(emps, e => (e.by?.["ТехДолг"] || 0) + (e.by?.["Тех. улучшение"] || 0))
+  const fireman = top(emps, e => e.by?.["Инцидент"] || 0)
+  const outside = top(cout, r => r.total)
+  const outsideTop = outside ? Object.entries(outside.cols || {}).sort((a, b) => b[1] - a[1])[0] : null
+  const helper = top(cin, r => r.hours)
+  const metrics: { icon: string; label: string; who: string; detail: string }[] = []
+  if (mostHours) metrics.push({ icon: "🏆", label: "Больше всех часов", who: mostHours.name, detail: `${Math.round(mostHours.total)} ч` })
+  if (leadStory) metrics.push({ icon: "📦", label: "Лидер по Story", who: leadStory.name, detail: `${Math.round(leadStory.by?.["Story"] || 0)} ч` })
+  if (leadTech) metrics.push({ icon: "🛠", label: "Лидер по тех. долгу", who: leadTech.name, detail: `${Math.round((leadTech.by?.["ТехДолг"] || 0) + (leadTech.by?.["Тех. улучшение"] || 0))} ч` })
+  if (fireman) metrics.push({ icon: "🚒", label: "Главный «пожарный»", who: fireman.name, detail: `${Math.round(fireman.by?.["Инцидент"] || 0)} ч на инциденты` })
+  if (outside) metrics.push({ icon: "↗", label: "Работа вне своей очереди", who: outside.name, detail: `${Math.round(outside.total)} ч${outsideTop ? ` · ${outsideTop[0]}` : ""}` })
+  if (helper) metrics.push({ icon: "🤝", label: "Кто помогал снаружи", who: helper.name, detail: `${Math.round(helper.hours)} ч · ${helper.team}` })
+
   return (
     <div className="mt-6 space-y-6">
+      {metrics.length > 0 && (
+        <div>
+          <h4 className="text-xs font-black uppercase tracking-wide text-foreground mb-2">⭐ Ключевые метрики</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {metrics.map(m => (
+              <div key={m.label} className="flex items-start gap-2.5 rounded-xl border border-border bg-card px-3 py-2.5">
+                <span className="text-lg leading-none mt-0.5">{m.icon}</span>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{m.label}</p>
+                  <p className="text-sm font-bold text-foreground truncate">{m.who}</p>
+                  <p className="text-[11px] text-muted-foreground">{m.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {emps.length > 0 && (
         <div>
           <h4 className="text-xs font-black uppercase tracking-wide text-foreground mb-2">👤 Часы по сотрудникам</h4>
