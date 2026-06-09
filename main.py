@@ -626,6 +626,12 @@ async def _daily_scheduler():
                     await turso_execute([stmt("DELETE FROM sle_snapshot")])
                 except Exception as e:
                     print(f"[scheduler] sle invalidate: {e}")
+                # догружаем worklog текущего месяца из API
+                try:
+                    if not _wl_status["running"]:
+                        await run_osp_worklog_current(date.today().year)
+                except Exception as e:
+                    print(f"[scheduler] worklog current: {e}")
         except Exception as e:
             print(f"[scheduler] {e}")
             await asyncio.sleep(3600)
@@ -2051,6 +2057,86 @@ async def _wl_fetch(client, key):
     except Exception:
         return []
 
+def _wl_type_label(display: str | None) -> str:
+    """Приводим тип задачи к меткам отчёта (Story / ТехДолг / Тех. улучшение / Инцидент / Аналитика / Поддержка)."""
+    d = (display or "").lower()
+    if "инцидент" in d or "incident" in d:
+        return "Инцидент"
+    if "улучшен" in d:
+        return "Тех. улучшение"
+    if "техдолг" in d or "тех. долг" in d or "технический долг" in d or "debt" in d:
+        return "ТехДолг"
+    if "аналит" in d or "анализ" in d or "analy" in d:
+        return "Аналитика"
+    if "поддержк" in d or "support" in d:
+        return "Поддержка"
+    if "story" in d or "работа по тз" in d or "по тз" in d:
+        return "Story"
+    return display or "—"
+
+async def run_osp_worklog_current(year: int):
+    """Догружает worklog ТЕКУЩЕГО месяца из API и подмешивает в снапшот (прошлые месяцы из Excel не трогаем)."""
+    global _wl_status
+    _wl_status = {"running": True, "pct": 2, "msg": "Текущий месяц: ищем списания…", "error": ""}
+    try:
+        today = date.today()
+        cm = f"{year}-{today.month:02d}"
+        m0 = f"{cm}-01"
+        agg: dict = {q: {} for q in OSP_QUEUES}
+        async with httpx.AsyncClient(timeout=60) as client:
+            todo: list[tuple] = []
+            for q in OSP_QUEUES:
+                page = 1
+                while True:
+                    data = await tracker_request(client, "POST",
+                        f"/v2/issues/_search?perPage=100&page={page}",
+                        {"filter": {"queue": q, "updatedAt": {"from": f"{m0}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+                    chunk = data if isinstance(data, list) else []
+                    for iss in chunk:
+                        if not iss.get("spent"):
+                            continue
+                        todo.append((iss["key"], q, _wl_type_label((iss.get("type") or {}).get("display"))))
+                    if len(chunk) < 100:
+                        break
+                    page += 1
+                    await asyncio.sleep(0.4)
+            total, done, B = len(todo), 0, 3
+            _wl_status["msg"] = f"Текущий месяц: задач {total}, тянем worklog…"
+            for i in range(0, total, B):
+                chunk = todo[i:i + B]
+                wls = await asyncio.gather(*[_wl_fetch(client, k) for (k, _, _) in chunk], return_exceptions=True)
+                for (k, q, tp), wl in zip(chunk, wls):
+                    if not isinstance(wl, list):
+                        continue
+                    for e in wl:
+                        if (e.get("start") or "")[:7] != cm:
+                            continue
+                        hrs = _iso_dur_hours(e.get("duration"))
+                        if hrs > 0:
+                            agg[q][tp] = agg[q].get(tp, 0.0) + hrs
+                done += len(chunk)
+                await asyncio.sleep(0.3)
+                _wl_status["pct"] = 5 + round(done / max(total, 1) * 92)
+                _wl_status["msg"] = f"worklog {done}/{total}"
+        for q in agg:
+            for tp in list(agg[q]):
+                agg[q][tp] = round(agg[q][tp], 2)
+        key = f"wl-{year}-v{OSP_WL_VERSION}"
+        snap = await _osp_snap(key) or {"ok": True, "year": year, "months": [], "queues": OSP_QUEUES, "types": [], "data": {}}
+        snap.setdefault("data", {})[cm] = agg
+        snap["months"] = sorted(set((snap.get("months") or []) + [cm]))
+        ts = set(snap.get("types") or [])
+        for q in agg:
+            ts |= set(agg[q].keys())
+        snap["types"] = sorted(ts)
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [key, json.dumps(snap, ensure_ascii=False)])])
+        _wl_status = {"running": False, "pct": 100, "msg": "Готово", "error": ""}
+    except Exception as e:
+        _wl_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
+
 async def run_osp_worklog_job(year: int):
     """Фоном собирает worklog по 3 очередям с начала года и пишет агрегат в osp_snapshot.
     ВАЖНО: каждая запись о списании относится к месяцу по СВОЕЙ дате (worklog.start),
@@ -2792,6 +2878,14 @@ async def osp_worklog_build():
     if _wl_status["running"]:
         return JSONResponse({"ok": False, "error": "Сбор уже идёт"})
     asyncio.create_task(run_osp_worklog_job(date.today().year))
+    return JSONResponse({"ok": True})
+
+@app.post("/osp-worklog/sync-current")
+async def osp_worklog_sync_current():
+    """Догрузить worklog текущего месяца из API (подмешать в снапшот)."""
+    if _wl_status["running"]:
+        return JSONResponse({"ok": False, "error": "Сбор уже идёт"})
+    asyncio.create_task(run_osp_worklog_current(date.today().year))
     return JSONResponse({"ok": True})
 
 @app.post("/osp-worklog/stop")
