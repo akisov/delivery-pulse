@@ -332,20 +332,20 @@ export function OSPPulse({ queue, month: upTo, refreshKey }: { queue?: string; m
         ) : impData ? (
           <div className="space-y-3">
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Заголовок</label>
+              <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Заголовок</label>
               <input value={impData.summary} onChange={e => setImpData(d => d && ({ ...d, summary: e.target.value }))}
-                className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50" />
+                className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-2 text-base text-foreground outline-none focus:border-primary/50" />
             </div>
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Описание (гипотеза)</label>
+              <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Описание (гипотеза)</label>
               <textarea value={impData.description} onChange={e => setImpData(d => d && ({ ...d, description: e.target.value }))}
-                rows={14} className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground outline-none focus:border-primary/50 resize-y font-mono leading-relaxed" />
+                rows={16} className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 resize-y leading-relaxed" />
             </div>
             <div className="flex items-center justify-end gap-2">
-              <button onClick={() => setImpCrit(null)} className="rounded-lg border border-border bg-card px-4 h-9 text-xs font-semibold text-muted-foreground hover:text-foreground">Отмена</button>
+              <button onClick={() => setImpCrit(null)} className="rounded-lg border border-border bg-card px-4 h-9 text-sm font-semibold text-muted-foreground hover:text-foreground">Отмена</button>
               <button onClick={createImprove} disabled={creating || !impData.summary.trim()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 h-9 text-xs font-semibold disabled:opacity-50">
-                <Check className="w-3.5 h-3.5" /> {creating ? "Создаю…" : "Создать в RKDS"}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 h-9 text-sm font-semibold disabled:opacity-50">
+                <Check className="w-4 h-4" /> {creating ? "Создаю…" : "Создать улучшение"}
               </button>
             </div>
           </div>

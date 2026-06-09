@@ -2847,9 +2847,17 @@ async def osp_improve_create(request: Request):
                 last_err = e
                 print(f"[osp-improve create] attempt failed ({list(p.keys())}): {e}")
                 continue
-    if not r or not (r or {}).get("key"):
+        key = (r or {}).get("key") if r else None
+        # на создании очередь подставляет шаблон описания → перезаписываем своим (PATCH)
+        if key and description:
+            try:
+                rr = await client.patch(f"https://api.tracker.yandex.net/v2/issues/{key}",
+                                        headers=tracker_headers(), json={"description": description})
+                rr.raise_for_status()
+            except Exception as e:
+                print(f"[osp-improve patch desc] {e}")
+    if not key:
         return JSONResponse({"ok": False, "error": str(last_err) if last_err else "не удалось создать"})
-    key = r["key"]
     return JSONResponse({"ok": True, "key": key, "url": f"https://tracker.yandex.ru/{key}"})
 
 @app.post("/osp-pulse/clear")
