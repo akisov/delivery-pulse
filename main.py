@@ -2820,25 +2820,37 @@ async def osp_improve_create(request: Request):
     team = b.get("team")
     if not summary:
         return JSONResponse({"ok": False, "error": "нужен заголовок"})
-    # поле team роутит задачу на доску команды (R→790, X→815, U→3225; 1269 — общая)
+    # доска команды по ID (надёжнее) + общая 1269; плюс поле team
+    team_board = {"POOLING": 815, "UDOSTAVKA": 3225, "DOSTAVKAPIKO": 790}.get(team)
     team_field = {"POOLING": "Команда Курьеры X", "UDOSTAVKA": "Команда Курьеры U",
                   "DOSTAVKAPIKO": "Команда Курьеры R"}.get(team)
     base = {"queue": "RKDS", "summary": summary[:255], "type": "improvement", "description": description}
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
+    # пробуем по убыванию: доска+team → team → голый
+    attempts = []
+    p1 = dict(base)
+    if team_field:
+        p1["team"] = team_field
+    if team_board:
+        p1["boards"] = [team_board, 1269]
+    attempts.append(p1)
+    if team_field:
+        attempts.append({**base, "team": team_field})
+    attempts.append(dict(base))
+
+    r, last_err = None, None
+    async with httpx.AsyncClient(timeout=30) as client:
+        for p in attempts:
             try:
-                payload = {**base, "team": team_field} if team_field else dict(base)
-                r = await tracker_request(client, "POST", "/v2/issues", payload)
-            except Exception as e1:
-                # поле team не приняли — создаём без него
-                print(f"[osp-improve create] team field failed: {e1}")
-                r = await tracker_request(client, "POST", "/v2/issues", dict(base))
-        key = (r or {}).get("key")
-        if not key:
-            return JSONResponse({"ok": False, "error": "не удалось создать (нет ключа в ответе)"})
-        return JSONResponse({"ok": True, "key": key, "url": f"https://tracker.yandex.ru/{key}"})
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)})
+                r = await tracker_request(client, "POST", "/v2/issues", p)
+                break
+            except Exception as e:
+                last_err = e
+                print(f"[osp-improve create] attempt failed ({list(p.keys())}): {e}")
+                continue
+    if not r or not (r or {}).get("key"):
+        return JSONResponse({"ok": False, "error": str(last_err) if last_err else "не удалось создать"})
+    key = r["key"]
+    return JSONResponse({"ok": True, "key": key, "url": f"https://tracker.yandex.ru/{key}"})
 
 @app.post("/osp-pulse/clear")
 async def osp_pulse_clear(team: str = Query(...), month: str = Query(...)):
