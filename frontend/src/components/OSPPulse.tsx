@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import { Star, ChevronDown, ChevronUp, Check, Calendar } from "lucide-react"
+import { Star, ChevronDown, ChevronUp, Check, Calendar, Sparkles, ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Modal } from "@/components/ui/modal"
 import { cn } from "@/lib/utils"
 
 const TEAM_ORDER = ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"]
@@ -91,6 +92,36 @@ export function OSPPulse({ queue, month: upTo, refreshKey }: { queue?: string; m
     setFScores(s => ({ ...s, [c]: n }))
     burstId.current += 1
     setBurst({ crit: c, n, id: burstId.current })
+  }
+  // улучшения по низким оценкам
+  const [lowFb, setLowFb] = useState<Record<string, { dislike: string; suggestion: string }>>({})
+  const [impCrit, setImpCrit] = useState<string | null>(null)
+  const [impData, setImpData] = useState<{ summary: string; description: string } | null>(null)
+  const [impLoading, setImpLoading] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [created, setCreated] = useState<{ key?: string; url?: string; error?: string } | null>(null)
+  const setFb = (c: string, k: "dislike" | "suggestion", v: string) =>
+    setLowFb(s => ({ ...s, [c]: { dislike: "", suggestion: "", ...s[c], [k]: v } }))
+  const genImprove = async (c: string) => {
+    setImpCrit(c); setImpData(null); setCreated(null); setImpLoading(true)
+    const fb = lowFb[c] || {}
+    const r = await fetch("/osp-improve", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team: single, month: fMonth, criterion: c, score: fScores[c], dislike: fb.dislike, suggestion: fb.suggestion }),
+    }).then(r => r.json()).catch(() => null)
+    setImpLoading(false)
+    if (r?.ok) setImpData({ summary: r.summary, description: r.description })
+    else setImpData({ summary: "", description: "Не удалось сгенерировать. Заполни вручную." })
+  }
+  const createImprove = async () => {
+    if (!impData) return
+    setCreating(true)
+    const r = await fetch("/osp-improve/create", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team: single, summary: impData.summary, description: impData.description }),
+    }).then(r => r.json()).catch(() => ({ ok: false, error: "Ошибка сети" }))
+    setCreating(false)
+    setCreated(r.ok ? { key: r.key, url: r.url } : { error: r.error })
   }
 
   const load = () => {
@@ -188,32 +219,48 @@ export function OSPPulse({ queue, month: upTo, refreshKey }: { queue?: string; m
                 </div>
                 {criteria.map(c => {
                   const cur = fScores[c]
+                  const low = cur != null && cur <= 3
                   return (
-                    <div key={c} className="flex items-center justify-between gap-3 flex-wrap py-0.5">
-                      <span className="text-sm text-foreground flex-1 min-w-[160px] flex items-center gap-1.5">
-                        {c} {cur ? <span className="text-base leading-none">{SCORE_EMOJI[cur]}</span> : null}
-                      </span>
-                      <div className="relative flex gap-1.5">
-                        {[1, 2, 3, 4, 5].map(n => {
-                          const on = cur === n
-                          return (
-                            <button key={n} title={`${n} — ${resp.scale[String(n)]}`} onClick={() => pick(c, n)}
-                              className={cn("w-10 h-11 rounded-xl flex flex-col items-center justify-center gap-0 border transition-all duration-150 hover:-translate-y-0.5 hover:scale-110",
-                                on ? "border-transparent shadow-lg animate-score-pop" : "border-border bg-card opacity-65 hover:opacity-100")}
-                              style={on ? { background: `${SCORE_COLORS[n]}26`, boxShadow: `0 6px 18px ${SCORE_COLORS[n]}55` } : undefined}>
-                              <span className={cn("text-lg leading-none", !on && "grayscale", on && (n <= 2) && "animate-shake", on && n === 3 && "animate-wobble")}>{SCORE_EMOJI[n]}</span>
-                              <span className="text-[10px] font-black leading-none mt-0.5" style={{ color: on ? SCORE_COLORS[n] : "hsl(var(--muted-foreground))" }}>{n}</span>
-                            </button>
-                          )
-                        })}
-                        {burst?.crit === c && (
-                          <div key={burst.id} className="absolute inset-x-0 bottom-2 h-0 pointer-events-none">
-                            {PARTICLES[burst.n].map((p, i) => (
-                              <span key={i} className="particle go" style={{ left: `${p.x}%`, animationDelay: `${p.d}s`, fontSize: p.s }}>{p.e}</span>
-                            ))}
-                          </div>
-                        )}
+                    <div key={c} className="py-0.5">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <span className="text-sm text-foreground flex-1 min-w-[160px] flex items-center gap-1.5">
+                          {c} {cur ? <span className="text-base leading-none">{SCORE_EMOJI[cur]}</span> : null}
+                        </span>
+                        <div className="relative flex gap-1.5">
+                          {[1, 2, 3, 4, 5].map(n => {
+                            const on = cur === n
+                            return (
+                              <button key={n} title={`${n} — ${resp.scale[String(n)]}`} onClick={() => pick(c, n)}
+                                className={cn("w-10 h-11 rounded-xl flex flex-col items-center justify-center gap-0 border transition-all duration-150 hover:-translate-y-0.5 hover:scale-110",
+                                  on ? "border-transparent shadow-lg animate-score-pop" : "border-border bg-card opacity-65 hover:opacity-100")}
+                                style={on ? { background: `${SCORE_COLORS[n]}26`, boxShadow: `0 6px 18px ${SCORE_COLORS[n]}55` } : undefined}>
+                                <span className={cn("text-lg leading-none", !on && "grayscale", on && (n <= 2) && "animate-shake", on && n === 3 && "animate-wobble")}>{SCORE_EMOJI[n]}</span>
+                                <span className="text-[10px] font-black leading-none mt-0.5" style={{ color: on ? SCORE_COLORS[n] : "hsl(var(--muted-foreground))" }}>{n}</span>
+                              </button>
+                            )
+                          })}
+                          {burst?.crit === c && (
+                            <div key={burst.id} className="absolute inset-x-0 bottom-2 h-0 pointer-events-none">
+                              {PARTICLES[burst.n].map((p, i) => (
+                                <span key={i} className="particle go" style={{ left: `${p.x}%`, animationDelay: `${p.d}s`, fontSize: p.s }}>{p.e}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
+                      {low && (
+                        <div className="mt-1.5 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-2.5 space-y-2 animate-fade-in-up">
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400">Низкая оценка — можно завести улучшение (необязательно)</p>
+                          <input value={lowFb[c]?.dislike || ""} onChange={e => setFb(c, "dislike", e.target.value)}
+                            placeholder="Что не нравится?" className="w-full rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-primary/50" />
+                          <textarea value={lowFb[c]?.suggestion || ""} onChange={e => setFb(c, "suggestion", e.target.value)}
+                            placeholder="Предложение по улучшению" rows={2} className="w-full rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-primary/50 resize-y" />
+                          <button onClick={() => genImprove(c)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 h-8 text-xs font-semibold">
+                            <Sparkles className="w-3.5 h-3.5" /> Предложить улучшение (AI)
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -263,6 +310,47 @@ export function OSPPulse({ queue, month: upTo, refreshKey }: { queue?: string; m
           </>
         )}
       </CardContent>
+
+      {/* AI-предложение улучшения → создание задачи в RKDS */}
+      <Modal open={!!impCrit} onClose={() => setImpCrit(null)} title="Предложение улучшения"
+        subtitle={impCrit ? `${single ? (resp?.queues?.[single] || single) : ""} · ${impCrit} · задача типа «Улучшение» в RKDS` : ""} wide>
+        {impLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
+            <Sparkles className="w-4 h-4 text-primary animate-pulse" /> ИИ формирует гипотезу…
+          </div>
+        ) : created ? (
+          created.error ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {created.error}</div>
+          ) : (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-4 text-sm">
+              ✅ Создана задача{" "}
+              <a href={created.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline inline-flex items-center gap-1">
+                {created.key} <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          )
+        ) : impData ? (
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Заголовок</label>
+              <input value={impData.summary} onChange={e => setImpData(d => d && ({ ...d, summary: e.target.value }))}
+                className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Описание (гипотеза)</label>
+              <textarea value={impData.description} onChange={e => setImpData(d => d && ({ ...d, description: e.target.value }))}
+                rows={14} className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground outline-none focus:border-primary/50 resize-y font-mono leading-relaxed" />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setImpCrit(null)} className="rounded-lg border border-border bg-card px-4 h-9 text-xs font-semibold text-muted-foreground hover:text-foreground">Отмена</button>
+              <button onClick={createImprove} disabled={creating || !impData.summary.trim()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 h-9 text-xs font-semibold disabled:opacity-50">
+                <Check className="w-3.5 h-3.5" /> {creating ? "Создаю…" : "Создать в RKDS"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </Card>
   )
 }
