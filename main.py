@@ -2820,12 +2820,19 @@ async def osp_improve_create(request: Request):
     team = b.get("team")
     if not summary:
         return JSONResponse({"ok": False, "error": "нужен заголовок"})
-    tn = OSP_QUEUES.get(team, "")
-    full = f"[{tn}] {summary}" if tn else summary
-    payload = {"queue": "RKDS", "summary": full[:255], "type": "improvement", "description": description}
+    # поле team роутит задачу на доску команды (R→790, X→815, U→3225; 1269 — общая)
+    team_field = {"POOLING": "Команда Курьеры X", "UDOSTAVKA": "Команда Курьеры U",
+                  "DOSTAVKAPIKO": "Команда Курьеры R"}.get(team)
+    base = {"queue": "RKDS", "summary": summary[:255], "type": "improvement", "description": description}
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await tracker_request(client, "POST", "/v2/issues", payload)
+            try:
+                payload = {**base, "team": team_field} if team_field else dict(base)
+                r = await tracker_request(client, "POST", "/v2/issues", payload)
+            except Exception as e1:
+                # поле team не приняли — создаём без него
+                print(f"[osp-improve create] team field failed: {e1}")
+                r = await tracker_request(client, "POST", "/v2/issues", dict(base))
         key = (r or {}).get("key")
         if not key:
             return JSONResponse({"ok": False, "error": "не удалось создать (нет ключа в ответе)"})
