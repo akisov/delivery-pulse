@@ -181,7 +181,7 @@ function TeamTables({ resp, month, q }: { resp: Resp; month: string; q: string }
   )
 }
 
-export function OSPTime({ queue, month: gMonth, refreshKey }: { queue?: string; month?: string; refreshKey?: number }) {
+export function OSPTime({ queue, month: gMonth, noTrend, refreshKey }: { queue?: string; month?: string; noTrend?: boolean; refreshKey?: number }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -297,7 +297,7 @@ export function OSPTime({ queue, month: gMonth, refreshKey }: { queue?: string; 
               <div className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/[0.05] px-3 py-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Итого</span>
                 <span className="text-base font-black tracking-tight text-foreground">{Math.round(selTotal(month))}<span className="text-xs font-bold text-muted-foreground"> ч</span></span>
-                <Trend cur={selTotal(month)} prev={prevMonth ? selTotal(prevMonth) : undefined} />
+                {!noTrend && <Trend cur={selTotal(month)} prev={prevMonth ? selTotal(prevMonth) : undefined} />}
               </div>
             </div>
 
@@ -310,7 +310,7 @@ export function OSPTime({ queue, month: gMonth, refreshKey }: { queue?: string; 
                     {teams.map(q => <th key={q} className="text-right px-2.5 py-2 border-b border-border whitespace-nowrap">{resp.queues?.[q]}, ч</th>)}
                     {showTotal && <th className="text-right px-2.5 py-2 border-b border-border">Итого, ч</th>}
                     <th className="text-right px-2.5 py-2 border-b border-border">%</th>
-                    <th className="text-right px-2.5 py-2 border-b border-border whitespace-nowrap">Δ м/м</th>
+                    {!noTrend && <th className="text-right px-2.5 py-2 border-b border-border whitespace-nowrap">Δ м/м</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -324,7 +324,7 @@ export function OSPTime({ queue, month: gMonth, refreshKey }: { queue?: string; 
                       ))}
                       {showTotal && <td className="px-2.5 py-2 border-b border-border/50 text-right"><H n={rowTotal(month, t)} bold /></td>}
                       <td className="px-2.5 py-2 border-b border-border/50 text-right tabular-nums text-muted-foreground">{pct(month, t)}%</td>
-                      <td className="px-2.5 py-2 border-b border-border/50 text-right"><Trend cur={typeTotal(month, t)} prev={prevMonth ? typeTotal(prevMonth, t) : undefined} invert={/инцидент/i.test(t)} /></td>
+                      {!noTrend && <td className="px-2.5 py-2 border-b border-border/50 text-right"><Trend cur={typeTotal(month, t)} prev={prevMonth ? typeTotal(prevMonth, t) : undefined} invert={/инцидент/i.test(t)} /></td>}
                     </tr>
                   ))}
                   <tr className="font-bold">
@@ -334,7 +334,7 @@ export function OSPTime({ queue, month: gMonth, refreshKey }: { queue?: string; 
                     ))}
                     {showTotal && <td className="px-2.5 py-2 border-t-2 border-border text-right"><H n={grand(month)} bold /></td>}
                     <td className="px-2.5 py-2 border-t-2 border-border text-right tabular-nums text-muted-foreground">100%</td>
-                    <td className="px-2.5 py-2 border-t-2 border-border text-right"><Trend cur={selTotal(month)} prev={prevMonth ? selTotal(prevMonth) : undefined} /></td>
+                    {!noTrend && <td className="px-2.5 py-2 border-t-2 border-border text-right"><Trend cur={selTotal(month)} prev={prevMonth ? selTotal(prevMonth) : undefined} /></td>}
                   </tr>
                 </tbody>
               </table>

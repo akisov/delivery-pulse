@@ -192,6 +192,9 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
     return t
   }, [chartData, data])
 
+  // последний месяц в списке = текущий (ещё не закончился) → прячем тренды/итоги/оценку
+  const months = data?.months ?? []
+  const isCurrentMonth = !!month && months.length > 0 && month === months[months.length - 1]
   const cats = data?.categories ?? []
   const shownCats = catFilter ? cats.filter(c => c.key === catFilter) : cats
   // команды (очереди курьеров) — «Все команды» первым (по умолчанию), затем X/U/R
@@ -392,7 +395,7 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
       <OSPSle queue={queue} month={month} refreshKey={refreshKey} />
 
       {/* Распределение времени (worklog) — управляется общим фильтром команды */}
-      <OSPTime queue={queue} month={month} refreshKey={refreshKey} />
+      <OSPTime queue={queue} month={month} noTrend={isCurrentMonth} refreshKey={refreshKey} />
 
       {/* Инцидентов создано — по месяцам */}
       <OSPIncidents queue={queue} month={month} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
@@ -400,11 +403,18 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
       {/* Блокировки — динамика по месяцам + ссылка на дашборд */}
       <OSPBlockings queue={queue} month={month} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
 
-      {/* AI-вывод по выбранному месяцу — перед оценкой продакта, только для одной команды */}
-      <OSPAiSummary queue={queue} month={month} monthLabel={monthLabels[month]} refreshKey={refreshKey} />
-
-      {/* Оценка продакта — запрашиваем в самом конце */}
-      <OSPPulse queue={queue} month={month} refreshKey={refreshKey} />
+      {/* AI-вывод и оценка продакта — только по завершённому месяцу */}
+      {!isCurrentMonth && (
+        <>
+          <OSPAiSummary queue={queue} month={month} monthLabel={monthLabels[month]} refreshKey={refreshKey} />
+          <OSPPulse queue={queue} month={month} refreshKey={refreshKey} />
+        </>
+      )}
+      {isCurrentMonth && (
+        <p className="text-xs text-muted-foreground text-center py-2">
+          AI-вывод, оценка продакта и тренды появятся, когда месяц завершится (выбери прошлый месяц, чтобы посмотреть).
+        </p>
+      )}
     </div>
   )
 }
