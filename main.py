@@ -2057,8 +2057,9 @@ async def _wl_fetch(client, key):
     except Exception:
         return []
 
-def _wl_type_label(display: str | None) -> str:
-    """Приводим тип задачи к меткам отчёта (Story / ТехДолг / Тех. улучшение / Инцидент / Аналитика / Поддержка)."""
+def _wl_type_label(display: str | None) -> str | None:
+    """Приводим тип задачи к меткам отчёта. Прочие типы (Деливери, Тестирование и т.п.)
+    в часах НЕ учитываем — как в месячных отчётах."""
     d = (display or "").lower()
     if "инцидент" in d or "incident" in d:
         return "Инцидент"
@@ -2072,7 +2073,7 @@ def _wl_type_label(display: str | None) -> str:
         return "Поддержка"
     if "story" in d or "работа по тз" in d or "по тз" in d:
         return "Story"
-    return display or "—"
+    return None
 
 async def run_osp_worklog_current(year: int):
     """Догружает worklog ТЕКУЩЕГО месяца из API и подмешивает в снапшот (прошлые месяцы из Excel не трогаем)."""
@@ -2095,7 +2096,10 @@ async def run_osp_worklog_current(year: int):
                     for iss in chunk:
                         if not iss.get("spent"):
                             continue
-                        todo.append((iss["key"], q, _wl_type_label((iss.get("type") or {}).get("display"))))
+                        tp = _wl_type_label((iss.get("type") or {}).get("display"))
+                        if not tp:  # типы вне отчётного набора (напр. Деливери) не учитываем
+                            continue
+                        todo.append((iss["key"], q, tp))
                     if len(chunk) < 100:
                         break
                     page += 1
