@@ -35,15 +35,17 @@ function H({ n, bold }: { n: number; bold?: boolean }) {
   return <span className={cn("tabular-nums text-foreground", bold && "font-bold")}>{r}<span className="text-[10px] font-normal text-muted-foreground"> ч</span></span>
 }
 
-function Trend({ cur, prev }: { cur: number; prev: number | undefined }) {
+// invert=true → меньше = лучше (для инцидентов): рост красный, спад зелёный
+function Trend({ cur, prev, invert }: { cur: number; prev: number | undefined; invert?: boolean }) {
   if (prev == null) return null
   const d = cur - prev
   if (Math.abs(d) < 0.5) return <span className="text-[10px] text-muted-foreground">≈</span>
   const up = d > 0
+  const good = invert ? d < 0 : d > 0
   const pct = prev > 0 ? Math.round((d / prev) * 100) : null
   return (
     <span className={cn("inline-flex items-center gap-0.5 text-[10px] font-bold whitespace-nowrap",
-      up ? "text-emerald-500" : "text-rose-500")}>
+      good ? "text-emerald-500" : "text-rose-500")}>
       {up ? "▲" : "▼"}{up ? "+" : ""}{Math.round(d)}ч{pct != null ? ` ${up ? "+" : ""}${pct}%` : ""}
     </span>
   )
@@ -322,7 +324,7 @@ export function OSPTime({ queue, month: gMonth, refreshKey }: { queue?: string; 
                       ))}
                       {showTotal && <td className="px-2.5 py-2 border-b border-border/50 text-right"><H n={rowTotal(month, t)} bold /></td>}
                       <td className="px-2.5 py-2 border-b border-border/50 text-right tabular-nums text-muted-foreground">{pct(month, t)}%</td>
-                      <td className="px-2.5 py-2 border-b border-border/50 text-right"><Trend cur={typeTotal(month, t)} prev={prevMonth ? typeTotal(prevMonth, t) : undefined} /></td>
+                      <td className="px-2.5 py-2 border-b border-border/50 text-right"><Trend cur={typeTotal(month, t)} prev={prevMonth ? typeTotal(prevMonth, t) : undefined} invert={/инцидент/i.test(t)} /></td>
                     </tr>
                   ))}
                   <tr className="font-bold">
