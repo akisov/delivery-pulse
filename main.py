@@ -2733,6 +2733,106 @@ async def osp_ai_summary(team: str = Query(...), month: str = Query(...), refres
             print(f"[osp-ai save] {e}")
     return JSONResponse(payload)
 
+async def _osp_metric_context(team: str, month: str) -> str:
+    lines = []
+    wl = await _osp_snap(f"wl-{date.today().year}-v{OSP_WL_VERSION}")
+    wm = ((wl or {}).get("data", {}).get(month, {}) or {}).get(team, {}) or {}
+    if wm:
+        lines.append("Часы по типам: " + ", ".join(f"{k} {round(v)}ч" for k, v in sorted(wm.items(), key=lambda x: -x[1])))
+    inc = await _osp_snap("inc-8-v2")
+    for r in (inc or {}).get("data", []):
+        if r.get("month") == month:
+            lines.append(f"Инцидентов заведено за месяц: {r.get(team, 0)}")
+    try:
+        lines.append(f"Дней блокировок за месяц: {await _osp_blocking_days(team, month)}")
+    except Exception:
+        pass
+    return "\n".join(lines) or "метрик нет"
+
+async def _improve_generate(team, month, criterion, score, dislike, suggestion, ctx):
+    fallback_sum = (suggestion or dislike or f"Улучшение: {criterion}")[:90]
+    fallback_desc = (f"**Мы полагаем, что**\n{suggestion or '…'}\n\n**Приведёт к**\n…\n\n"
+                     f"**Если мы были правы, то увидим**\n…\n\n**Чтобы проверить, нужно сделать**\n…")
+    if not MISTRAL_API_KEY:
+        return fallback_sum, fallback_desc
+    system = (
+        "Ты помогаешь продакту команды курьеров оформить гипотезу улучшения процесса. "
+        "На вход: что не нравится, предложение продакта и метрики команды за месяц. "
+        "Сформируй заголовок и описание-гипотезу.\n"
+        "Верни СТРОГО в формате:\n"
+        "ЗАГОЛОВОК: <короткий заголовок улучшения, без кавычек>\n"
+        "===\n"
+        "**Мы полагаем, что**\n<гипотеза на основе предложения и проблемы>\n\n"
+        "**Приведёт к**\n<ожидаемый эффект>\n\n"
+        "**Если мы были правы, то увидим**\n<наблюдаемые признаки и метрики, маркерами>\n\n"
+        "**Чтобы проверить, нужно сделать**\n<конкретные шаги, маркерами>\n"
+        "Опирайся на текст продакта и подкрепляй метриками. По-человечески, без канцелярита и воды."
+    )
+    user = (f"Команда: {OSP_QUEUES.get(team, team)}. Месяц: {month}. "
+            f"Критерий оценки: «{criterion}», оценка {score}/5.\n"
+            f"Что не нравится: {dislike or '—'}\n"
+            f"Предложение продакта: {suggestion or '—'}\n"
+            f"Метрики команды:\n{ctx}")
+    body = {"model": MISTRAL_MODEL,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "temperature": 0.4, "max_tokens": 600}
+    try:
+        async with httpx.AsyncClient(timeout=40) as client:
+            r = await client.post("https://api.mistral.ai/v1/chat/completions",
+                                  headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
+            r.raise_for_status()
+            txt = (r.json()["choices"][0]["message"]["content"] or "").strip()
+        m = re.search(r"ЗАГОЛОВОК:\s*(.+)", txt)
+        summary = (m.group(1).strip() if m else fallback_sum)[:120]
+        desc = txt.split("===", 1)[1].strip() if "===" in txt else txt
+        return summary, (desc or fallback_desc)
+    except Exception as e:
+        print(f"[osp-improve gen] {e}")
+        return fallback_sum, fallback_desc
+
+@app.post("/osp-improve")
+async def osp_improve(request: Request):
+    """AI-предложение улучшения по тексту продакта + метрикам."""
+    try:
+        b = await request.json()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"bad json: {e}"})
+    team = b.get("team")
+    if team not in OSP_QUEUES:
+        return JSONResponse({"ok": False, "error": "неизвестная команда"})
+    ctx = await _osp_metric_context(team, b.get("month", ""))
+    summary, description = await _improve_generate(
+        team, b.get("month", ""), b.get("criterion", ""), b.get("score", ""),
+        (b.get("dislike") or "").strip(), (b.get("suggestion") or "").strip(), ctx)
+    return JSONResponse({"ok": True, "summary": summary, "description": description})
+
+@app.post("/osp-improve/create")
+async def osp_improve_create(request: Request):
+    """Создаёт задачу типа «Улучшение» в очереди RKDS."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан"})
+    try:
+        b = await request.json()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"bad json: {e}"})
+    summary = (b.get("summary") or "").strip()
+    description = (b.get("description") or "").strip()
+    team = b.get("team")
+    if not summary:
+        return JSONResponse({"ok": False, "error": "нужен заголовок"})
+    tn = OSP_QUEUES.get(team, "")
+    full = f"[{tn}] {summary}" if tn else summary
+    payload = {"queue": "RKDS", "summary": full[:255], "type": "improvement", "description": description}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await tracker_request(client, "POST", "/v2/issues", payload)
+        key = (r or {}).get("key")
+        if not key:
+            return JSONResponse({"ok": False, "error": "не удалось создать (нет ключа в ответе)"})
+        return JSONResponse({"ok": True, "key": key, "url": f"https://tracker.yandex.ru/{key}"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
 @app.post("/osp-pulse/clear")
 async def osp_pulse_clear(team: str = Query(...), month: str = Query(...)):
     if team not in OSP_QUEUES:
