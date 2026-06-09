@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { RefreshCw, Clock } from "lucide-react"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
@@ -253,6 +254,15 @@ export function OSPTime({ queue, month: gMonth, noTrend, refreshKey }: { queue?:
   // выбрана одна команда → показываем посотрудниковый разрез и кросс-очередь
   const singleQ = queue && queue !== "all" ? queue : null
 
+  // динамика по месяцам (≤ выбранного): часы по типам с накоплением
+  const dynMonths = months.filter(m => !gMonth || m <= month)
+  const dynData = dynMonths.map(m => {
+    const o: Record<string, any> = { label: mlabel(m), total: 0 }
+    types.forEach(t => { const v = Math.round(rowTotal(m, t)); o[t] = v; o.total += v })
+    return o
+  })
+  const dynTypes = types.filter(t => dynData.some(r => r[t] > 0))
+
   const status = resp?.status
 
   return (
@@ -291,6 +301,36 @@ export function OSPTime({ queue, month: gMonth, noTrend, refreshKey }: { queue?:
           </div>
         ) : (
           <>
+            {/* динамика по месяцам — часы по типам */}
+            {dynData.length > 1 && (
+              <div className="mb-5">
+                <p className="text-xs font-black uppercase tracking-wide text-foreground mb-2">📊 Динамика по месяцам</p>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={dynData} margin={{ top: 16, right: 16, left: 0, bottom: 4 }} barSize={28}>
+                    <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit=" ч" />
+                    <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
+                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
+                    {dynTypes.map((t, i) => (
+                      <Bar key={t} dataKey={t} stackId="a" name={t} fill={typeColor(t)} radius={i === dynTypes.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}>
+                        {i === dynTypes.length - 1 && (
+                          <LabelList dataKey="total" position="top" style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} formatter={(v: number) => `${v}ч`} />
+                        )}
+                      </Bar>
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap gap-x-3 gap-y-1.5 mt-2 justify-center">
+                  {dynTypes.map(t => (
+                    <span key={t} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <span className="w-2.5 h-2.5 rounded-sm" style={{ background: typeColor(t) }} />{t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* отчётный месяц (задаётся глобально) + чип итога часов */}
             <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
               <span className="text-sm font-bold text-foreground capitalize">{mlabel(month)}</span>
