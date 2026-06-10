@@ -1,11 +1,22 @@
-import { Lock, Target, Sparkles, BarChart3, Workflow, Truck } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Props {
-  onGo: (section: "blockings" | "sle" | "flow" | "osp") => void
+  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents") => void
 }
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  {
+    date: "Июнь 2026",
+    title: "Раздел «Инциденты»",
+    items: [
+      "Все инциденты трёх очередей курьеров (X / U / R) по месяцам · фильтр команды и период (как в блокировках, по умолчанию с начала года).",
+      "Сколько инцидентов заведено в каждом месяце (по дате создания); доля времени на инциденты от всех типов работ — «волна» по месяцам.",
+      "Группировка по причине (AI-кластеры), стеку, приоритету и исполнителю («пожарные»); при раскрытии — список с исходной причиной, стеком, днями в работе и часами.",
+      "Топ-10: дольше всех в работе, самые трудозатратные, частые причины (кластеры).",
+      "AI-сводка по инцидентам (Claude) со сравнением периода с предыдущим равным.",
+    ],
+  },
   {
     date: "Июнь 2026",
     title: "Раздел «ОСП» — обзор сервиса поставки",
@@ -71,6 +82,8 @@ const RELEASES: { date: string; title: string; items: string[] }[] = [
 const NAV_CARDS = [
   { section: "blockings" as const, icon: Lock, color: "#7C6FF7",
     title: "Блокировки", desc: "Время разрешения, причины, этапы и AI-сводка по трём очередям." },
+  { section: "incidents" as const, icon: AlertTriangle, color: "#EF4444",
+    title: "Инциденты", desc: "Все инциденты курьеров по месяцам: доля времени, AI-кластеры причин, стек, приоритет и топы." },
   { section: "sle" as const, icon: Target, color: "#10B981",
     title: "Анализ SLE", desc: "Кластеризация причин нарушения SLE по PUTKURERA, скрытые блокировки." },
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",

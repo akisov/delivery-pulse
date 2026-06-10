@@ -139,7 +139,7 @@ function OSPTasksModal({ sel, items, queues, cats, queue, monthLabels, onClose }
   )
 }
 
-export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "osp") => void }) {
+export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "osp" | "incidents") => void }) {
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -413,7 +413,7 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
       <OSPTime queue={queue} month={month} noTrend={isCurrentMonth} refreshKey={refreshKey} settingsKey={settingsKey} />
 
       {/* Инцидентов создано — по месяцам */}
-      <OSPIncidents queue={queue} month={month} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />
+      <OSPIncidents queue={queue} month={month} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("incidents") : undefined} />
 
       {/* Блокировки — динамика по месяцам + ссылка на дашборд */}
       <OSPBlockings queue={queue} month={month} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />

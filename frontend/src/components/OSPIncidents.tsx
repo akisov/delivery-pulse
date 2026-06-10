@@ -72,7 +72,14 @@ export function OSPIncidents({ queue, month, refreshKey, onOpenDashboard }: { qu
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-rose-500" /> Инцидентов создано — по месяцам</CardTitle>
-          {!loading && <span className="text-xs text-muted-foreground">{grandTotal} за период</span>}
+          <div className="flex items-center gap-3">
+            {!loading && <span className="text-xs text-muted-foreground">{grandTotal} за период</span>}
+            {onOpenDashboard && (
+              <button onClick={onOpenDashboard} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+                Раздел «Инциденты» <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
           Новые инциденты по дате создания · {teamLabel} · клик по столбцу — список инцидентов
@@ -153,7 +160,7 @@ export function OSPIncidents({ queue, month, refreshKey, onOpenDashboard }: { qu
         {onOpenDashboard && (
           <button onClick={() => { setSelMonth(null); onOpenDashboard() }}
             className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">
-            Дашборд блокировок <ExternalLink className="w-3.5 h-3.5" />
+            Открыть раздел «Инциденты» <ExternalLink className="w-3.5 h-3.5" />
           </button>
         )}
       </Modal>
