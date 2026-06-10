@@ -2495,6 +2495,141 @@ def _sle_cat(type_key, type_display):
         return c
     return None
 
+# ── ОСП: настройки (SLE-пороги по месяцам + переброс сотрудников) ───────────────
+OSP_SETTINGS_KEY = "osp-settings-v1"
+# дефолтные ручные привязки сотрудников к командам (как в ingest_reports.py)
+OSP_DEFAULT_OVERRIDES = [
+    {"name": "Гусев",  "team": "UDOSTAVKA",    "from": "2026-01"},
+    {"name": "Памшев", "team": "DOSTAVKAPIKO", "from": "2026-01"},
+]
+
+def _osp_norm(s: str) -> str:
+    return str(s or "").replace("ё", "е").replace("Ё", "Е").strip().lower()
+
+def _osp_default_settings() -> dict:
+    return {
+        "sleVersions": [{"from": "2000-01", "sle": OSP_SLE}],
+        "teamOverrides": [dict(o) for o in OSP_DEFAULT_OVERRIDES],
+    }
+
+async def _osp_settings() -> dict:
+    snap = await _osp_snap(OSP_SETTINGS_KEY)
+    if isinstance(snap, dict) and snap.get("sleVersions"):
+        snap.setdefault("teamOverrides", [])
+        return snap
+    return _osp_default_settings()
+
+def _sle_resolve(month: str, versions: list) -> dict:
+    """Эффективные SLE-пороги для месяца: версия с наибольшим from ≤ month."""
+    applicable = [v for v in (versions or []) if (v.get("from") or "") <= (month or "9999-99")]
+    pick = max(applicable, key=lambda v: v.get("from", ""), default=None) \
+        or (versions[0] if versions else {"sle": OSP_SLE})
+    return pick.get("sle") or OSP_SLE
+
+def _sle_compute(items: list, thr_map: dict) -> dict:
+    acc = {q: {c["key"]: {"lt": [], "hours": []} for c in OSP_SLE_CATS} for q in OSP_QUEUES}
+    for it in items:
+        q, ck = it.get("queue"), it.get("cat")
+        if q not in acc or ck not in acc[q]:
+            continue
+        if it.get("days") is not None:
+            acc[q][ck]["lt"].append(it["days"])
+        if it.get("hours") is not None:
+            acc[q][ck]["hours"].append(it["hours"])
+    def _pct(vals, thr):
+        return round(sum(1 for v in vals if v <= thr) / len(vals) * 100) if vals else None
+    sle = {}
+    for q in OSP_QUEUES:
+        sle[q] = {}
+        for c in OSP_SLE_CATS:
+            ck = c["key"]
+            thr = thr_map.get(q, {}).get(_SLE_THR_KEY.get(ck, ck), {})
+            lt, hrs = acc[q][ck]["lt"], acc[q][ck]["hours"]
+            sle[q][ck] = {
+                "ltThr": thr.get("lt"), "hoursThr": thr.get("hours"),
+                "ltBase": len(lt), "ltPct": _pct(lt, thr.get("lt", 1e9)),
+                "hrsBase": len(hrs), "hrsPct": _pct(hrs, thr.get("hours", 1e9)),
+            }
+    return sle
+
+@app.get("/osp-settings")
+async def osp_settings_get():
+    s = await _osp_settings()
+    return JSONResponse({"ok": True, "queues": OSP_QUEUES, "cats": OSP_SLE_CATS,
+                         "thrKeys": _SLE_THR_KEY, "target": OSP_SLE_TARGET,
+                         "baseline": OSP_SLE, **s})
+
+@app.post("/osp-settings")
+async def osp_settings_set(request: Request):
+    try:
+        body = await request.json()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"bad json: {e}"})
+    settings = {
+        "sleVersions": body.get("sleVersions") or [{"from": "2000-01", "sle": OSP_SLE}],
+        "teamOverrides": body.get("teamOverrides") or [],
+    }
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [OSP_SETTINGS_KEY, json.dumps(settings, ensure_ascii=False)])])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+    return JSONResponse({"ok": True, **settings})
+
+def _apply_team_overrides(snap: dict, overrides: list) -> dict:
+    """Переброс сотрудников между командами в worklog-снапшоте (на чтении).
+    Идемпотентно: если сотрудник уже в нужной команде — ничего не делает."""
+    if not overrides:
+        return snap
+    months = snap.get("months", []) or []
+    emps = snap.get("employees", {}) or {}
+    cin = snap.get("crossIn", {}) or {}
+    for ov in overrides:
+        nm = _osp_norm(ov.get("name"))
+        target = ov.get("team")
+        frm = ov.get("from") or ""
+        if not nm or target not in OSP_QUEUES:
+            continue
+        for m in months:
+            if frm and m < frm:
+                continue
+            gained, moved_by = 0.0, {}
+            disp = ov.get("name")
+            # 1) забрать из employees других команд
+            for q, lst in (emps.get(m) or {}).items():
+                if q == target:
+                    continue
+                for e in list(lst):
+                    if nm in _osp_norm(e.get("name")):
+                        gained += e.get("total", 0) or 0
+                        moved_by = e.get("by") or moved_by
+                        disp = e.get("name") or disp
+                        lst.remove(e)
+            # 2) забрать из «чужих» в целевой очереди
+            for q, lst in (cin.get(m) or {}).items():
+                if q != target:
+                    continue
+                for r in list(lst):
+                    if nm in _osp_norm(r.get("name")):
+                        gained += r.get("hours", 0) or 0
+                        disp = r.get("name") or disp
+                        lst.remove(r)
+            if gained <= 0:
+                continue
+            tl = emps.setdefault(m, {}).setdefault(target, [])
+            ex = next((e for e in tl if nm in _osp_norm(e.get("name"))), None)
+            if ex:
+                ex["total"] = round((ex.get("total", 0) or 0) + gained, 2)
+            else:
+                tl.append({"name": disp, "total": round(gained, 2), "by": moved_by, "pct": 0})
+            tt = sum(e.get("total", 0) for e in tl) or 1
+            for e in tl:
+                e["pct"] = round((e.get("total", 0) or 0) / tt * 100, 1)
+            tl.sort(key=lambda x: -(x.get("total", 0) or 0))
+    return snap
+
 @app.get("/osp-sle")
 async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
     """Попадание в SLE: доля завершённых задач, уложившихся в порог по LT (дни в работе)
@@ -2509,6 +2644,13 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
             rows = rows_to_dicts(res[0]) if res else []
             if rows and rows[0].get("data"):
                 obj = json.loads(rows[0]["data"]); obj["updatedAt"] = rows[0].get("updated_at") or ""
+                # пороги применяем «на лету» из настроек (без повторного запроса в Трекер)
+                s = await _osp_settings()
+                versions = s.get("sleVersions") or [{"from": "2000-01", "sle": OSP_SLE}]
+                latest = max(versions, key=lambda v: v.get("from", ""), default={}).get("sle") or OSP_SLE
+                obj["sle"] = _sle_compute(obj.get("items", []), latest)
+                obj["thresholdVersions"] = versions
+                obj["target"] = OSP_SLE_TARGET
                 return JSONResponse(obj)
         except Exception as e:
             print(f"[osp-sle load] {e}")
@@ -2552,26 +2694,14 @@ async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
                 "assignee": (iss.get("assignee") or {}).get("display", "—"),
             })
 
-    def _pct(vals, thr):
-        if not vals:
-            return None
-        return round(sum(1 for v in vals if v <= thr) / len(vals) * 100)
-
-    sle = {}
-    for q in OSP_QUEUES:
-        sle[q] = {}
-        for c in OSP_SLE_CATS:
-            ck = c["key"]
-            thr = OSP_SLE.get(q, {}).get(_SLE_THR_KEY.get(ck, ck), {})
-            lt, hrs = acc[q][ck]["lt"], acc[q][ck]["hours"]
-            sle[q][ck] = {
-                "ltThr": thr.get("lt"), "hoursThr": thr.get("hours"),
-                "ltBase": len(lt), "ltPct": _pct(lt, thr.get("lt", 1e9)),
-                "hrsBase": len(hrs), "hrsPct": _pct(hrs, thr.get("hours", 1e9)),
-            }
+    s = await _osp_settings()
+    versions = s.get("sleVersions") or [{"from": "2000-01", "sle": OSP_SLE}]
+    latest = max(versions, key=lambda v: v.get("from", ""), default={}).get("sle") or OSP_SLE
+    sle = _sle_compute(items, latest)
 
     payload = {"ok": True, "queues": OSP_QUEUES, "cats": OSP_SLE_CATS,
-               "target": OSP_SLE_TARGET, "sle": sle, "items": items}
+               "target": OSP_SLE_TARGET, "sle": sle, "items": items,
+               "thresholdVersions": versions}
     try:
         await turso_execute([stmt(
             "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
@@ -3106,6 +3236,12 @@ async def osp_worklog():
     if snap is None:
         # НЕ запускаем медленный сбор автоматически — данные заливаем через /osp-worklog/set
         return JSONResponse({"ok": True, "data": None, "status": _wl_status})
+    # переброс сотрудников между командами (из настроек, на лету)
+    try:
+        s = await _osp_settings()
+        _apply_team_overrides(snap, s.get("teamOverrides") or [])
+    except Exception as e:
+        print(f"[osp-wl overrides] {e}")
     snap["updatedAt"], snap["status"] = ts, _wl_status
     return JSONResponse(snap)
 

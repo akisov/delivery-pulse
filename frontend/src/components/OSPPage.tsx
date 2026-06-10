@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
 } from "recharts"
-import { RefreshCw, ChevronDown, ChevronUp, ExternalLink, ListFilter, X } from "lucide-react"
+import { RefreshCw, ChevronDown, ChevronUp, ExternalLink, ListFilter, X, Settings } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
@@ -12,6 +12,7 @@ import { OSPPulse } from "@/components/OSPPulse"
 import { OSPAiSummary } from "@/components/OSPAiSummary"
 import { OSPBlockings } from "@/components/OSPBlockings"
 import { OSPIncidents } from "@/components/OSPIncidents"
+import { OSPSettings } from "@/components/OSPSettings"
 import { cn } from "@/lib/utils"
 
 const CAT_COLORS: Record<string, string> = {
@@ -148,6 +149,8 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
   const [sel, setSel] = useState<Sel | null>(null)  // выбранный тип/месяц для модалки
   const [catFilter, setCatFilter] = useState<string | null>(null)  // оставить на графике только один тип
   const [refreshKey, setRefreshKey] = useState(0)  // общий рефреш всех блоков
+  const [showSettings, setShowSettings] = useState(false)
+  const [settingsKey, setSettingsKey] = useState(0)  // мягкий перезагруз SLE/времени после правки настроек
 
   // период фиксирован — пол года; refresh форсит пересчёт мимо кэша
   const load = (refresh = false) => {
@@ -210,12 +213,24 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
             {data?.updatedAt && <span className="ml-1">· обновлено: {data.updatedAt}</span>}
           </p>
         </div>
-        <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading}
-          title="Обновить все блоки ОСП (пересчитать заново)"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowSettings(true)}
+            title="Настройки ОСП: SLE-пороги и состав команд"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+            <Settings className="w-4 h-4" /> Настройки
+          </button>
+          <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading}
+            title="Обновить все блоки ОСП (пересчитать заново)"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
+          </button>
+        </div>
       </div>
+
+      {/* Админка ОСП */}
+      <OSPSettings open={showSettings} onClose={() => setShowSettings(false)}
+        onSaved={() => setSettingsKey(k => k + 1)}
+        months={data?.months ?? []} month={month} queues={data?.queues ?? {}} />
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
 
@@ -392,10 +407,10 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
       )}
 
       {/* Попадание в SLE — по LT (дни) и трудозатратам (часы) */}
-      <OSPSle queue={queue} month={month} refreshKey={refreshKey} />
+      <OSPSle queue={queue} month={month} refreshKey={refreshKey} settingsKey={settingsKey} />
 
       {/* Распределение времени (worklog) — управляется общим фильтром команды */}
-      <OSPTime queue={queue} month={month} noTrend={isCurrentMonth} refreshKey={refreshKey} />
+      <OSPTime queue={queue} month={month} noTrend={isCurrentMonth} refreshKey={refreshKey} settingsKey={settingsKey} />
 
       {/* Инцидентов создано — по месяцам */}
       <OSPIncidents queue={queue} month={month} refreshKey={refreshKey} onOpenDashboard={onGo ? () => onGo("blockings") : undefined} />

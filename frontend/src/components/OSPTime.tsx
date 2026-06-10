@@ -182,7 +182,7 @@ function TeamTables({ resp, month, q }: { resp: Resp; month: string; q: string }
   )
 }
 
-export function OSPTime({ queue, month: gMonth, noTrend, refreshKey }: { queue?: string; month?: string; noTrend?: boolean; refreshKey?: number }) {
+export function OSPTime({ queue, month: gMonth, noTrend, refreshKey, settingsKey }: { queue?: string; month?: string; noTrend?: boolean; refreshKey?: number; settingsKey?: number }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -212,6 +212,8 @@ export function OSPTime({ queue, month: gMonth, noTrend, refreshKey }: { queue?:
 
   // общий рефреш из шапки ОСП — просто перечитываем кэш (без пересбора worklog)
   useEffect(() => { if (refreshKey) fetchData() }, [refreshKey])
+  // перезагруз после правки настроек (переброс сотрудников применяется на чтении)
+  useEffect(() => { if (settingsKey) fetchData() }, [settingsKey])
 
   const build = async () => {
     await fetch("/osp-worklog/build", { method: "POST" }).catch(() => {})

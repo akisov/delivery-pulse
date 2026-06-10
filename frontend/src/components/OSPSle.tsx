@@ -9,6 +9,7 @@ const TEAM_ORDER = ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"]
 
 interface CatSle { ltThr: number | null; hoursThr: number | null; ltBase: number; ltPct: number | null; hrsBase: number; hrsPct: number | null }
 interface SleItem { queue: string; cat: string; key: string; summary: string; url: string; days: number | null; hours: number | null; resolved: string; assignee: string }
+interface ThrVersion { from: string; sle: Record<string, Record<string, { lt: number; hours: number }>> }
 interface Resp {
   ok: boolean; error?: string
   queues: Record<string, string>
@@ -16,7 +17,18 @@ interface Resp {
   target: number
   sle: Record<string, Record<string, CatSle>>
   items?: SleItem[]
+  thresholdVersions?: ThrVersion[]
   updatedAt?: string
+}
+
+// cat → ключ порога (ТехДолг и Тех.улучшение делят «tech»)
+const THR_KEY: Record<string, string> = { incident: "incident", techDebt: "tech", techImpr: "tech", story: "story" }
+// эффективные пороги для месяца: версия с наибольшим from ≤ месяца
+function thrForMonth(versions: ThrVersion[] | undefined, month: string) {
+  if (!versions?.length) return null
+  const appl = versions.filter(v => (v.from || "") <= (month || "9999-99"))
+  const pick = (appl.length ? appl : versions).reduce((a, b) => (a.from || "") > (b.from || "") ? a : b)
+  return pick.sle
 }
 
 function Pct({ pct, base, target }: { pct: number | null; base: number; target: number }) {
@@ -33,7 +45,7 @@ function Pct({ pct, base, target }: { pct: number | null; base: number; target: 
 
 interface Sel { q: string; cat: string; metric: "lt" | "hours"; thr: number | null }
 
-export function OSPSle({ queue, month, refreshKey }: { queue?: string; month?: string; refreshKey?: number }) {
+export function OSPSle({ queue, month, refreshKey, settingsKey }: { queue?: string; month?: string; refreshKey?: number; settingsKey?: number }) {
   const [resp, setResp] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -48,27 +60,35 @@ export function OSPSle({ queue, month, refreshKey }: { queue?: string; month?: s
   }
   useEffect(() => { load() }, [])
   useEffect(() => { if (refreshKey) load(true) }, [refreshKey])
+  useEffect(() => { if (settingsKey) load(false) }, [settingsKey])  // мягкий перезагруз после правки настроек
 
   const single = queue && queue !== "all" ? queue : null
   const teams = single ? [single] : TEAM_ORDER.filter(q => resp?.queues?.[q])
   const cats = resp?.cats ?? []
   const target = resp?.target ?? 85
 
-  // попадание в SLE с учётом отчётного месяца (всё позже — обрезаем, считаем из items)
+  // попадание в SLE за выбранный месяц с порогами, действующими в этом месяце
   const sleData = useMemo(() => {
     if (!resp) return {} as Record<string, Record<string, CatSle>>
-    if (!month) return resp.sle
+    const tmap = thrForMonth(resp.thresholdVersions, month || "9999-99")
+    const thrOf = (q: string, catKey: string): { lt: number | null; hours: number | null } => {
+      const tk = THR_KEY[catKey] || catKey
+      const v = tmap?.[q]?.[tk]
+      if (v) return { lt: v.lt ?? null, hours: v.hours ?? null }
+      const fb = resp.sle[q]?.[catKey]
+      return { lt: fb?.ltThr ?? null, hours: fb?.hoursThr ?? null }
+    }
     const pctOf = (vals: number[], t: number | null | undefined) =>
       (vals.length && t != null) ? Math.round(vals.filter(v => v <= t).length / vals.length * 100) : null
     const out: Record<string, Record<string, CatSle>> = {}
     for (const q of Object.keys(resp.sle || {})) {
       out[q] = {}
       for (const c of cats) {
-        const thr = resp.sle[q]?.[c.key] || ({} as CatSle)
-        const its = (resp.items ?? []).filter(it => it.queue === q && it.cat === c.key && (it.resolved || "").slice(0, 7) === month)
+        const thr = thrOf(q, c.key)
+        const its = (resp.items ?? []).filter(it => it.queue === q && it.cat === c.key && (!month || (it.resolved || "").slice(0, 7) === month))
         const lt = its.map(i => i.days).filter(v => v != null) as number[]
         const hrs = its.map(i => i.hours).filter(v => v != null) as number[]
-        out[q][c.key] = { ltThr: thr.ltThr, hoursThr: thr.hoursThr, ltBase: lt.length, ltPct: pctOf(lt, thr.ltThr), hrsBase: hrs.length, hrsPct: pctOf(hrs, thr.hoursThr) }
+        out[q][c.key] = { ltThr: thr.lt, hoursThr: thr.hours, ltBase: lt.length, ltPct: pctOf(lt, thr.lt), hrsBase: hrs.length, hrsPct: pctOf(hrs, thr.hours) }
       }
     }
     return out
