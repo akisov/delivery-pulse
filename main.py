@@ -2473,6 +2473,86 @@ async def osp_incidents(months: int = Query(8), refresh: bool = Query(False)):
     payload["updatedAt"] = "только что"
     return JSONResponse(payload)
 
+# ── Инциденты: отдельный раздел (причина, стек, приоритет, SLE) ──────────────────
+INCIDENTS_VERSION = 1
+
+@app.get("/incidents")
+async def incidents(months: int = Query(12), refresh: bool = Query(False)):
+    """Все инциденты трёх очередей за период: причина, стек, приоритет, часы, SLE.
+    Бакетируем по месяцу создания. Фронт группирует по команде/причине/стеку."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    months = max(1, min(int(months or 12), 24))
+    ckey = f"incidents-{months}-v{INCIDENTS_VERSION}"
+    if not refresh:
+        try:
+            res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
+            rows = rows_to_dicts(res[0]) if res else []
+            if rows and rows[0].get("data"):
+                obj = json.loads(rows[0]["data"]); obj["updatedAt"] = rows[0].get("updated_at") or ""
+                return JSONResponse(obj)
+        except Exception as e:
+            print(f"[incidents load] {e}")
+
+    month_list = _osp_month_list(months)
+    cutoff = month_list[0] + "-01"
+
+    async def _fetch(client, q):
+        return await tracker_query(client, f'Queue: {q} Type: incident Created: >= "{cutoff}"')
+
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            results = await asyncio.gather(*[_fetch(client, q) for q in OSP_QUEUES])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+    def _as_list(v):
+        if v is None:
+            return []
+        return v if isinstance(v, list) else [v]
+
+    items: list[dict] = []
+    for q, issues in zip(OSP_QUEUES, results):
+        for iss in issues:
+            if (iss.get("type") or {}).get("key") != "incident":
+                continue
+            mo = _msk_month(iss.get("createdAt") or "")
+            if mo not in month_list:
+                continue
+            cause = (_field(iss, "--theCauseOfTheIncident") or "").strip() or "— не указана"
+            stack = [str(s).strip() for s in _as_list(_field(iss, "--stackmultiple")) if str(s).strip()]
+            spent_h = _iso_dur_hours(iss.get("spent"))
+            pr = iss.get("priority") or {}
+            res_ = iss.get("resolution") or {}
+            st = iss.get("status") or {}
+            items.append({
+                "month": mo, "queue": q, "key": iss.get("key"),
+                "summary": iss.get("summary") or "—",
+                "url": f"https://tracker.yandex.ru/{iss.get('key')}",
+                "created": _msk_date(iss.get("createdAt") or ""),
+                "resolved": _msk_date(iss.get("resolvedAt") or "") if iss.get("resolvedAt") else "",
+                "status": st.get("display", ""), "statusKey": st.get("key", ""),
+                "resolution": res_.get("display", "") if res_ else "",
+                "priority": pr.get("display", ""), "priorityKey": pr.get("key", ""),
+                "assignee": (iss.get("assignee") or {}).get("display", "—"),
+                "daysInWork": _osp_days_field(iss),
+                "spentHours": round(spent_h, 1) if spent_h > 0 else None,
+                "cause": cause,
+                "stack": stack,
+                "sleStatus": _field(iss, "--sleStatus") or "",
+            })
+
+    payload = {"ok": True, "queues": OSP_QUEUES, "months": month_list, "items": items}
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ckey, json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[incidents save] {e}")
+    payload["updatedAt"] = "только что"
+    return JSONResponse(payload)
+
 # Пороги SLE (гарантия 85%): порог LT в днях и трудозатрат в часах, по командам и типам
 OSP_SLE_TARGET = 85
 OSP_SLE = {
