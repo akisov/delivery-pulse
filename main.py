@@ -2553,41 +2553,115 @@ async def incidents(months: int = Query(12), refresh: bool = Query(False)):
     payload["updatedAt"] = "только что"
     return JSONResponse(payload)
 
-@app.get("/incidents-ai")
-async def incidents_ai(team: str = Query("all"), months: int = Query(12), refresh: bool = Query(False)):
-    """AI-сводка по инцидентам (Claude): источники, тренды, на что смотреть."""
-    if not AI_ENABLED:
-        return JSONResponse({"ok": True, "summary": ""})
-    ckey = f"incidents-ai-{team}-{months}-v1"
+async def _incidents_items(months: int) -> list:
+    inc = await _osp_snap(f"incidents-{months}-v{INCIDENTS_VERSION}")
+    return (inc or {}).get("items", [])
+
+@app.get("/incidents-clusters")
+async def incidents_clusters(months: int = Query(12), refresh: bool = Query(False)):
+    """AI-кластеризация сырых причин инцидентов в осмысленные группы.
+    Возвращает {clusters: {исходная_причина: кластер}, names: [...]}. Кэшируется."""
+    ckey = f"incidents-clusters-{months}-v1"
     if not refresh:
         snap = await _osp_snap(ckey)
         if snap:
             return JSONResponse(snap)
-    inc = await _osp_snap(f"incidents-{months}-v{INCIDENTS_VERSION}")
-    items = (inc or {}).get("items", [])
-    if team != "all":
-        items = [it for it in items if it.get("queue") == team]
+    items = await _incidents_items(months)
+    causes = sorted({(it.get("cause") or "").strip() for it in items
+                     if (it.get("cause") or "").strip() and (it.get("cause") or "").strip() != "— не указана"})
+    if not causes or not AI_ENABLED:
+        return JSONResponse({"ok": True, "clusters": {}, "names": []})
+    numbered = "\n".join(f"{i}. {c}" for i, c in enumerate(causes))
+    system = (
+        "Ты группируешь причины инцидентов сервиса доставки в осмысленные кластеры (категории корневых причин). "
+        "Сделай 5–9 кластеров с короткими понятными названиями на русском (например: «Ошибки фронта», "
+        "«Интеграции/внешние API», «Данные и координаты», «Логика расчётов», «Инфраструктура/деплой», "
+        "«Человеческий фактор», «Конфигурация»). Каждой исходной причине присвой ровно один кластер.\n"
+        "Верни СТРОГО валидный JSON-массив без пояснений, формата: "
+        "[{\"i\": <номер причины из списка>, \"cluster\": \"<название кластера>\"}, ...]. "
+        "Покрой ВСЕ номера. Никакого текста вокруг JSON."
+    )
+    txt = await ai_complete(system, "Причины:\n" + numbered, max_tokens=3000, temperature=0.2)
+    mapping: dict = {}
+    try:
+        s = txt[txt.index("["): txt.rindex("]") + 1]
+        for row in json.loads(s):
+            i = int(row.get("i"))
+            cl = str(row.get("cluster") or "").strip()
+            if 0 <= i < len(causes) and cl:
+                mapping[causes[i]] = cl
+    except Exception as e:
+        print(f"[incidents-clusters parse] {e}")
+    for c in causes:
+        mapping.setdefault(c, "Прочее")
+    names = sorted(set(mapping.values()))
+    payload = {"ok": True, "clusters": mapping, "names": names}
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ckey, json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[incidents-clusters save] {e}")
+    return JSONResponse(payload)
+
+@app.get("/incidents-ai")
+async def incidents_ai(team: str = Query("all"), months: int = Query(12),
+                       date_from: str = Query("", alias="from"), date_to: str = Query("", alias="to"),
+                       refresh: bool = Query(False)):
+    """AI-сводка по инцидентам (Claude). Сравниваем выбранный период с ПРЕДЫДУЩИМ
+    такой же длины (а не с прошлым месяцем — текущий месяц не закончен)."""
+    if not AI_ENABLED:
+        return JSONResponse({"ok": True, "summary": ""})
+    ckey = f"incidents-ai-{team}-{months}-{date_from}-{date_to}-v2"
+    if not refresh:
+        snap = await _osp_snap(ckey)
+        if snap:
+            return JSONResponse(snap)
+    titems = [it for it in await _incidents_items(months) if team == "all" or it.get("queue") == team]
+    if not titems:
+        return JSONResponse({"ok": True, "summary": ""})
+
+    # окно периода и эквивалентное предыдущее
+    pf = pt = ""
+    prev_n = None
+    if date_from and date_to:
+        try:
+            f = datetime.strptime(date_from, "%Y-%m-%d").date()
+            t = datetime.strptime(date_to, "%Y-%m-%d").date()
+            length = (t - f).days
+            pt_d = f - timedelta(days=1)
+            pf_d = pt_d - timedelta(days=length)
+            pf, pt = pf_d.isoformat(), pt_d.isoformat()
+            items = [it for it in titems if date_from <= (it.get("created") or "") <= date_to]
+            prev_n = sum(1 for it in titems if pf <= (it.get("created") or "") <= pt)
+        except Exception:
+            items = titems
+    else:
+        items = titems
     if not items:
         return JSONResponse({"ok": True, "summary": ""})
 
     from collections import Counter
-    msorted = sorted({it["month"] for it in items})
-    cur_m = msorted[-1] if msorted else ""
-    prev_m = msorted[-2] if len(msorted) > 1 else ""
-    cur_n = sum(1 for it in items if it["month"] == cur_m)
-    prev_n = sum(1 for it in items if it["month"] == prev_m)
     by_team = Counter(it["queue"] for it in items)
     by_prio = Counter(it.get("priority") or "—" for it in items)
-    causes = Counter(it.get("cause") or "—" for it in items).most_common(5)
+    causes = Counter(it.get("cause") or "—" for it in items).most_common(6)
     stacks = Counter(s for it in items for s in (it.get("stack") or [])).most_common(5)
     crit = sum(1 for it in items if it.get("priorityKey") in ("critical", "blocker"))
+    done = sum(1 for it in items if it.get("resolution") or it.get("statusKey") == "closed")
     hours = round(sum(it.get("spentHours") or 0 for it in items))
     avg_days = round(sum(it.get("daysInWork") or 0 for it in items) / len(items), 1)
     team_lbl = OSP_QUEUES.get(team, team) if team != "all" else "все команды курьеров"
     lines = [
-        f"Команда: {team_lbl}. Всего инцидентов за период: {len(items)}.",
+        f"Команда: {team_lbl}. Период: {date_from or 'все'}–{date_to or 'данные'}.",
+        f"Инцидентов за период: {len(items)} (создано). Завершено: {done}, открыто: {len(items) - done}.",
+    ]
+    if prev_n is not None:
+        lines.append(f"Предыдущий период такой же длины ({pf}–{pt}): {prev_n} инцидентов. "
+                     f"ВАЖНО: сравнивай период с этим предыдущим периodом, НЕ говори про «текущий месяц», "
+                     f"он может быть не завершён.")
+    lines += [
         f"Критичных/блокеров: {crit}. Часов суммарно: {hours}. Средние дни в работе: {avg_days}.",
-        f"Текущий месяц {_osp_label(cur_m)}: {cur_n} (предыдущий {_osp_label(prev_m)}: {prev_n}).",
         "По командам: " + ", ".join(f"{OSP_QUEUES.get(q, q)} {n}" for q, n in by_team.most_common()),
         "По приоритету: " + ", ".join(f"{p} {n}" for p, n in by_prio.most_common()),
         "Топ причин: " + "; ".join(f"{c} ({n})" for c, n in causes),
@@ -2595,15 +2669,17 @@ async def incidents_ai(team: str = Query("all"), months: int = Query(12), refres
     ]
     facts = "\n".join(lines)
     system = (
-        "Ты — аналитик надёжности сервиса доставки. На вход — статистика инцидентов команды(-д) курьеров "
-        "за период. Подсветь 2–4 ГЛАВНЫХ источника инцидентов и тревожных тренда для продакта/тимлида.\n"
-        "Примеры наблюдений: всплеск инцидентов в текущем месяце; доминирующая причина; стек, где чаще всего ломается; "
-        "много критичных; долго чинят (большие дни в работе).\n"
+        "Ты — аналитик надёжности сервиса доставки. На вход — статистика инцидентов за выбранный период "
+        "и сравнение с предыдущим периодом такой же длины. Подсветь 2–4 ГЛАВНЫХ источника инцидентов "
+        "и тревожных тренда для продакта/тимлида.\n"
+        "Сравнивай период с предыдущим РАВНЫМ периодом. НЕ сравнивай 'текущий месяц с прошлым' — текущий "
+        "период может быть не завершён, такой вывод обманчив.\n"
+        "Примеры: динамика к прошлому равному периоду; доминирующая причина/стек; много критичных; долго чинят.\n"
         "ФОРМАТ СТРОГО:\n"
         "— Каждый пункт с новой строки, начинается с эмодзи: 📈 рост, 📉 спад, 🔥/🚨 тревога, ⚠️ риск, ✅ хорошо, "
         "🐞 баги/инциденты, 🧱 стек/тех, 🐌 долго чинят.\n"
         "— После эмодзи — короткая суть; ключевые числа и причины оборачивай в **двойные звёздочки** (жирный).\n"
-        "— 2–4 пункта, каждый одно живое предложение, по-человечески, без канцелярита и без вступления.\n"
+        "— 2–4 пункта, каждый одно живое предложение, без канцелярита и без вступления.\n"
         "Только на основе чисел, ничего не выдумывай."
     )
     summary = await ai_complete(system, facts, max_tokens=380, temperature=0.3)

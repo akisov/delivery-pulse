@@ -51,16 +51,16 @@ function renderMd(s: string) {
     : <span key={i}>{p}</span>)
 }
 
-function IncidentsAI({ team, refreshKey }: { team: string; refreshKey: number }) {
+function IncidentsAI({ team, from, to, refreshKey }: { team: string; from: string; to: string; refreshKey: number }) {
   const [summary, setSummary] = useState<string>("")
   const [loading, setLoading] = useState(false)
   const load = (refresh = false) => {
     setLoading(true)
-    fetch(`/incidents-ai?team=${team}&months=12${refresh ? "&refresh=true" : ""}`)
+    fetch(`/incidents-ai?team=${team}&months=12&from=${from}&to=${to}${refresh ? "&refresh=true" : ""}`)
       .then(r => r.json()).then((d: any) => setSummary(d?.summary || ""))
       .catch(() => setSummary("")).finally(() => setLoading(false))
   }
-  useEffect(() => { setSummary(""); load() }, [team])
+  useEffect(() => { setSummary(""); load() }, [team, from, to])
   useEffect(() => { if (refreshKey) load(true) }, [refreshKey])
   const lines = (summary || "").split("\n").map(s => s.trim()).filter(Boolean)
   if (!loading && !summary) return null
@@ -143,6 +143,7 @@ function IncidentRow({ it, queues, showCause = true }: { it: Incident; queues: R
 export function IncidentsPage() {
   const [resp, setResp] = useState<Resp | null>(null)
   const [wl, setWl] = useState<WlResp | null>(null)
+  const [clusterMap, setClusterMap] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [team, setTeam] = useState<string>("all")
@@ -158,12 +159,21 @@ export function IncidentsPage() {
     Promise.all([
       fetch(`/incidents?months=12${refresh ? "&refresh=true" : ""}`).then(r => r.json()),
       fetch("/osp-worklog").then(r => r.json()).catch(() => null),
-    ]).then(([d, w]: [Resp, WlResp]) => {
+      fetch(`/incidents-clusters?months=12${refresh ? "&refresh=true" : ""}`).then(r => r.json()).catch(() => null),
+    ]).then(([d, w, c]: [Resp, WlResp, any]) => {
       if (d.ok) setResp(d); else setError(d.error || "Ошибка")
       setWl(w || null)
+      setClusterMap((c && c.clusters) || {})
     }).catch(e => setError(String(e))).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
+
+  // сырую причину → AI-кластер (или сама причина, если не кластеризована)
+  const clusterOf = (cause: string) => {
+    const c = (cause || "").trim()
+    if (!c || c === "— не указана") return "— не указана"
+    return clusterMap[c] || c
+  }
 
   const queues = resp?.queues ?? {}
   const teamQueues = team === "all" ? TEAM_ORDER : [team]
@@ -195,12 +205,19 @@ export function IncidentsPage() {
     return { month: m, label: monLabel(m), resolved: res, open: cohort.length - res, total: cohort.length }
   }), [items, monthsR])
 
-  // тренд числа инцидентов к пред. месяцу
+  // тренд: выбранный период к ПРЕДЫДУЩЕМУ такой же длины (текущий месяц не закончен)
   const trend = useMemo(() => {
-    if (createdResolved.length < 2) return null
-    const cur = createdResolved[createdResolved.length - 1].total, prev = createdResolved[createdResolved.length - 2].total
-    return { cur, prev, delta: cur - prev }
-  }, [createdResolved])
+    const fromD = new Date(dates.from), toD = new Date(dates.to)
+    const len = Math.round((toD.getTime() - fromD.getTime()) / 86400000)
+    if (!(len >= 0) || !resp) return null
+    const pt = new Date(fromD); pt.setDate(pt.getDate() - 1)
+    const pf = new Date(pt); pf.setDate(pf.getDate() - len)
+    const pfs = fmtDate(pf), pts = fmtDate(pt)
+    const teamOk = (it: Incident) => team === "all" || it.queue === team
+    const cur = items.length
+    const prev = (resp.items || []).filter(it => teamOk(it) && it.created >= pfs && it.created <= pts).length
+    return { cur, prev, delta: cur - prev, pf: pfs, pt: pts }
+  }, [items, resp, team, dates])
 
   // группировка
   const groups = useMemo(() => {
@@ -209,7 +226,7 @@ export function IncidentsPage() {
     const map = new Map<string, Incident[]>()
     const push = (k: string, it: Incident) => (map.get(k) || map.set(k, []).get(k)!).push(it)
     for (const it of items) {
-      if (groupBy === "cause") push(it.cause || "— не указана", it)
+      if (groupBy === "cause") push(clusterOf(it.cause), it)
       else if (groupBy === "priority") push(it.priority || "— без приоритета", it)
       else if (groupBy === "assignee") push(it.assignee || "— без исполнителя", it)
       else { const keys = it.stack?.length ? it.stack : ["— без стека"]; for (const k of keys) push(k, it) }
@@ -218,7 +235,7 @@ export function IncidentsPage() {
       const hours = list.reduce((s, it) => s + (it.spentHours || 0), 0)
       return { key, list, count: list.length, pct: Math.round(list.length / totalCount * 100), hours: Math.round(hours), hoursPct: Math.round(hours / totalHours * 100) }
     }).sort((a, b) => b.count - a.count)
-  }, [items, groupBy])
+  }, [items, groupBy, clusterMap])
   const maxGroup = Math.max(1, ...groups.map(g => g.count))
 
   // топы
@@ -226,9 +243,9 @@ export function IncidentsPage() {
   const topHours = useMemo(() => items.filter(i => i.spentHours != null).slice().sort((a, b) => (b.spentHours || 0) - (a.spentHours || 0)).slice(0, 5), [items])
   const topCauses = useMemo(() => {
     const m = new Map<string, number>()
-    for (const it of items) { const c = it.cause || "— не указана"; m.set(c, (m.get(c) || 0) + 1) }
+    for (const it of items) { const c = clusterOf(it.cause); m.set(c, (m.get(c) || 0) + 1) }
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5)
-  }, [items])
+  }, [items, clusterMap])
 
   // сводка
   const stats = useMemo(() => {
@@ -300,7 +317,7 @@ export function IncidentsPage() {
         </div>
       </div>
 
-      {!loading && resp && <IncidentsAI team={team} refreshKey={refreshKey} />}
+      {!loading && resp && <IncidentsAI team={team} from={dates.from} to={dates.to} refreshKey={refreshKey} />}
 
       {loading ? (
         <div className="space-y-4">
@@ -361,8 +378,9 @@ export function IncidentsPage() {
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle>📊 Создано и завершено по месяцам</CardTitle>
                 {trend && (
-                  <span className={cn("text-xs font-bold inline-flex items-center gap-1", trend.delta > 0 ? "text-rose-500" : trend.delta < 0 ? "text-emerald-500" : "text-muted-foreground")}>
-                    {trend.delta > 0 ? "▲" : trend.delta < 0 ? "▼" : "≈"} к пр. месяцу {trend.delta > 0 ? "+" : ""}{trend.delta}
+                  <span className={cn("text-xs font-bold inline-flex items-center gap-1", trend.delta > 0 ? "text-rose-500" : trend.delta < 0 ? "text-emerald-500" : "text-muted-foreground")}
+                    title={`Выбранный период: ${trend.cur} · предыдущий равный (${trend.pf}–${trend.pt}): ${trend.prev}`}>
+                    {trend.delta > 0 ? "▲" : trend.delta < 0 ? "▼" : "≈"} к пред. периоду {trend.delta > 0 ? "+" : ""}{trend.delta}
                   </span>
                 )}
               </div>
@@ -433,7 +451,7 @@ export function IncidentsPage() {
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle>🧩 Разбор инцидентов</CardTitle>
                 <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
-                  {([["cause", "По причине", Tag], ["stack", "По стеку", Layers], ["priority", "По приоритету", Flame], ["assignee", "По исполнителю", User]] as const).map(([v, label, Icon]) => (
+                  {([["cause", "По причине (AI)", Tag], ["stack", "По стеку", Layers], ["priority", "По приоритету", Flame], ["assignee", "По исполнителю", User]] as const).map(([v, label, Icon]) => (
                     <button key={v} onClick={() => { setGroupBy(v); setOpenGroup(null) }}
                       className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
                         groupBy === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground")}>
@@ -443,7 +461,7 @@ export function IncidentsPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {{ cause: "Сгруппировано по причине инцидента", stack: "Сгруппировано по стеку", priority: "Сгруппировано по приоритету", assignee: "Сгруппировано по исполнителю («пожарные»)" }[groupBy]} · доля от числа и от часов · клик — раскрыть
+                {{ cause: "Причины, сгруппированные в кластеры через AI (внутри — исходные причины)", stack: "Сгруппировано по стеку", priority: "Сгруппировано по приоритету", assignee: "Сгруппировано по исполнителю («пожарные»)" }[groupBy]} · доля от числа и от часов · клик — раскрыть
               </p>
             </CardHeader>
             <CardContent className="space-y-1.5">
@@ -472,7 +490,7 @@ export function IncidentsPage() {
                     {isOpen && (
                       <div className="px-3 pb-3 pt-1 space-y-1.5 bg-secondary/20">
                         {g.list.slice().sort((a, b) => (b.spentHours || 0) - (a.spentHours || 0)).map(it => (
-                          <IncidentRow key={it.key} it={it} queues={queues} showCause={groupBy !== "cause"} />
+                          <IncidentRow key={it.key} it={it} queues={queues} showCause />
                         ))}
                       </div>
                     )}
