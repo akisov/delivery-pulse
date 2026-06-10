@@ -41,6 +41,18 @@ function resolveSle(versions: ThrVersion[], baseline: SleMap, month: string): Sl
   return out
 }
 
+// строка порога: выровненные колонки [подпись | поле | единица]
+function FieldRow({ label, value, suffix, onChange }: { label: string; value: number; suffix: string; onChange: (v: string) => void }) {
+  return (
+    <div className="grid grid-cols-[1fr_4rem_1.5rem] items-center gap-2 text-[11px] text-muted-foreground">
+      <span>{label}</span>
+      <input type="number" min={0} value={value} onChange={e => onChange(e.target.value)}
+        className="w-16 rounded-md border border-border bg-card px-2 py-1 text-xs text-right tabular-nums text-foreground focus:border-primary/60 focus:outline-none" />
+      <span className="text-[10px]">{suffix}</span>
+    </div>
+  )
+}
+
 export function OSPSettings({ open, onClose, onSaved, months, month, queues }: {
   open: boolean; onClose: () => void; onSaved: () => void
   months: string[]; month: string; queues: Record<string, string>
@@ -103,14 +115,6 @@ export function OSPSettings({ open, onClose, onSaved, months, month, queues }: {
     } catch (e) { setError(String(e)) } finally { setSaving(false) }
   }
 
-  const Inp = ({ value, onChange, suffix }: { value: number; onChange: (v: string) => void; suffix: string }) => (
-    <span className="inline-flex items-center gap-1">
-      <input type="number" min={0} value={value} onChange={e => onChange(e.target.value)}
-        className="w-16 rounded-md border border-border bg-card px-2 py-1 text-xs text-right text-foreground focus:border-primary/60 focus:outline-none" />
-      <span className="text-[10px] text-muted-foreground">{suffix}</span>
-    </span>
-  )
-
   return (
     <Modal open={open} onClose={onClose} title="Настройки ОСП"
       subtitle="SLE-пороги и состав команд · действуют с выбранного месяца (прошлые месяцы пересчитываются)" wide>
@@ -130,15 +134,17 @@ export function OSPSettings({ open, onClose, onSaved, months, month, queues }: {
         <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">Загрузка…</div>
       ) : (
         <>
-          {/* Общий выбор «действует с месяца» */}
-          <div className="flex items-center gap-2 mb-4 flex-wrap rounded-lg border border-primary/20 bg-primary/[0.04] px-3 py-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Действует с месяца</span>
-            <select value={effFrom} onChange={e => setEffFrom(e.target.value)}
-              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground focus:border-primary/60 focus:outline-none capitalize">
-              {monthOpts.map(m => <option key={m} value={m}>{monLabel(m)}</option>)}
-            </select>
-            <span className="text-[11px] text-muted-foreground">— изменения применятся к этому месяцу и всем последующим</span>
-          </div>
+          {/* Выбор «действует с месяца» — только для SLE-порогов */}
+          {tab === "sle" && (
+            <div className="flex items-center gap-2 mb-4 flex-wrap rounded-lg border border-primary/20 bg-primary/[0.04] px-3 py-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Действует с месяца</span>
+              <select value={effFrom} onChange={e => setEffFrom(e.target.value)}
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground focus:border-primary/60 focus:outline-none capitalize">
+                {monthOpts.map(m => <option key={m} value={m}>{monLabel(m)}</option>)}
+              </select>
+              <span className="text-[11px] text-muted-foreground">— эти пороги будут считаться для выбранного месяца и всех последующих; прошлые месяцы — по своим версиям</span>
+            </div>
+          )}
 
           {tab === "sle" ? (
             <div className="space-y-4">
@@ -150,12 +156,8 @@ export function OSPSettings({ open, onClose, onSaved, months, month, queues }: {
                       <div key={g.key} className="rounded-lg bg-secondary/40 p-2.5">
                         <p className="text-[11px] font-semibold text-foreground mb-1.5">{g.label}</p>
                         <div className="flex flex-col gap-1.5">
-                          <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                            LT (дни) <Inp value={draft[q][g.key].lt} suffix="дн" onChange={v => setCell(q, g.key, "lt", v)} />
-                          </label>
-                          <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                            Трудозатраты <Inp value={draft[q][g.key].hours} suffix="ч" onChange={v => setCell(q, g.key, "hours", v)} />
-                          </label>
+                          <FieldRow label="LT (дни)" value={draft[q][g.key].lt} suffix="дн" onChange={v => setCell(q, g.key, "lt", v)} />
+                          <FieldRow label="Трудозатраты" value={draft[q][g.key].hours} suffix="ч" onChange={v => setCell(q, g.key, "hours", v)} />
                         </div>
                       </div>
                     ))}
@@ -164,7 +166,12 @@ export function OSPSettings({ open, onClose, onSaved, months, month, queues }: {
               ))}
               {versions.length > 0 && (
                 <div className="text-[11px] text-muted-foreground">
-                  Версии порогов: {versions.map(v => <span key={v.from} className="capitalize">{v.from === "2000-01" ? "базовые" : monLabel(v.from)}{v !== versions[versions.length - 1] ? " · " : ""}</span>)}
+                  <span className="font-semibold">Сохранённые наборы порогов</span> (с какого месяца действуют):{" "}
+                  {versions.map((v, i) => (
+                    <span key={v.from} className="capitalize">
+                      {v.from === "2000-01" ? "с начала (базовые)" : `с ${monLabel(v.from)}`}{i < versions.length - 1 ? " · " : ""}
+                    </span>
+                  ))}
                 </div>
               )}
             </div>
@@ -172,6 +179,7 @@ export function OSPSettings({ open, onClose, onSaved, months, month, queues }: {
             <div className="space-y-2">
               <p className="text-[11px] text-muted-foreground mb-1">
                 Переброс сотрудника в команду (как Гусев → Курьеры U). Совпадение по фамилии. Влияет на блок «Распределение времени».
+                Месяц справа — <b>с какого месяца</b> сотрудник числится в команде (и для всех последующих).
               </p>
               {overrides.map((o, i) => (
                 <div key={i} className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-card px-2.5 py-2">
