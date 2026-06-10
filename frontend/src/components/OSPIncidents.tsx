@@ -75,7 +75,8 @@ export function OSPIncidents({ queue, month, refreshKey, onOpenDashboard }: { qu
           <div className="flex items-center gap-3">
             {!loading && <span className="text-xs text-muted-foreground">{grandTotal} за период</span>}
             {onOpenDashboard && (
-              <button onClick={onOpenDashboard} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+              <button onClick={onOpenDashboard}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-8 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
                 Раздел «Инциденты» <ExternalLink className="w-3.5 h-3.5" />
               </button>
             )}
