@@ -2876,11 +2876,12 @@ async def osp_improve_create(request: Request):
                 rr.raise_for_status()
             except Exception as e:
                 print(f"[osp-improve patch desc] {e}")
-            # ставим команду (роутит на доску команды) — отдельным запросом, не критично
+            # ставим команду (локальное поле RKDS «Команда») → роутит на доску команды
             if team_field:
                 try:
                     rr = await client.patch(f"https://api.tracker.yandex.net/v2/issues/{key}",
-                                            headers=tracker_headers(), json={"team": team_field})
+                                            headers=tracker_headers(),
+                                            json={"66d85e1786e9e1127dcf0f18--team": team_field})
                     rr.raise_for_status()
                 except Exception as e:
                     print(f"[osp-improve patch team] {e}")
