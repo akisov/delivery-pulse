@@ -206,17 +206,19 @@ export function IncidentsPage() {
   }), [wl, monthsR, team])
   const avgShare = waveData.length ? Math.round(waveData.reduce((s, r) => s + r.pct, 0) / waveData.length) : 0
 
-  // СОЗДАНО по месяцам — сколько инцидентов завели в каждом месяце (стек по командам)
-  const createdData = useMemo(() => monthsR.map(m => {
-    const row: Record<string, any> = { month: m, label: monLabel(m), total: 0 }
-    for (const q of teamQueues) {
-      const n = items.filter(it => it.month === m && it.queue === q).length
-      if (team === "all") row[q] = n
-      row.total += n
-    }
-    if (team !== "all") row.one = row.total
-    return row
-  }), [items, monthsR, team])
+  // все инциденты команды (без фильтра по дате) — для подсчёта закрытий по дате закрытия
+  const teamItemsAll = useMemo(() => (resp?.items ?? []).filter(it => team === "all" || it.queue === team), [resp, team])
+  // СОЗДАНО (по дате создания) vs ЗАКРЫТО (по дате закрытия) по месяцам
+  const createdClosed = useMemo(() => monthsR.map(m => ({
+    month: m, label: monLabel(m),
+    created: teamItemsAll.filter(it => it.month === m).length,
+    closed: teamItemsAll.filter(it => isResolved(it) && (it.resolved || "").slice(0, 7) === m).length,
+  })), [teamItemsAll, monthsR])
+  const flow = useMemo(() => {
+    const c = createdClosed.reduce((s, r) => s + r.created, 0)
+    const cl = createdClosed.reduce((s, r) => s + r.closed, 0)
+    return { created: c, closed: cl, ratio: c ? Math.round(cl / c * 100) : 0 }
+  }, [createdClosed])
 
   // тренд: выбранный период к ПРЕДЫДУЩЕМУ такой же длины (текущий месяц не закончен)
   const trend = useMemo(() => {
@@ -254,12 +256,6 @@ export function IncidentsPage() {
   // топы
   const topDays = useMemo(() => items.filter(i => i.daysInWork != null).slice().sort((a, b) => (b.daysInWork || 0) - (a.daysInWork || 0)).slice(0, 10), [items])
   const topHours = useMemo(() => items.filter(i => i.spentHours != null).slice().sort((a, b) => (b.spentHours || 0) - (a.spentHours || 0)).slice(0, 10), [items])
-  const topCauses = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const it of items) { const c = clusterOf(it.cause); m.set(c, (m.get(c) || 0) + 1) }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10)
-  }, [items, clusterMap])
-
   // сводка
   const stats = useMemo(() => {
     const crit = items.filter(it => it.priorityKey === "critical" || it.priorityKey === "blocker").length
@@ -385,42 +381,45 @@ export function IncidentsPage() {
             </CardContent>
           </Card>
 
-          {/* СОЗДАНО по месяцам — сколько завели */}
+          {/* СОЗДАНО vs ЗАКРЫТО по месяцам */}
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
             <CardHeader className="pb-1">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle>📊 Инцидентов создано по месяцам</CardTitle>
+                <CardTitle>📊 Создано и закрыто по месяцам</CardTitle>
                 {trend && (
                   <span className={cn("text-xs font-bold inline-flex items-center gap-1", trend.delta > 0 ? "text-rose-500" : trend.delta < 0 ? "text-emerald-500" : "text-muted-foreground")}
-                    title={`Выбранный период: ${trend.cur} · предыдущий равный (${trend.pf}–${trend.pt}): ${trend.prev}`}>
-                    {trend.delta > 0 ? "▲" : trend.delta < 0 ? "▼" : "≈"} к пред. периоду {trend.delta > 0 ? "+" : ""}{trend.delta}
+                    title={`Создано за период: ${trend.cur} · предыдущий равный (${trend.pf}–${trend.pt}): ${trend.prev}`}>
+                    {trend.delta > 0 ? "▲" : trend.delta < 0 ? "▼" : "≈"} создано к пред. периоду {trend.delta > 0 ? "+" : ""}{trend.delta}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Сколько инцидентов завели в каждом месяце (по дате создания) · из них уже завершено {stats.done} из {stats.total} ({stats.rate}%) · клик по столбцу — список</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                <span className="font-semibold text-[#3B82F6]">создано</span> (по дате создания) и <span className="font-semibold text-emerald-500">закрыто</span> (по дате закрытия) · за период: создано <b>{flow.created}</b>, закрыто <b>{flow.closed}</b> — <b>{flow.ratio}%</b> · клик по столбцу — список
+              </p>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={createdData} margin={{ top: 16, right: 16, left: 0, bottom: 4 }} barSize={30}>
+                <BarChart data={createdClosed} margin={{ top: 16, right: 16, left: 0, bottom: 4 }} barGap={2} barCategoryGap="22%">
                   <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
                   <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
-                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-                  {team === "all" ? TEAM_ORDER.map((q, i) => (
-                    <Bar key={q} dataKey={q} stackId="a" name={queues[q] || q} fill={TEAM_COLOR[q]}
-                      radius={i === TEAM_ORDER.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} style={{ cursor: "pointer" }}
-                      onClick={(d: any) => setMonthSel(d?.payload?.month)}>
-                      {i === TEAM_ORDER.length - 1 && <LabelList dataKey="total" position="top" style={{ fontSize: 11, fontWeight: 800, fill: "hsl(var(--foreground))" }} />}
-                    </Bar>
-                  )) : (
-                    <Bar dataKey="one" name="Создано" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }} onClick={(d: any) => setMonthSel(d?.payload?.month)}>
-                      {createdData.map(r => <Cell key={r.month} fill={TEAM_COLOR[team] || "#EF4444"} />)}
-                      <LabelList dataKey="total" position="top" style={{ fontSize: 11, fontWeight: 800, fill: "hsl(var(--foreground))" }} />
-                    </Bar>
-                  )}
+                    content={({ active, payload, label }: any) => active && payload?.length
+                      ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl">
+                          <b>{label}</b><br />создано: {payload.find((p: any) => p.dataKey === "created")?.value ?? 0} · закрыто: {payload.find((p: any) => p.dataKey === "closed")?.value ?? 0}
+                        </div> : null} />
+                  <Bar dataKey="created" name="Создано" fill="#3B82F6" radius={[4, 4, 0, 0]} maxBarSize={34} style={{ cursor: "pointer" }} onClick={(d: any) => setMonthSel(d?.payload?.month)}>
+                    <LabelList dataKey="created" position="top" style={{ fontSize: 10, fontWeight: 700, fill: "#3B82F6" }} />
+                  </Bar>
+                  <Bar dataKey="closed" name="Закрыто" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={34}>
+                    <LabelList dataKey="closed" position="top" style={{ fontSize: 10, fontWeight: 700, fill: "#10B981" }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              <div className="flex flex-wrap gap-4 mt-3 justify-center text-[11px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-[#3B82F6]" /> создано (по дате создания)</span>
+                <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> закрыто (по дате закрытия)</span>
+              </div>
             </CardContent>
           </Card>
 
@@ -457,22 +456,6 @@ export function IncidentsPage() {
             </CardContent>
           </Card>
 
-          <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
-            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><Tag className="w-4 h-4 text-rose-400" /> Частые причины (AI-кластеры) — топ 10</CardTitle></CardHeader>
-            <CardContent className="space-y-1">
-              {topCauses.length === 0 && <span className="text-xs text-muted-foreground/60">нет данных</span>}
-              {topCauses.map(([c, n], i) => (
-                <div key={c} className="flex items-center gap-2.5 text-xs rounded-md px-1.5 py-1 hover:bg-accent/30 transition-colors">
-                  <span className="w-4 text-right text-muted-foreground/50 font-bold shrink-0">{i + 1}</span>
-                  <span className="flex-1 truncate text-foreground">{c}</span>
-                  <div className="hidden sm:block w-40 h-1.5 rounded-full bg-secondary overflow-hidden shrink-0">
-                    <div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.round(n / (topCauses[0]?.[1] || 1) * 100)}%` }} />
-                  </div>
-                  <span className="font-black text-rose-400 shrink-0 w-8 text-right">{n}</span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
 
           {/* Разбор по группам */}
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
