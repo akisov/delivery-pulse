@@ -98,7 +98,7 @@ export function InsightInformer({ dateFrom, dateTo, queue }: Props) {
             <span className="text-xs font-bold uppercase tracking-widest text-primary">AI-сводка</span>
             {!loading && data && (
               <span className="text-[10px] text-muted-foreground">
-                {data.hasAI ? "· Mistral + ваши данные" : "· по вашим данным"}
+                {data.hasAI ? "· Claude + ваши данные" : "· по вашим данным"}
               </span>
             )}
             {!loading && (

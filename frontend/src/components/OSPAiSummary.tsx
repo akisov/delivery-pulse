@@ -45,7 +45,7 @@ export function OSPAiSummary({ queue, month, monthLabel, refreshKey }: {
           <div className="mb-1.5 flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-widest text-primary">AI-вывод по месяцу</span>
             {monthLabel && <span className="text-[10px] font-semibold uppercase text-primary/70">· {monthLabel}</span>}
-            <span className="text-[10px] text-muted-foreground">· Mistral + ваши данные</span>
+            <span className="text-[10px] text-muted-foreground">· Claude + ваши данные</span>
             <button onClick={() => load(true)} disabled={loading} title="Пересобрать вывод"
               className="ml-auto text-muted-foreground/60 transition-colors hover:text-primary">
               <RefreshCw className={loading ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
