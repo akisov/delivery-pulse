@@ -130,7 +130,7 @@ function IncidentRow({ it, queues, showCause = true }: { it: Incident; queues: R
           )}
           {it.spentHours != null && (
             <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-black text-primary" title="залогировано часов">
-              <Hourglass className="w-3 h-3" />{it.spentHours}ч
+              <Hourglass className="w-3 h-3" />{Math.round(it.spentHours)}ч
             </span>
           )}
           <span className="text-[10px] text-muted-foreground">{it.created}</span>
@@ -451,8 +451,8 @@ export function IncidentsPage() {
                   <span className="w-4 text-right text-muted-foreground/50 font-bold shrink-0">{i + 1}</span>
                   <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0 inline-flex items-center gap-1">{it.key} <ExternalLink className="w-3 h-3" /></a>
                   <span className="flex-1 truncate text-foreground">{it.summary}</span>
-                  <span className="text-[11px] text-muted-foreground shrink-0">{it.spentHours != null && <>{it.spentHours}ч · </>}{queues[it.queue] || it.queue}</span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 font-black text-amber-600 dark:text-amber-400 shrink-0 w-12 justify-center"><Clock className="w-3 h-3" />{it.daysInWork}д</span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">{it.spentHours != null && <>{Math.round(it.spentHours)}ч · </>}{queues[it.queue] || it.queue}</span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 shrink-0 w-12 justify-center"><Clock className="w-3 h-3" />{it.daysInWork}д</span>
                 </div>
               ))}
             </CardContent>
@@ -468,7 +468,7 @@ export function IncidentsPage() {
                   <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0 inline-flex items-center gap-1">{it.key} <ExternalLink className="w-3 h-3" /></a>
                   <span className="flex-1 truncate text-foreground">{it.summary}</span>
                   <span className="text-[11px] text-muted-foreground shrink-0">{it.daysInWork != null && <>{it.daysInWork}д · </>}{queues[it.queue] || it.queue}</span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 font-black text-primary shrink-0 w-14 justify-center"><Hourglass className="w-3 h-3" />{it.spentHours}ч</span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary shrink-0 w-12 justify-center"><Hourglass className="w-3 h-3" />{Math.round(it.spentHours || 0)}ч</span>
                 </div>
               ))}
             </CardContent>
