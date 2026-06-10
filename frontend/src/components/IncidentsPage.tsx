@@ -157,7 +157,7 @@ export function IncidentsPage() {
   const [team, setTeam] = useState<string>("all")
   const [groupBy, setGroupBy] = useState<"cause" | "stack" | "priority" | "assignee">("cause")
   const [openGroup, setOpenGroup] = useState<string | null>(null)
-  const [monthSel, setMonthSel] = useState<string | null>(null)
+  const [sel, setSel] = useState<{ month: string; mode: "created" | "closed" } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [dates, setDates] = useState(() => ({ from: `${new Date().getFullYear()}-01-01`, to: fmtDate(new Date()) }))
   const [preset, setPreset] = useState("С начала года")
@@ -265,9 +265,16 @@ export function IncidentsPage() {
     return { total: items.length, crit, done, open: items.length - done, hours, rate }
   }, [items])
 
-  const monthList = useMemo(() => monthSel
-    ? items.filter(it => it.month === monthSel).sort((a, b) => (b.created || "").localeCompare(a.created || ""))
-    : [], [monthSel, items])
+  const modalList = useMemo(() => {
+    if (!sel) return []
+    const list = sel.mode === "closed"
+      ? teamItemsAll.filter(it => isResolved(it) && (it.resolved || "").slice(0, 7) === sel.month)
+      : teamItemsAll.filter(it => it.month === sel.month)
+    return list.sort((a, b) => {
+      const key = (x: Incident) => (sel.mode === "closed" ? x.resolved : x.created) || ""
+      return key(b).localeCompare(key(a))
+    })
+  }, [sel, teamItemsAll])
 
   const teamTabs: [string, string][] = [["all", "Все команды"], ...TEAM_ORDER.map(q => [q, queues[q] || q] as [string, string])]
 
@@ -408,10 +415,10 @@ export function IncidentsPage() {
                       ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl">
                           <b>{label}</b><br />создано: {payload.find((p: any) => p.dataKey === "created")?.value ?? 0} · закрыто: {payload.find((p: any) => p.dataKey === "closed")?.value ?? 0}
                         </div> : null} />
-                  <Bar dataKey="created" name="Создано" fill="#3B82F6" radius={[4, 4, 0, 0]} maxBarSize={34} style={{ cursor: "pointer" }} onClick={(d: any) => setMonthSel(d?.payload?.month)}>
+                  <Bar dataKey="created" name="Создано" fill="#3B82F6" radius={[4, 4, 0, 0]} maxBarSize={34} style={{ cursor: "pointer" }} onClick={(d: any) => d?.payload?.month && setSel({ month: d.payload.month, mode: "created" })}>
                     <LabelList dataKey="created" position="top" style={{ fontSize: 10, fontWeight: 700, fill: "#3B82F6" }} />
                   </Bar>
-                  <Bar dataKey="closed" name="Закрыто" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={34}>
+                  <Bar dataKey="closed" name="Закрыто" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={34} style={{ cursor: "pointer" }} onClick={(d: any) => d?.payload?.month && setSel({ month: d.payload.month, mode: "closed" })}>
                     <LabelList dataKey="closed" position="top" style={{ fontSize: 10, fontWeight: 700, fill: "#10B981" }} />
                   </Bar>
                 </BarChart>
@@ -514,13 +521,13 @@ export function IncidentsPage() {
         </>
       )}
 
-      <Modal open={!!monthSel} onClose={() => setMonthSel(null)}
-        title={`Инциденты · ${monthSel ? monLabel(monthSel) : ""}`}
-        subtitle={`${team === "all" ? "все команды" : (queues[team] || team)} · ${monthList.length} инц. · по ключу — в Трекер`} wide>
-        {monthList.length === 0 ? (
+      <Modal open={!!sel} onClose={() => setSel(null)}
+        title={`${sel?.mode === "closed" ? "Закрыто" : "Создано"} · ${sel ? monLabel(sel.month) : ""}`}
+        subtitle={`${team === "all" ? "все команды" : (queues[team] || team)} · ${modalList.length} инц. · ${sel?.mode === "closed" ? "по дате закрытия" : "по дате создания"} · по ключу — в Трекер`} wide>
+        {modalList.length === 0 ? (
           <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">Нет инцидентов</div>
         ) : (
-          <div className="space-y-1.5">{monthList.map(it => <IncidentRow key={it.key} it={it} queues={queues} />)}</div>
+          <div className="space-y-1.5">{modalList.map(it => <IncidentRow key={it.key} it={it} queues={queues} />)}</div>
         )}
       </Modal>
     </div>
