@@ -206,12 +206,17 @@ export function IncidentsPage() {
   }), [wl, monthsR, team])
   const avgShare = waveData.length ? Math.round(waveData.reduce((s, r) => s + r.pct, 0) / waveData.length) : 0
 
-  // СОЗДАНО vs ЗАВЕРШЕНО по месяцам (когорта по месяцу создания: решено/открыто)
-  const createdResolved = useMemo(() => monthsR.map(m => {
-    const cohort = items.filter(it => it.month === m)
-    const res = cohort.filter(isResolved).length
-    return { month: m, label: monLabel(m), resolved: res, open: cohort.length - res, total: cohort.length }
-  }), [items, monthsR])
+  // СОЗДАНО по месяцам — сколько инцидентов завели в каждом месяце (стек по командам)
+  const createdData = useMemo(() => monthsR.map(m => {
+    const row: Record<string, any> = { month: m, label: monLabel(m), total: 0 }
+    for (const q of teamQueues) {
+      const n = items.filter(it => it.month === m && it.queue === q).length
+      if (team === "all") row[q] = n
+      row.total += n
+    }
+    if (team !== "all") row.one = row.total
+    return row
+  }), [items, monthsR, team])
 
   // тренд: выбранный период к ПРЕДЫДУЩЕМУ такой же длины (текущий месяц не закончен)
   const trend = useMemo(() => {
@@ -380,11 +385,11 @@ export function IncidentsPage() {
             </CardContent>
           </Card>
 
-          {/* СОЗДАНО vs ЗАВЕРШЕНО */}
+          {/* СОЗДАНО по месяцам — сколько завели */}
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
             <CardHeader className="pb-1">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle>📊 Создано и завершено по месяцам</CardTitle>
+                <CardTitle>📊 Инцидентов создано по месяцам</CardTitle>
                 {trend && (
                   <span className={cn("text-xs font-bold inline-flex items-center gap-1", trend.delta > 0 ? "text-rose-500" : trend.delta < 0 ? "text-emerald-500" : "text-muted-foreground")}
                     title={`Выбранный период: ${trend.cur} · предыдущий равный (${trend.pf}–${trend.pt}): ${trend.prev}`}>
@@ -392,20 +397,28 @@ export function IncidentsPage() {
                   </span>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">Высота столбца = создано за месяц; 🟢 завершено / 🟡 открыто · всего завершаем {stats.rate}% · клик — список</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Сколько инцидентов завели в каждом месяце (по дате создания) · из них уже завершено {stats.done} из {stats.total} ({stats.rate}%) · клик по столбцу — список</p>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={createdResolved} margin={{ top: 16, right: 16, left: 0, bottom: 4 }} barSize={30}>
+                <BarChart data={createdData} margin={{ top: 16, right: 16, left: 0, bottom: 4 }} barSize={30}>
                   <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
                   <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
                     contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-                  <Bar dataKey="resolved" stackId="a" name="Завершено" fill="#10B981" style={{ cursor: "pointer" }} onClick={(d: any) => setMonthSel(d?.payload?.month)} />
-                  <Bar dataKey="open" stackId="a" name="Открыто" fill="#F59E0B" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }} onClick={(d: any) => setMonthSel(d?.payload?.month)}>
-                    <LabelList dataKey="total" position="top" style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
-                  </Bar>
+                  {team === "all" ? TEAM_ORDER.map((q, i) => (
+                    <Bar key={q} dataKey={q} stackId="a" name={queues[q] || q} fill={TEAM_COLOR[q]}
+                      radius={i === TEAM_ORDER.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} style={{ cursor: "pointer" }}
+                      onClick={(d: any) => setMonthSel(d?.payload?.month)}>
+                      {i === TEAM_ORDER.length - 1 && <LabelList dataKey="total" position="top" style={{ fontSize: 11, fontWeight: 800, fill: "hsl(var(--foreground))" }} />}
+                    </Bar>
+                  )) : (
+                    <Bar dataKey="one" name="Создано" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }} onClick={(d: any) => setMonthSel(d?.payload?.month)}>
+                      {createdData.map(r => <Cell key={r.month} fill={TEAM_COLOR[team] || "#EF4444"} />)}
+                      <LabelList dataKey="total" position="top" style={{ fontSize: 11, fontWeight: 800, fill: "hsl(var(--foreground))" }} />
+                    </Bar>
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
