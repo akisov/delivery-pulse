@@ -2796,6 +2796,33 @@ async def _improve_generate(team, month, criterion, score, dislike, suggestion, 
     desc = txt.split("===", 1)[1].strip() if "===" in txt else txt
     return summary, (desc or fallback_desc)
 
+@app.get("/diag/ai")
+async def diag_ai():
+    """Проверка LLM: какой провайдер/модель отвечает. Не раскрывает ключи."""
+    out = {"claudeKey": bool(CLAUDE_TOKEN), "claudeModel": CLAUDE_MODEL,
+           "mistralKey": bool(MISTRAL_API_KEY), "mistralModel": MISTRAL_MODEL,
+           "claude": None, "mistral": None}
+    # прямой пинг Claude (минуя fallback), чтобы увидеть реальный статус
+    if CLAUDE_TOKEN:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": CLAUDE_TOKEN, "anthropic-version": "2023-06-01",
+                             "content-type": "application/json"},
+                    json={"model": CLAUDE_MODEL, "max_tokens": 16, "temperature": 0,
+                          "messages": [{"role": "user", "content": "Ответь одним словом: пинг"}]})
+            if r.status_code == 200:
+                parts = r.json().get("content") or []
+                out["claude"] = {"ok": True, "reply": "".join(p.get("text", "") for p in parts).strip()[:50]}
+            else:
+                out["claude"] = {"ok": False, "status": r.status_code, "body": r.text[:300]}
+        except Exception as e:
+            out["claude"] = {"ok": False, "error": str(e)[:200]}
+    # какой провайдер реально используется приложением (через общий помощник)
+    out["active"] = await ai_complete("Ответь одним словом.", "Скажи: работает", max_tokens=16, temperature=0)
+    return JSONResponse(out)
+
 @app.get("/diag/issue")
 async def diag_issue(key: str = Query(...)):
     if not TRACKER_TOKEN:
