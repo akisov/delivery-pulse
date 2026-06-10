@@ -2098,6 +2098,8 @@ def _wl_type_label(display: str | None) -> str | None:
         return "Поддержка"
     if "story" in d or "работа по тз" in d or "по тз" in d:
         return "Story"
+    if d.strip() == "задача" or "task" in d:
+        return "Задача"
     return None
 
 async def run_osp_worklog_current(year: int):
