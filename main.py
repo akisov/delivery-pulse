@@ -1332,6 +1332,13 @@ async def data(
 
 SLE_SUB_QUEUES = "UDOSTAVKA, POOLING, DOSTAVKAPIKO"
 SLE_DONE_SUB = {"gotovoKRabote", "closed", "backlogKomandy", "produktovyjBacklog"}
+# Разбивка статусов подзадачи: завершено / не начато / (всё прочее = в работе).
+SLE_SUB_DONE = {"closed"}                                       # реально завершена
+SLE_SUB_NOTSTARTED = {"new", "open", "gotovoKRabote", "backlogKomandy", "produktovyjBacklog"}  # создана/в бэклоге — никто не работает
+def _sub_phase(status_key: str) -> str:
+    if status_key in SLE_SUB_DONE:       return "done"
+    if status_key in SLE_SUB_NOTSTARTED: return "todo"
+    return "working"                                            # inProgress, analyticalstudy, review, testing…
 SLE_QUERIES = {
     "current":    'Type: newFeature Queue: PUTKURERA Status: inProgress Putkurera."sle risk": notEmpty() "Sort by": Putkurera."sle risk" DESC',
     "historical": 'Type: newFeature Queue: PUTKURERA Status: zaverseno, analizRezults, closed Putkurera."sle risk": notEmpty() "Sort by": Putkurera."sle risk" DESC',
@@ -1404,7 +1411,14 @@ async def fetch_sle_tasks(which: str) -> dict:
         pk = p["key"]
         plist = subs_by_parent.get(pk, [])
         active = [s for s in plist if (s.get("status") or {}).get("key") not in SLE_DONE_SUB]
-        hidden_blocked = len(plist) > 0 and len(active) == 0
+        # фазы подзадач: завершено / в работе / не начато
+        phases = [_sub_phase((s.get("status") or {}).get("key", "")) for s in plist]
+        done_cnt = phases.count("done")
+        working_cnt = phases.count("working")
+        notstarted_cnt = phases.count("todo")
+        # «никто не работает» = есть подзадачи, но ни одной В РАБОТЕ (все либо завершены,
+        # либо не начаты: new/open/бэклог). new/open больше НЕ считаем активной работой.
+        hidden_blocked = len(plist) > 0 and working_cnt == 0
         sub_out, blocked_subs, blocked_details = [], [], []
         for s in plist:
             sk = s.get("key")
@@ -1437,9 +1451,10 @@ async def fetch_sle_tasks(which: str) -> dict:
         # Блок в активной подзадаче — сигнал при риске умеренный+
         if blocked_subs and at_risk:
             signals.append("Блок висит в подзадаче: " + ", ".join(blocked_subs))
-        # Нет активных подзадач (скрытая блокировка) — как в n8n, при ЛЮБОМ риске
-        if is_current and len(plist) > 0 and len(active) == 0:
-            signals.append("Нет активных подзадач — по задаче сейчас никто не работает")
+        # Никто не работает: есть подзадачи, но ни одной В РАБОТЕ (все завершены или
+        # не начаты — new/open/бэклог). При ЛЮБОМ риске SLE.
+        if is_current and len(plist) > 0 and working_cnt == 0:
+            signals.append("Никто не работает — есть подзадачи, но ни одной в работе")
         needs_attention = is_current and len(signals) > 0
         # кластеризуем только реально рисковые: нарушен/высокий, либо умеренный с блокерами.
         # низкий и умеренный без блокеров — ещё ничего не нарушено, кластер не присваиваем.
@@ -1478,12 +1493,15 @@ async def fetch_sle_tasks(which: str) -> dict:
             "subtasks": sub_out,
             "subCount": len(plist),
             "activeSubCount": len(active),
+            "doneSubCount": done_cnt,
+            "workingSubCount": working_cnt,
+            "notStartedSubCount": notstarted_cnt,
             "hiddenBlocked": hidden_blocked and which == "current",
         })
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 12  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 13  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:

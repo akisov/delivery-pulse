@@ -29,17 +29,41 @@ function riskRank(r: string) { return RISK_ORDER.indexOf(riskKey(r)) }
 
 interface Sub { key: string; summary: string; queue: string; status: string; statusKey?: string; isActive: boolean; url: string; blockings: { reason: string; status?: string }[] }
 
-const NOT_STARTED_KEYS = ["gotovoKRabote", "backlogKomandy", "produktovyjBacklog"]
+const NOT_STARTED_KEYS = ["new", "open", "gotovoKRabote", "backlogKomandy", "produktovyjBacklog"]
 function subPhase(s: Sub): { color: string; title: string } {
   if (s.statusKey === "closed") return { color: "#10B981", title: "завершена" }
   if (s.statusKey && NOT_STARTED_KEYS.includes(s.statusKey)) return { color: "#94A3B8", title: "не начата" }
   return { color: "#3B82F6", title: "в работе" }
+}
+// Сводка по подзадачам: завершено / в работе / не начато (с бэкенда, иначе из subtasks)
+function subStats(t: { subtasks: Sub[]; doneSubCount?: number; workingSubCount?: number; notStartedSubCount?: number }) {
+  if (t.doneSubCount != null)
+    return { done: t.doneSubCount, work: t.workingSubCount ?? 0, todo: t.notStartedSubCount ?? 0 }
+  let done = 0, work = 0, todo = 0
+  for (const s of t.subtasks) {
+    const ph = subPhase(s).title
+    if (ph === "завершена") done++; else if (ph === "не начата") todo++; else work++
+  }
+  return { done, work, todo }
+}
+function SubBreakdown({ t }: { t: SleTask }) {
+  if (!t.subCount) return <span className="text-muted-foreground/70">без подзадач</span>
+  const { done, work, todo } = subStats(t)
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="text-muted-foreground/80">{t.subCount} подзадач</span>
+      <span className="inline-flex items-center gap-1" title="завершено"><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#10B981" }} />{done}</span>
+      <span className="inline-flex items-center gap-1" title="в работе"><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#3B82F6" }} />{work}</span>
+      <span className="inline-flex items-center gap-1" title="не начато"><span className="w-1.5 h-1.5 rounded-full" style={{ background: "#94A3B8" }} />{todo}</span>
+    </span>
+  )
 }
 interface SleTask {
   key: string; summary: string; url: string; assignee: string; status: string
   sleRisk: string; sle: number | null; p70: number | null; effort: number | null
   jobCategory: string | null; deadline: string | null; daysInWork: number | null; end?: string | null
   subCount: number; activeSubCount: number; hiddenBlocked: boolean
+  doneSubCount?: number; workingSubCount?: number; notStartedSubCount?: number
   subtasks: Sub[]; cluster: string | null; clusterReason: string | null
   aiCluster?: string | null; overridden?: boolean; source?: string
   riskSignals?: string[]; needsAttention?: boolean; riskLevel?: string
@@ -212,8 +236,8 @@ function RiskTasksModal({ riskK, which, tasks, onClose }: { riskK: string | null
                     )}
                   </div>
                   <p className="text-sm text-foreground mt-1 leading-snug">{t.summary}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                    <Avatar name={t.assignee} size={14} /> {t.assignee} · подзадач {t.subCount} (активных {t.activeSubCount})
+                  <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <Avatar name={t.assignee} size={14} /> {t.assignee} · <SubBreakdown t={t} />
                   </p>
                 </div>
               </div>
@@ -278,8 +302,8 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
             )}
           </div>
           <p className="text-sm text-foreground mt-1 leading-snug">{t.summary}</p>
-          <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
-            <Avatar name={t.assignee} size={14} /> {t.assignee} · подзадач {t.subCount} (активных {t.activeSubCount})
+          <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <Avatar name={t.assignee} size={14} /> {t.assignee} · <SubBreakdown t={t} />
           </p>
 
           <div className="mt-2 flex items-start gap-2 flex-wrap">
@@ -544,13 +568,13 @@ export function SLEPage() {
               ⚠️ Требуют действий сейчас — {attentionTasks.length}
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Нет активных подзадач (никто не работает) или висит открытый блок в активной подзадаче — при любом риске SLE
+Никто не работает (есть подзадачи, но ни одной в работе — все завершены или не начаты) или висит открытый блок в активной подзадаче — при любом риске SLE
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
             {[
               { key: "block", title: "🔒 Блок в подзадаче", tasks: attentionTasks.filter(t => (t.blockedDetails?.length ?? 0) > 0) },
-              { key: "idle", title: "💤 Никто не работает — нет активных подзадач", tasks: attentionTasks.filter(t => !(t.blockedDetails?.length)) },
+              { key: "idle", title: "💤 Никто не работает — нет подзадач в работе", tasks: attentionTasks.filter(t => !(t.blockedDetails?.length)) },
             ].filter(s => s.tasks.length > 0).map(s => (
               <div key={s.key}>
                 <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-1.5">{s.title} — {s.tasks.length}</p>
