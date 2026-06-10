@@ -2802,6 +2802,17 @@ async def diag_issue(key: str = Query(...)):
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
+@app.get("/diag/field")
+async def diag_field(queue: str = Query("RKDS"), key: str = Query("team")):
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await tracker_request(client, "GET", f"/v2/queues/{queue}/localFields/{key}")
+        return JSONResponse(r)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
 @app.get("/diag/setteam")
 async def diag_setteam(key: str = Query(...), field: str = Query(...), val: str = Query(...)):
     """Тест: ставим значение поля и возвращаем сырой ответ Трекера (статус+тело)."""
