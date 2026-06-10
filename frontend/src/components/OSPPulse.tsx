@@ -282,7 +282,8 @@ export function OSPPulse({ queue, month: upTo, refreshKey }: { queue?: string; m
                           <textarea value={lowFb[c]?.suggestion || ""} onChange={e => setFb(c, "suggestion", e.target.value)}
                             placeholder="Предложение по улучшению" rows={2} className="w-full rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-primary/50 resize-y" />
                           <button onClick={() => genImprove(c)}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 h-8 text-xs font-semibold">
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 h-8 text-xs font-bold text-white shadow-[0_4px_16px_rgba(168,85,247,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_22px_rgba(168,85,247,0.55)]"
+                            style={{ background: "linear-gradient(90deg, #6C63FF 0%, #A855F7 50%, #EC4899 100%)" }}>
                             <Sparkles className="w-3.5 h-3.5" /> Предложить улучшение (AI)
                           </button>
                         </div>
