@@ -122,10 +122,18 @@ function IncidentRow({ it, queues, showCause = true }: { it: Incident; queues: R
         <Chip label={queues[it.queue] || it.queue} color={TEAM_COLOR[it.queue] || "#94A3B8"} />
         {!isResolved(it) && <span className="text-[10px] font-bold text-amber-500">● открыт</span>}
         <StackChips stack={it.stack} />
-        <span className="ml-auto text-[10px] text-muted-foreground whitespace-nowrap">
-          {it.daysInWork != null && <>в работе {it.daysInWork}д · </>}
-          {it.spentHours != null && <>{it.spentHours}ч · </>}
-          {it.created}
+        <span className="ml-auto flex items-center gap-1.5 whitespace-nowrap">
+          {it.daysInWork != null && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-black text-amber-600 dark:text-amber-400" title="дней в работе">
+              <Clock className="w-3 h-3" />{it.daysInWork}д
+            </span>
+          )}
+          {it.spentHours != null && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-black text-primary" title="залогировано часов">
+              <Hourglass className="w-3 h-3" />{it.spentHours}ч
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground">{it.created}</span>
         </span>
       </div>
       <p className="text-xs text-foreground mt-1 leading-snug">{it.summary}</p>
