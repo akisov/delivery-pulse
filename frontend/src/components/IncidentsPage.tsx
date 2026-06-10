@@ -252,12 +252,12 @@ export function IncidentsPage() {
   const maxGroup = Math.max(1, ...groups.map(g => g.count))
 
   // топы
-  const topDays = useMemo(() => items.filter(i => i.daysInWork != null).slice().sort((a, b) => (b.daysInWork || 0) - (a.daysInWork || 0)).slice(0, 5), [items])
-  const topHours = useMemo(() => items.filter(i => i.spentHours != null).slice().sort((a, b) => (b.spentHours || 0) - (a.spentHours || 0)).slice(0, 5), [items])
+  const topDays = useMemo(() => items.filter(i => i.daysInWork != null).slice().sort((a, b) => (b.daysInWork || 0) - (a.daysInWork || 0)).slice(0, 10), [items])
+  const topHours = useMemo(() => items.filter(i => i.spentHours != null).slice().sort((a, b) => (b.spentHours || 0) - (a.spentHours || 0)).slice(0, 10), [items])
   const topCauses = useMemo(() => {
     const m = new Map<string, number>()
     for (const it of items) { const c = clusterOf(it.cause); m.set(c, (m.get(c) || 0) + 1) }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10)
   }, [items, clusterMap])
 
   // сводка
@@ -424,47 +424,55 @@ export function IncidentsPage() {
             </CardContent>
           </Card>
 
-          {/* ТОПЫ */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><Clock className="w-4 h-4 text-amber-500" /> Дольше всех в работе</CardTitle></CardHeader>
-              <CardContent className="space-y-1.5">
-                {topDays.length === 0 && <span className="text-xs text-muted-foreground/60">нет данных</span>}
-                {topDays.map(it => (
-                  <div key={it.key} className="flex items-center gap-2 text-xs">
-                    <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0">{it.key}</a>
-                    <span className="flex-1 truncate text-muted-foreground">{it.summary}</span>
-                    <span className="font-black text-amber-500 shrink-0">{it.daysInWork}д</span>
+          {/* ТОПЫ — каждый блок на всю ширину */}
+          <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
+            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><Clock className="w-4 h-4 text-amber-500" /> Дольше всех в работе — топ 10</CardTitle></CardHeader>
+            <CardContent className="space-y-1">
+              {topDays.length === 0 && <span className="text-xs text-muted-foreground/60">нет данных</span>}
+              {topDays.map((it, i) => (
+                <div key={it.key} className="flex items-center gap-2.5 text-xs rounded-md px-1.5 py-1 hover:bg-accent/30 transition-colors">
+                  <span className="w-4 text-right text-muted-foreground/50 font-bold shrink-0">{i + 1}</span>
+                  <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0 inline-flex items-center gap-1">{it.key} <ExternalLink className="w-3 h-3" /></a>
+                  <span className="flex-1 truncate text-foreground">{it.summary}</span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">{it.spentHours != null && <>{it.spentHours}ч · </>}{queues[it.queue] || it.queue}</span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 font-black text-amber-600 dark:text-amber-400 shrink-0 w-12 justify-center"><Clock className="w-3 h-3" />{it.daysInWork}д</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
+            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><Hourglass className="w-4 h-4 text-primary" /> Самые трудозатратные — топ 10</CardTitle></CardHeader>
+            <CardContent className="space-y-1">
+              {topHours.length === 0 && <span className="text-xs text-muted-foreground/60">нет данных</span>}
+              {topHours.map((it, i) => (
+                <div key={it.key} className="flex items-center gap-2.5 text-xs rounded-md px-1.5 py-1 hover:bg-accent/30 transition-colors">
+                  <span className="w-4 text-right text-muted-foreground/50 font-bold shrink-0">{i + 1}</span>
+                  <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0 inline-flex items-center gap-1">{it.key} <ExternalLink className="w-3 h-3" /></a>
+                  <span className="flex-1 truncate text-foreground">{it.summary}</span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">{it.daysInWork != null && <>{it.daysInWork}д · </>}{queues[it.queue] || it.queue}</span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 font-black text-primary shrink-0 w-14 justify-center"><Hourglass className="w-3 h-3" />{it.spentHours}ч</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
+            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><Tag className="w-4 h-4 text-rose-400" /> Частые причины (AI-кластеры) — топ 10</CardTitle></CardHeader>
+            <CardContent className="space-y-1">
+              {topCauses.length === 0 && <span className="text-xs text-muted-foreground/60">нет данных</span>}
+              {topCauses.map(([c, n], i) => (
+                <div key={c} className="flex items-center gap-2.5 text-xs rounded-md px-1.5 py-1 hover:bg-accent/30 transition-colors">
+                  <span className="w-4 text-right text-muted-foreground/50 font-bold shrink-0">{i + 1}</span>
+                  <span className="flex-1 truncate text-foreground">{c}</span>
+                  <div className="hidden sm:block w-40 h-1.5 rounded-full bg-secondary overflow-hidden shrink-0">
+                    <div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.round(n / (topCauses[0]?.[1] || 1) * 100)}%` }} />
                   </div>
-                ))}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><Hourglass className="w-4 h-4 text-primary" /> Самые трудозатратные</CardTitle></CardHeader>
-              <CardContent className="space-y-1.5">
-                {topHours.length === 0 && <span className="text-xs text-muted-foreground/60">нет данных</span>}
-                {topHours.map(it => (
-                  <div key={it.key} className="flex items-center gap-2 text-xs">
-                    <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0">{it.key}</a>
-                    <span className="flex-1 truncate text-muted-foreground">{it.summary}</span>
-                    <span className="font-black text-primary shrink-0">{it.spentHours}ч</span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><Tag className="w-4 h-4 text-rose-400" /> Частые причины</CardTitle></CardHeader>
-              <CardContent className="space-y-1.5">
-                {topCauses.length === 0 && <span className="text-xs text-muted-foreground/60">нет данных</span>}
-                {topCauses.map(([c, n]) => (
-                  <div key={c} className="flex items-center gap-2 text-xs">
-                    <span className="flex-1 truncate text-foreground">{c}</span>
-                    <span className="font-black text-rose-400 shrink-0">{n}</span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </div>
+                  <span className="font-black text-rose-400 shrink-0 w-8 text-right">{n}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
 
           {/* Разбор по группам */}
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
