@@ -12,6 +12,29 @@ const RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл"
 function mlabel(m: string) { const [y, mo] = m.split("-"); return `${RU[+mo - 1]} ${y.slice(2)}` }
 const SCORE_COLORS: Record<number, string> = { 1: "#EF4444", 2: "#F97316", 3: "#EAB308", 4: "#84CC16", 5: "#10B981" }
 const SCORE_EMOJI: Record<number, string> = { 1: "💀", 2: "🩸", 3: "😐", 4: "⭐", 5: "🌟" }
+
+// рендер **жирного** в строке
+function renderInline(s: string) {
+  return s.split(/\*\*/).map((p, i) => i % 2 === 1
+    ? <strong key={i} className="font-bold text-foreground">{p}</strong>
+    : <span key={i}>{p}</span>)
+}
+// превью markdown-описания (жирные заголовки секций + списки)
+function MdBlock({ text }: { text: string }) {
+  return (
+    <div className="space-y-1 text-sm leading-relaxed text-foreground">
+      {text.split("\n").map((line, i) => {
+        if (!line.trim()) return <div key={i} className="h-1.5" />
+        const bullet = /^\s*([*\-•✅✔️🔹·]|\d+[.)])\s+/.test(line)
+        const content = line.replace(/^\s*([*\-•·]|\d+[.)])\s+/, "")
+        return <div key={i} className={cn("flex gap-2", bullet && "pl-3")}>
+          {bullet && <span className="text-primary shrink-0">•</span>}
+          <span>{renderInline(content)}</span>
+        </div>
+      })}
+    </div>
+  )
+}
 // частицы, разлетающиеся при выборе оценки
 const PARTICLES: Record<number, { e: string; x: number; d: number; s: string }[]> = {
   1: [{ e: "💀", x: 30, d: 0, s: "1.2rem" }, { e: "💀", x: 62, d: .1, s: "1rem" }, { e: "🩸", x: 46, d: .05, s: "1.1rem" }],
@@ -100,6 +123,7 @@ export function OSPPulse({ queue, month: upTo, refreshKey }: { queue?: string; m
   const [impLoading, setImpLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [created, setCreated] = useState<{ key?: string; url?: string; error?: string } | null>(null)
+  const [descTab, setDescTab] = useState<"edit" | "preview">("preview")
   const setFb = (c: string, k: "dislike" | "suggestion", v: string) =>
     setLowFb(s => ({ ...s, [c]: { dislike: "", suggestion: "", ...s[c], [k]: v } }))
   const genImprove = async (c: string) => {
@@ -337,9 +361,24 @@ export function OSPPulse({ queue, month: upTo, refreshKey }: { queue?: string; m
                 className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-2 text-base text-foreground outline-none focus:border-primary/50" />
             </div>
             <div>
-              <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Описание (гипотеза)</label>
-              <textarea value={impData.description} onChange={e => setImpData(d => d && ({ ...d, description: e.target.value }))}
-                rows={16} className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 resize-y leading-relaxed" />
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Описание (гипотеза)</label>
+                <div className="flex gap-1 bg-secondary/60 rounded-lg p-0.5">
+                  {([["preview", "👁 Превью"], ["edit", "✏️ Текст"]] as const).map(([v, l]) => (
+                    <button key={v} onClick={() => setDescTab(v)}
+                      className={cn("px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all",
+                        descTab === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>{l}</button>
+                  ))}
+                </div>
+              </div>
+              {descTab === "edit" ? (
+                <textarea value={impData.description} onChange={e => setImpData(d => d && ({ ...d, description: e.target.value }))}
+                  rows={16} className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 resize-y leading-relaxed" />
+              ) : (
+                <div className="w-full mt-1 rounded-lg border border-border bg-card px-3 py-3 max-h-[50vh] overflow-auto">
+                  <MdBlock text={impData.description} />
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-end gap-2">
               <button onClick={() => setImpCrit(null)} className="rounded-lg border border-border bg-card px-4 h-9 text-sm font-semibold text-muted-foreground hover:text-foreground">Отмена</button>
