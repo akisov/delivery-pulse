@@ -158,6 +158,7 @@ export function IncidentsPage() {
   const [groupBy, setGroupBy] = useState<"cause" | "stack" | "priority" | "assignee">("cause")
   const [openGroup, setOpenGroup] = useState<string | null>(null)
   const [sel, setSel] = useState<{ month: string; mode: "created" | "closed" } | null>(null)
+  const [statSel, setStatSel] = useState<"all" | "crit" | "open" | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [dates, setDates] = useState(() => ({ from: `${new Date().getFullYear()}-01-01`, to: fmtDate(new Date()) }))
   const [preset, setPreset] = useState("С начала года")
@@ -265,6 +266,14 @@ export function IncidentsPage() {
     return { total: items.length, crit, done, open: items.length - done, hours, rate }
   }, [items])
 
+  const statList = useMemo(() => {
+    if (!statSel) return []
+    const l = statSel === "crit" ? items.filter(it => it.priorityKey === "critical" || it.priorityKey === "blocker")
+      : statSel === "open" ? items.filter(it => !isResolved(it))
+      : items
+    return l.slice().sort((a, b) => (b.created || "").localeCompare(a.created || ""))
+  }, [statSel, items])
+
   const modalList = useMemo(() => {
     if (!sel) return []
     const list = sel.mode === "closed"
@@ -344,16 +353,18 @@ export function IncidentsPage() {
         <>
           {/* Сводка */}
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            {[
-              { label: "Всего инцидентов", value: stats.total, color: "text-foreground" },
-              { label: "Критичных", value: stats.crit, color: "text-rose-500" },
-              { label: "Открытых", value: stats.open, color: "text-amber-500" },
+            {([
+              { label: "Всего инцидентов", value: stats.total, color: "text-foreground", kind: "all" as const },
+              { label: "Критичных", value: stats.crit, color: "text-rose-500", kind: "crit" as const },
+              { label: "Открытых", value: stats.open, color: "text-amber-500", kind: "open" as const },
               { label: "% завершено", value: `${stats.rate}%`, color: "text-emerald-500" },
               { label: "% времени (ср.)", value: `${avgShare}%`, color: "text-primary" },
               { label: "Часов суммарно", value: stats.hours, color: "text-foreground" },
-            ].map(s => (
-              <div key={s.label} className="rounded-xl border border-border bg-card px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(108,99,255,0.1)]">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{s.label}</p>
+            ] as { label: string; value: any; color: string; kind?: "all" | "crit" | "open" }[]).map(s => (
+              <div key={s.label} onClick={s.kind ? () => setStatSel(s.kind!) : undefined}
+                className={cn("rounded-xl border border-border bg-card px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(108,99,255,0.1)]",
+                  s.kind && "cursor-pointer hover:border-primary/40")}>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{s.label}{s.kind && " ›"}</p>
                 <p className={cn("text-2xl font-black tracking-tight leading-none mt-1", s.color)}>{s.value}</p>
               </div>
             ))}
@@ -528,6 +539,16 @@ export function IncidentsPage() {
           <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">Нет инцидентов</div>
         ) : (
           <div className="space-y-1.5">{modalList.map(it => <IncidentRow key={it.key} it={it} queues={queues} />)}</div>
+        )}
+      </Modal>
+
+      <Modal open={!!statSel} onClose={() => setStatSel(null)}
+        title={{ all: "Все инциденты", crit: "Критичные инциденты", open: "Открытые инциденты" }[statSel || "all"]}
+        subtitle={`${team === "all" ? "все команды" : (queues[team] || team)} · ${statList.length} инц. · за период · по ключу — в Трекер`} wide>
+        {statList.length === 0 ? (
+          <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">Нет инцидентов</div>
+        ) : (
+          <div className="space-y-1.5">{statList.map(it => <IncidentRow key={it.key} it={it} queues={queues} />)}</div>
         )}
       </Modal>
     </div>
