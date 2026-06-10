@@ -15,7 +15,51 @@ TURSO_URL     = os.environ.get("TURSO_URL", "").replace("libsql://", "https://")
 TURSO_TOKEN   = os.environ.get("TURSO_TOKEN", "")
 MISTRAL_API_KEY = os.environ.get("MISTRAL_TOKEN", "") or os.environ.get("MISTRAL_API_KEY", "")
 MISTRAL_MODEL   = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
+CLAUDE_TOKEN    = os.environ.get("CLAUDE_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+CLAUDE_MODEL    = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+AI_ENABLED      = bool(CLAUDE_TOKEN or MISTRAL_API_KEY)
 PRACTICE_URL    = "https://evawiki.int.vkusvill.ru/project/Document/DOC-037888#analiz-blokirovok"
+
+
+async def ai_complete(system: str, user: str, *, max_tokens: int = 400,
+                      temperature: float = 0.3) -> str | None:
+    """Единый вызов LLM. Приоритет — Claude (CLAUDE_TOKEN); при ошибке/отсутствии
+    откатывается на Mistral. Возвращает текст ответа или None."""
+    # 1) Claude (Anthropic Messages API)
+    if CLAUDE_TOKEN:
+        try:
+            async with httpx.AsyncClient(timeout=40) as client:
+                r = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": CLAUDE_TOKEN,
+                             "anthropic-version": "2023-06-01",
+                             "content-type": "application/json"},
+                    json={"model": CLAUDE_MODEL, "max_tokens": max_tokens,
+                          "temperature": temperature, "system": system,
+                          "messages": [{"role": "user", "content": user}]})
+                r.raise_for_status()
+                parts = r.json().get("content") or []
+                txt = "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip()
+                if txt:
+                    return txt
+        except Exception as e:
+            print(f"[claude] {e}; fallback to mistral")
+    # 2) Mistral (fallback)
+    if MISTRAL_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=40) as client:
+                r = await client.post(
+                    "https://api.mistral.ai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"},
+                    json={"model": MISTRAL_MODEL,
+                          "messages": [{"role": "system", "content": system},
+                                       {"role": "user", "content": user}],
+                          "temperature": temperature, "max_tokens": max_tokens})
+                r.raise_for_status()
+                return (r.json()["choices"][0]["message"]["content"] or "").strip()
+        except Exception as e:
+            print(f"[mistral] {e}")
+    return None
 
 # Кратко суть внутренней практики «Анализ (кластеризация) блокировок» — чтобы AI
 # опирался на неё в рекомендациях.
@@ -1132,7 +1176,7 @@ def build_template(f: dict) -> str:
     return " ".join(parts)
 
 async def mistral_insight(f: dict) -> str | None:
-    if not MISTRAL_API_KEY or not f["totalBlockings"]:
+    if not AI_ENABLED or not f["totalBlockings"]:
         return None
     lines = [
         f"Очередь: {f['queue']}. Период: {f['dateFrom']}–{f['dateTo']}.",
@@ -1169,19 +1213,7 @@ async def mistral_insight(f: dict) -> str | None:
         "ТОН: просто и по-человечески, как объясняешь коллеге за кофе. Короткие живые фразы, без канцелярита. "
         "Например: «у вас не хватает людей», «договоритесь с командой X, чтобы отвечали быстрее», «задачи мешают друг другу».\n\n"
         + PRACTICE_BRIEF + "\n\n" + DOMAIN_NOTES)
-    body = {"model": MISTRAL_MODEL,
-            "messages": [{"role": "system", "content": system},
-                         {"role": "user", "content": facts_txt}],
-            "temperature": 0.25, "max_tokens": 300}
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post("https://api.mistral.ai/v1/chat/completions",
-                                  headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
-            r.raise_for_status()
-            return (r.json()["choices"][0]["message"]["content"] or "").strip()
-    except Exception as e:
-        print(f"[mistral] {e}")
-        return None
+    return await ai_complete(system, facts_txt, max_tokens=300, temperature=0.25)
 
 @app.get("/insight-summary")
 async def insight_summary(
@@ -1583,7 +1615,7 @@ async def classify_sle_task(client, t: dict) -> dict:
 
     # ИИ пишет только человеческое пояснение под уже выбранный кластер
     reason = None
-    if MISTRAL_API_KEY:
+    if AI_ENABLED:
         system = (
             f"Причина нарушения SLE для этой задачи уже определена как: «{cluster}». "
             "Напиши РОВНО ОДНО короткое предложение на русском, почему так, простым человеческим языком, "
@@ -1594,16 +1626,9 @@ async def classify_sle_task(client, t: dict) -> dict:
             "этот этап ЗАВЕРШЁН, а НЕ что задача чего-то ждёт — не делай вывод о блокировке из названия статуса. "
             "Если конкретики нет — скажи общими словами. Без вступлений."
         )
-        body = {"model": MISTRAL_MODEL,
-                "messages": [{"role": "system", "content": system}, {"role": "user", "content": facts}],
-                "temperature": 0.3, "max_tokens": 120}
-        try:
-            r = await client.post("https://api.mistral.ai/v1/chat/completions",
-                                  headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
-            r.raise_for_status()
-            reason = (r.json()["choices"][0]["message"]["content"] or "").strip().replace("*", "")
-        except Exception as e:
-            print(f"[sle-cluster] {e}")
+        txt = await ai_complete(system, facts, max_tokens=120, temperature=0.3)
+        if txt:
+            reason = txt.replace("*", "")
     return {"cluster": cluster, "reason": reason}
 
 @app.get("/sle-clusters")
@@ -2645,7 +2670,7 @@ async def _osp_blocking_days(q: str, ym: str) -> int:
     return total
 
 async def _osp_ai_summary_build(team: str, month: str) -> str | None:
-    if not MISTRAL_API_KEY:
+    if not AI_ENABLED:
         return None
     prev = _prev_month(month)
     deliv = await _osp_snap(f"6-v{OSP_SNAPSHOT_VERSION}")
@@ -2697,18 +2722,7 @@ async def _osp_ai_summary_build(team: str, month: str) -> str | None:
         "— 2–4 пункта, каждый одно живое предложение, по-человечески, без канцелярита и без вступления.\n"
         "Только на основе чисел, ничего не выдумывай. Если данных мало — скажи одним пунктом."
     )
-    body = {"model": MISTRAL_MODEL,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": facts}],
-            "temperature": 0.3, "max_tokens": 320}
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post("https://api.mistral.ai/v1/chat/completions",
-                                  headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
-            r.raise_for_status()
-            return (r.json()["choices"][0]["message"]["content"] or "").strip()
-    except Exception as e:
-        print(f"[osp-ai] {e}")
-        return None
+    return await ai_complete(system, facts, max_tokens=320, temperature=0.3)
 
 @app.get("/osp-ai-summary")
 async def osp_ai_summary(team: str = Query(...), month: str = Query(...), refresh: bool = Query(False)):
@@ -2753,7 +2767,7 @@ async def _improve_generate(team, month, criterion, score, dislike, suggestion, 
     fallback_sum = (suggestion or dislike or f"Улучшение: {criterion}")[:90]
     fallback_desc = (f"### Мы полагаем, что\n{suggestion or '…'}\n\n### Приведёт к\n…\n\n"
                      f"### Если мы были правы, то увидим\n- …\n\n### Чтобы проверить, нужно сделать\n- …")
-    if not MISTRAL_API_KEY:
+    if not AI_ENABLED:
         return fallback_sum, fallback_desc
     system = (
         "Ты помогаешь продакту команды курьеров оформить гипотезу улучшения процесса. "
@@ -2774,22 +2788,13 @@ async def _improve_generate(team, month, criterion, score, dislike, suggestion, 
             f"Что не нравится: {dislike or '—'}\n"
             f"Предложение продакта: {suggestion or '—'}\n"
             f"Метрики команды:\n{ctx}")
-    body = {"model": MISTRAL_MODEL,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "temperature": 0.4, "max_tokens": 600}
-    try:
-        async with httpx.AsyncClient(timeout=40) as client:
-            r = await client.post("https://api.mistral.ai/v1/chat/completions",
-                                  headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"}, json=body)
-            r.raise_for_status()
-            txt = (r.json()["choices"][0]["message"]["content"] or "").strip()
-        m = re.search(r"ЗАГОЛОВОК:\s*(.+)", txt)
-        summary = (m.group(1).strip() if m else fallback_sum)[:120]
-        desc = txt.split("===", 1)[1].strip() if "===" in txt else txt
-        return summary, (desc or fallback_desc)
-    except Exception as e:
-        print(f"[osp-improve gen] {e}")
+    txt = await ai_complete(system, user, max_tokens=600, temperature=0.4)
+    if not txt:
         return fallback_sum, fallback_desc
+    m = re.search(r"ЗАГОЛОВОК:\s*(.+)", txt)
+    summary = (m.group(1).strip() if m else fallback_sum)[:120]
+    desc = txt.split("===", 1)[1].strip() if "===" in txt else txt
+    return summary, (desc or fallback_desc)
 
 @app.get("/diag/issue")
 async def diag_issue(key: str = Query(...)):
