@@ -2851,6 +2851,37 @@ def _apply_team_overrides(snap: dict, overrides: list) -> dict:
             tl.sort(key=lambda x: -(x.get("total", 0) or 0))
     return snap
 
+@app.get("/osp-sle/suggest")
+async def osp_sle_suggest(months: int = Query(6)):
+    """Предложить SLE-пороги по факту: 85-й перцентиль «дней в работе» (LT) и «часов»
+    закрытых задач за последние N месяцев, по команде × категории."""
+    months = max(1, min(int(months or 6), 24))
+    snap = await _osp_snap(f"sle-{months}-v3")
+    items = (snap or {}).get("items") or []
+    if not items:
+        return JSONResponse({"ok": False, "error": "Нет данных SLE за период — сначала обновите блок «Попадание в SLE»."})
+
+    def p85(vals):
+        vals = sorted(v for v in vals if v is not None)
+        if not vals:
+            return None
+        k = max(0, (85 * len(vals) + 99) // 100 - 1)  # nearest-rank P85
+        return vals[min(k, len(vals) - 1)]
+
+    cats_for = {"incident": ["incident"], "tech": ["techDebt", "techImpr"], "story": ["story"]}
+    sle = {}
+    n_used = 0
+    for q in OSP_QUEUES:
+        sle[q] = {}
+        for thr, cats in cats_for.items():
+            sub = [it for it in items if it.get("queue") == q and it.get("cat") in cats]
+            n_used += len(sub)
+            lt = p85([it.get("days") for it in sub])
+            hr = p85([it.get("hours") for it in sub])
+            sle[q][thr] = {"lt": round(lt) if lt is not None else 0,
+                           "hours": round(hr) if hr is not None else 0}
+    return JSONResponse({"ok": True, "sle": sle, "months": months, "tasks": n_used})
+
 @app.get("/osp-sle")
 async def osp_sle(months: int = Query(6), refresh: bool = Query(False)):
     """Попадание в SLE: доля завершённых задач, уложившихся в порог по LT (дни в работе)

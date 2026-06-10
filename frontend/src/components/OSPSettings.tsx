@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Plus, Save, Check, Users, Target, Search, AlertTriangle, X, UserPlus } from "lucide-react"
+import { Plus, Save, Check, Users, Target, Search, AlertTriangle, X, UserPlus, Sparkles, RefreshCw } from "lucide-react"
 import { Modal } from "@/components/ui/modal"
 import { cn } from "@/lib/utils"
 
@@ -166,6 +166,26 @@ export function OSPSettings({ open, onClose, onSaved, months, month, queues }: {
     setDraft(prev => ({ ...prev, [q]: { ...prev[q], [gkey]: { ...prev[q][gkey], [field]: Number(val) || 0 } } }))
   }
 
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestNote, setSuggestNote] = useState("")
+  const suggestSle = async () => {
+    setSuggesting(true); setSuggestNote(""); setError(null)
+    try {
+      const r = await fetch("/osp-sle/suggest?months=6").then(r => r.json())
+      if (!r.ok) { setError(r.error || "Не удалось подобрать пороги"); return }
+      const next: SleMap = {}
+      for (const q of QUEUE_ORDER) {
+        next[q] = {}
+        for (const g of SLE_GROUPS) {
+          const v = r.sle?.[q]?.[g.key] || { lt: 0, hours: 0 }
+          next[q][g.key] = { lt: Number(v.lt) || 0, hours: Number(v.hours) || 0 }
+        }
+      }
+      setDraft(next)
+      setSuggestNote(`Подобрано по 85-му перцентилю «дней в работе» и «часов» закрытых задач за 6 мес (${r.tasks} задач). Проверь и сохрани.`)
+    } catch (e) { setError(String(e)) } finally { setSuggesting(false) }
+  }
+
   const save = async () => {
     setSaving(true); setError(null); setSaved(false)
     // версии SLE: заменяем версию с тем же from или добавляем новую
@@ -222,6 +242,18 @@ export function OSPSettings({ open, onClose, onSaved, months, month, queues }: {
 
           {tab === "sle" ? (
             <div className="space-y-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <button onClick={suggestSle} disabled={suggesting}
+                  className="relative inline-flex items-center gap-2 rounded-xl px-4 h-9 text-xs font-bold text-white shadow-[0_4px_16px_rgba(168,85,247,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_22px_rgba(168,85,247,0.55)] disabled:opacity-60"
+                  style={{ background: "linear-gradient(90deg, #6C63FF 0%, #A855F7 50%, #EC4899 100%)" }}>
+                  {suggesting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {suggesting ? "Считаю по факту…" : "Пересчитать с AI (P85)"}
+                </button>
+                <span className="text-[11px] text-muted-foreground">подберёт пороги по 85-му перцентилю закрытых задач за 6 мес</span>
+              </div>
+              {suggestNote && (
+                <div className="rounded-lg border border-primary/30 bg-primary/[0.06] px-3 py-2 text-[11px] text-foreground">✨ {suggestNote}</div>
+              )}
               {QUEUE_ORDER.filter(q => draft[q]).map(q => (
                 <div key={q} className="rounded-xl border border-border bg-card p-3">
                   <h4 className="text-xs font-black uppercase tracking-wide text-foreground mb-2">{qName(q)}</h4>
