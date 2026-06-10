@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Cell,
 } from "recharts"
-import { AlertTriangle, RefreshCw, ExternalLink, Layers, Tag, ChevronDown, ChevronUp, Clock } from "lucide-react"
+import { AlertTriangle, RefreshCw, ExternalLink, Layers, Tag, ChevronDown, ChevronUp, Flame, User, Sparkles } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
@@ -32,6 +32,60 @@ interface Incident {
 interface Resp {
   ok: boolean; error?: string; queues: Record<string, string>
   months: string[]; items: Incident[]; updatedAt?: string
+}
+
+function renderMd(s: string) {
+  return s.split(/\*\*/).map((p, i) => i % 2 === 1
+    ? <strong key={i} className="font-bold text-foreground">{p}</strong>
+    : <span key={i}>{p}</span>)
+}
+
+// AI-сводка по инцидентам (Claude)
+function IncidentsAI({ team, refreshKey }: { team: string; refreshKey: number }) {
+  const [summary, setSummary] = useState<string>("")
+  const [loading, setLoading] = useState(false)
+  const load = (refresh = false) => {
+    setLoading(true)
+    fetch(`/incidents-ai?team=${team}&months=12${refresh ? "&refresh=true" : ""}`)
+      .then(r => r.json()).then((d: any) => setSummary(d?.summary || ""))
+      .catch(() => setSummary("")).finally(() => setLoading(false))
+  }
+  useEffect(() => { setSummary(""); load() }, [team])
+  useEffect(() => { if (refreshKey) load(true) }, [refreshKey])
+  const lines = (summary || "").split("\n").map(s => s.trim()).filter(Boolean)
+  if (!loading && !summary) return null
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-5 shadow-[0_0_32px_rgba(108,99,255,0.12)]">
+      <div className="pointer-events-none absolute -top-12 -right-12 h-40 w-40 rounded-full bg-primary/20 blur-3xl" />
+      <div className="relative flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/20"><Sparkles className="h-5 w-5 text-primary" /></div>
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-widest text-primary">AI-сводка по инцидентам</span>
+            <span className="text-[10px] text-muted-foreground">· Claude + ваши данные</span>
+            <button onClick={() => load(true)} disabled={loading} title="Пересобрать вывод"
+              className="ml-auto text-muted-foreground/60 transition-colors hover:text-primary">
+              <RefreshCw className={loading ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+            </button>
+          </div>
+          {loading ? (
+            <div className="space-y-2 py-0.5">
+              <div className="h-3.5 w-3/4 animate-pulse rounded bg-muted" />
+              <div className="h-3.5 w-2/3 animate-pulse rounded bg-muted" />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {lines.map((l, i) => (
+                <div key={i} className="flex gap-2 text-sm leading-relaxed text-foreground animate-fade-in-up" style={{ animationDelay: `${i * 0.05}s` }}>
+                  <span>{renderMd(l.replace(/^[•\-*]\s*/, ""))}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function Chip({ label, color, dim }: { label: string; color: string; dim?: boolean }) {
@@ -82,9 +136,10 @@ export function IncidentsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [team, setTeam] = useState<string>("all")
-  const [groupBy, setGroupBy] = useState<"cause" | "stack">("cause")
+  const [groupBy, setGroupBy] = useState<"cause" | "stack" | "priority" | "assignee">("cause")
   const [openGroup, setOpenGroup] = useState<string | null>(null)
   const [monthSel, setMonthSel] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const load = (refresh = false) => {
     setLoading(true); setError(null)
@@ -119,19 +174,17 @@ export function IncidentsPage() {
     return { cur, prev, delta: cur - prev }
   }, [chartData])
 
-  // группировка по причине / стеку
+  // группировка по причине / стеку / приоритету / исполнителю
   const groups = useMemo(() => {
     const totalCount = items.length || 1
     const totalHours = items.reduce((s, it) => s + (it.spentHours || 0), 0) || 1
     const map = new Map<string, Incident[]>()
+    const push = (k: string, it: Incident) => (map.get(k) || map.set(k, []).get(k)!).push(it)
     for (const it of items) {
-      if (groupBy === "cause") {
-        const k = it.cause || "— не указана"
-        ;(map.get(k) || map.set(k, []).get(k)!).push(it)
-      } else {
-        const keys = it.stack?.length ? it.stack : ["— без стека"]
-        for (const k of keys) (map.get(k) || map.set(k, []).get(k)!).push(it)
-      }
+      if (groupBy === "cause") push(it.cause || "— не указана", it)
+      else if (groupBy === "priority") push(it.priority || "— без приоритета", it)
+      else if (groupBy === "assignee") push(it.assignee || "— без исполнителя", it)
+      else { const keys = it.stack?.length ? it.stack : ["— без стека"]; for (const k of keys) push(k, it) }
     }
     return Array.from(map.entries()).map(([key, list]) => {
       const hours = list.reduce((s, it) => s + (it.spentHours || 0), 0)
@@ -172,7 +225,7 @@ export function IncidentsPage() {
             {resp?.updatedAt && <span className="ml-1">· обновлено: {resp.updatedAt}</span>}
           </p>
         </div>
-        <button onClick={() => load(true)} disabled={loading} title="Пересчитать заново"
+        <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading} title="Пересчитать заново"
           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
         </button>
@@ -193,6 +246,9 @@ export function IncidentsPage() {
           ))}
         </div>
       </div>
+
+      {/* AI-сводка по инцидентам (Claude) */}
+      {!loading && resp && <IncidentsAI team={team} refreshKey={refreshKey} />}
 
       {loading ? (
         <div className="space-y-4">
@@ -262,8 +318,8 @@ export function IncidentsPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle>🧩 Разбор инцидентов</CardTitle>
-                <div className="flex gap-1 bg-secondary/60 rounded-lg p-1">
-                  {([["cause", "По причине", Tag], ["stack", "По стеку", Layers]] as const).map(([v, label, Icon]) => (
+                <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
+                  {([["cause", "По причине", Tag], ["stack", "По стеку", Layers], ["priority", "По приоритету", Flame], ["assignee", "По исполнителю", User]] as const).map(([v, label, Icon]) => (
                     <button key={v} onClick={() => { setGroupBy(v); setOpenGroup(null) }}
                       className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
                         groupBy === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground")}>
@@ -273,24 +329,26 @@ export function IncidentsPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {groupBy === "cause" ? "Сгруппировано по причине инцидента" : "Сгруппировано по стеку"} · доля от числа и от часов · клик — раскрыть
+                {{ cause: "Сгруппировано по причине инцидента", stack: "Сгруппировано по стеку", priority: "Сгруппировано по приоритету", assignee: "Сгруппировано по исполнителю («пожарные»)" }[groupBy]} · доля от числа и от часов · клик — раскрыть
               </p>
             </CardHeader>
             <CardContent className="space-y-1.5">
               {groups.length === 0 && <div className="h-20 flex items-center justify-center text-sm text-muted-foreground">Нет инцидентов за период</div>}
               {groups.map(g => {
                 const isOpen = openGroup === g.key
-                const isStack = groupBy === "stack"
+                // шапка группы: чип для стека/приоритета, иконка+текст для причины/исполнителя
+                let header: React.ReactNode
+                if (groupBy === "stack") header = <Chip label={g.key} color={stackColor(g.key)} />
+                else if (groupBy === "priority") header = <Chip label={g.key} color={PRIO_COLOR[g.list[0]?.priorityKey] || "#94A3B8"} />
+                else if (groupBy === "assignee") header = <span className="inline-flex items-center gap-1.5 text-sm text-foreground"><User className="w-3.5 h-3.5 text-primary" />{g.key}</span>
+                else header = <span className="inline-flex items-center gap-1.5 text-sm text-foreground"><Tag className="w-3.5 h-3.5 text-rose-400 shrink-0" />{g.key}</span>
                 return (
                   <div key={g.key} className="rounded-xl border border-border bg-card overflow-hidden">
                     <button onClick={() => setOpenGroup(o => o === g.key ? null : g.key)}
                       className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-accent/30 transition-colors text-left">
                       {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
-                      <div className="shrink-0">
-                        {isStack ? <Chip label={g.key} color={stackColor(g.key)} /> : <Tag className="w-3.5 h-3.5 text-rose-400 inline" />}
-                      </div>
-                      <span className="flex-1 min-w-0 text-sm text-foreground truncate">{isStack ? "" : g.key}</span>
-                      <div className="hidden sm:flex items-center gap-2 w-40 shrink-0">
+                      <span className="flex-1 min-w-0 truncate">{header}</span>
+                      <div className="hidden sm:flex items-center gap-2 w-32 shrink-0">
                         <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
                           <div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.round(g.count / maxGroup * 100)}%` }} />
                         </div>
@@ -300,8 +358,8 @@ export function IncidentsPage() {
                     </button>
                     {isOpen && (
                       <div className="px-3 pb-3 pt-1 space-y-1.5 bg-secondary/20">
-                        {g.list.sort((a, b) => (b.spentHours || 0) - (a.spentHours || 0)).map(it => (
-                          <IncidentRow key={it.key} it={it} queues={queues} showCause={isStack} />
+                        {g.list.slice().sort((a, b) => (b.spentHours || 0) - (a.spentHours || 0)).map(it => (
+                          <IncidentRow key={it.key} it={it} queues={queues} showCause={groupBy !== "cause"} />
                         ))}
                       </div>
                     )}

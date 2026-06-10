@@ -2553,6 +2553,71 @@ async def incidents(months: int = Query(12), refresh: bool = Query(False)):
     payload["updatedAt"] = "только что"
     return JSONResponse(payload)
 
+@app.get("/incidents-ai")
+async def incidents_ai(team: str = Query("all"), months: int = Query(12), refresh: bool = Query(False)):
+    """AI-сводка по инцидентам (Claude): источники, тренды, на что смотреть."""
+    if not AI_ENABLED:
+        return JSONResponse({"ok": True, "summary": ""})
+    ckey = f"incidents-ai-{team}-{months}-v1"
+    if not refresh:
+        snap = await _osp_snap(ckey)
+        if snap:
+            return JSONResponse(snap)
+    inc = await _osp_snap(f"incidents-{months}-v{INCIDENTS_VERSION}")
+    items = (inc or {}).get("items", [])
+    if team != "all":
+        items = [it for it in items if it.get("queue") == team]
+    if not items:
+        return JSONResponse({"ok": True, "summary": ""})
+
+    from collections import Counter
+    msorted = sorted({it["month"] for it in items})
+    cur_m = msorted[-1] if msorted else ""
+    prev_m = msorted[-2] if len(msorted) > 1 else ""
+    cur_n = sum(1 for it in items if it["month"] == cur_m)
+    prev_n = sum(1 for it in items if it["month"] == prev_m)
+    by_team = Counter(it["queue"] for it in items)
+    by_prio = Counter(it.get("priority") or "—" for it in items)
+    causes = Counter(it.get("cause") or "—" for it in items).most_common(5)
+    stacks = Counter(s for it in items for s in (it.get("stack") or [])).most_common(5)
+    crit = sum(1 for it in items if it.get("priorityKey") in ("critical", "blocker"))
+    hours = round(sum(it.get("spentHours") or 0 for it in items))
+    avg_days = round(sum(it.get("daysInWork") or 0 for it in items) / len(items), 1)
+    team_lbl = OSP_QUEUES.get(team, team) if team != "all" else "все команды курьеров"
+    lines = [
+        f"Команда: {team_lbl}. Всего инцидентов за период: {len(items)}.",
+        f"Критичных/блокеров: {crit}. Часов суммарно: {hours}. Средние дни в работе: {avg_days}.",
+        f"Текущий месяц {_osp_label(cur_m)}: {cur_n} (предыдущий {_osp_label(prev_m)}: {prev_n}).",
+        "По командам: " + ", ".join(f"{OSP_QUEUES.get(q, q)} {n}" for q, n in by_team.most_common()),
+        "По приоритету: " + ", ".join(f"{p} {n}" for p, n in by_prio.most_common()),
+        "Топ причин: " + "; ".join(f"{c} ({n})" for c, n in causes),
+        "Топ стека: " + (", ".join(f"{s} ({n})" for s, n in stacks) or "—"),
+    ]
+    facts = "\n".join(lines)
+    system = (
+        "Ты — аналитик надёжности сервиса доставки. На вход — статистика инцидентов команды(-д) курьеров "
+        "за период. Подсветь 2–4 ГЛАВНЫХ источника инцидентов и тревожных тренда для продакта/тимлида.\n"
+        "Примеры наблюдений: всплеск инцидентов в текущем месяце; доминирующая причина; стек, где чаще всего ломается; "
+        "много критичных; долго чинят (большие дни в работе).\n"
+        "ФОРМАТ СТРОГО:\n"
+        "— Каждый пункт с новой строки, начинается с эмодзи: 📈 рост, 📉 спад, 🔥/🚨 тревога, ⚠️ риск, ✅ хорошо, "
+        "🐞 баги/инциденты, 🧱 стек/тех, 🐌 долго чинят.\n"
+        "— После эмодзи — короткая суть; ключевые числа и причины оборачивай в **двойные звёздочки** (жирный).\n"
+        "— 2–4 пункта, каждый одно живое предложение, по-человечески, без канцелярита и без вступления.\n"
+        "Только на основе чисел, ничего не выдумывай."
+    )
+    summary = await ai_complete(system, facts, max_tokens=380, temperature=0.3)
+    payload = {"ok": True, "team": team, "summary": summary or ""}
+    if summary:
+        try:
+            await turso_execute([stmt(
+                "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+                "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+                [ckey, json.dumps(payload, ensure_ascii=False)])])
+        except Exception as e:
+            print(f"[incidents-ai save] {e}")
+    return JSONResponse(payload)
+
 # Пороги SLE (гарантия 85%): порог LT в днях и трудозатрат в часах, по командам и типам
 OSP_SLE_TARGET = 85
 OSP_SLE = {
