@@ -25,6 +25,8 @@ function MdBlock({ text }: { text: string }) {
     <div className="space-y-1 text-sm leading-relaxed text-foreground">
       {text.split("\n").map((line, i) => {
         if (!line.trim()) return <div key={i} className="h-1.5" />
+        const h = line.match(/^#{1,4}\s+(.*)/)
+        if (h) return <div key={i} className="font-black text-foreground mt-2.5 first:mt-0">{renderInline(h[1])}</div>
         const bullet = /^\s*([*\-•✅✔️🔹·]|\d+[.)])\s+/.test(line)
         const content = line.replace(/^\s*([*\-•·]|\d+[.)])\s+/, "")
         return <div key={i} className={cn("flex gap-2", bullet && "pl-3")}>

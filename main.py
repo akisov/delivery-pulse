@@ -2751,22 +2751,23 @@ async def _osp_metric_context(team: str, month: str) -> str:
 
 async def _improve_generate(team, month, criterion, score, dislike, suggestion, ctx):
     fallback_sum = (suggestion or dislike or f"Улучшение: {criterion}")[:90]
-    fallback_desc = (f"**Мы полагаем, что**\n{suggestion or '…'}\n\n**Приведёт к**\n…\n\n"
-                     f"**Если мы были правы, то увидим**\n…\n\n**Чтобы проверить, нужно сделать**\n…")
+    fallback_desc = (f"### Мы полагаем, что\n{suggestion or '…'}\n\n### Приведёт к\n…\n\n"
+                     f"### Если мы были правы, то увидим\n- …\n\n### Чтобы проверить, нужно сделать\n- …")
     if not MISTRAL_API_KEY:
         return fallback_sum, fallback_desc
     system = (
         "Ты помогаешь продакту команды курьеров оформить гипотезу улучшения процесса. "
         "На вход: что не нравится, предложение продакта и метрики команды за месяц. "
         "Сформируй заголовок и описание-гипотезу.\n"
-        "Верни СТРОГО в формате:\n"
+        "Верни СТРОГО в формате (заголовки секций через '### ', списки через '- '):\n"
         "ЗАГОЛОВОК: <короткий заголовок улучшения, без кавычек>\n"
         "===\n"
-        "**Мы полагаем, что**\n<гипотеза на основе предложения и проблемы>\n\n"
-        "**Приведёт к**\n<ожидаемый эффект>\n\n"
-        "**Если мы были правы, то увидим**\n<наблюдаемые признаки и метрики, маркерами>\n\n"
-        "**Чтобы проверить, нужно сделать**\n<конкретные шаги, маркерами>\n"
-        "Опирайся на текст продакта и подкрепляй метриками. По-человечески, без канцелярита и воды."
+        "### Мы полагаем, что\n<гипотеза на основе предложения и проблемы>\n\n"
+        "### Приведёт к\n<ожидаемый эффект>\n\n"
+        "### Если мы были правы, то увидим\n- <признак/метрика>\n- <…>\n\n"
+        "### Чтобы проверить, нужно сделать\n- <шаг>\n- <…>\n"
+        "Опирайся на текст продакта и подкрепляй метриками. По-человечески, без канцелярита и воды. "
+        "НЕ используй ** и другие markdown-выделения, только '### ' для заголовков и '- ' для списков."
     )
     user = (f"Команда: {OSP_QUEUES.get(team, team)}. Месяц: {month}. "
             f"Критерий оценки: «{criterion}», оценка {score}/5.\n"
@@ -2789,6 +2790,17 @@ async def _improve_generate(team, month, criterion, score, dislike, suggestion, 
     except Exception as e:
         print(f"[osp-improve gen] {e}")
         return fallback_sum, fallback_desc
+
+@app.get("/diag/board")
+async def diag_board(id: int = Query(...)):
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await tracker_request(client, "GET", f"/v2/boards/{id}")
+        return JSONResponse(r)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
 
 @app.post("/osp-improve")
 async def osp_improve(request: Request):
