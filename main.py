@@ -2832,44 +2832,35 @@ async def osp_improve_create(request: Request):
     team = b.get("team")
     if not summary:
         return JSONResponse({"ok": False, "error": "нужен заголовок"})
-    # доска команды по ID (надёжнее) + общая 1269; плюс поле team
-    team_board = {"POOLING": 815, "UDOSTAVKA": 3225, "DOSTAVKAPIKO": 790}.get(team)
+    # поле team роутит задачу на доску команды (X→815, U→3225, R→790; общая 1269)
     team_field = {"POOLING": "Команда Курьеры X", "UDOSTAVKA": "Команда Курьеры U",
                   "DOSTAVKAPIKO": "Команда Курьеры R"}.get(team)
     base = {"queue": "RKDS", "summary": summary[:255], "type": "improvement", "description": description}
-    # пробуем по убыванию: доска+team → team → голый
-    attempts = []
-    p1 = dict(base)
-    if team_field:
-        p1["team"] = team_field
-    if team_board:
-        p1["boards"] = [team_board, 1269]
-    attempts.append(p1)
-    if team_field:
-        attempts.append({**base, "team": team_field})
-    attempts.append(dict(base))
-
-    r, last_err = None, None
+    key, err = None, None
     async with httpx.AsyncClient(timeout=30) as client:
-        for p in attempts:
-            try:
-                r = await tracker_request(client, "POST", "/v2/issues", p)
-                break
-            except Exception as e:
-                last_err = e
-                print(f"[osp-improve create] attempt failed ({list(p.keys())}): {e}")
-                continue
-        key = (r or {}).get("key") if r else None
-        # на создании очередь подставляет шаблон описания → перезаписываем своим (PATCH)
-        if key and description:
+        try:
+            r = await tracker_request(client, "POST", "/v2/issues", base)
+            key = (r or {}).get("key")
+        except Exception as e:
+            err = e
+        if key:
+            # очередь подставляет шаблон описания на создании → перезаписываем своим
             try:
                 rr = await client.patch(f"https://api.tracker.yandex.net/v2/issues/{key}",
                                         headers=tracker_headers(), json={"description": description})
                 rr.raise_for_status()
             except Exception as e:
                 print(f"[osp-improve patch desc] {e}")
+            # ставим команду (роутит на доску команды) — отдельным запросом, не критично
+            if team_field:
+                try:
+                    rr = await client.patch(f"https://api.tracker.yandex.net/v2/issues/{key}",
+                                            headers=tracker_headers(), json={"team": team_field})
+                    rr.raise_for_status()
+                except Exception as e:
+                    print(f"[osp-improve patch team] {e}")
     if not key:
-        return JSONResponse({"ok": False, "error": str(last_err) if last_err else "не удалось создать"})
+        return JSONResponse({"ok": False, "error": str(err) if err else "не удалось создать"})
     return JSONResponse({"ok": True, "key": key, "url": f"https://tracker.yandex.ru/{key}"})
 
 @app.post("/osp-pulse/clear")
