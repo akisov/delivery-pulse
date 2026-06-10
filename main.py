@@ -2797,8 +2797,21 @@ async def diag_issue(key: str = Query(...)):
         return JSONResponse({"ok": False, "error": "no token"})
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await tracker_request(client, "GET", f"/v2/issues/{key}?expand=team")
+            r = await tracker_request(client, "GET", f"/v2/issues/{key}")
         return JSONResponse(r)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+@app.get("/diag/setteam")
+async def diag_setteam(key: str = Query(...), field: str = Query(...), val: str = Query(...)):
+    """Тест: ставим значение поля и возвращаем сырой ответ Трекера (статус+тело)."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.patch(f"https://api.tracker.yandex.net/v2/issues/{key}",
+                                   headers=tracker_headers(), json={field: val})
+        return JSONResponse({"status": r.status_code, "body": r.text[:1500]})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
