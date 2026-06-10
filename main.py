@@ -2791,6 +2791,31 @@ async def _improve_generate(team, month, criterion, score, dislike, suggestion, 
         print(f"[osp-improve gen] {e}")
         return fallback_sum, fallback_desc
 
+@app.get("/diag/issue")
+async def diag_issue(key: str = Query(...)):
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await tracker_request(client, "GET", f"/v2/issues/{key}?expand=team")
+        return JSONResponse(r)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+@app.get("/diag/localfields")
+async def diag_localfields(queue: str = Query("RKDS")):
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await tracker_request(client, "GET", f"/v2/queues/{queue}/localFields")
+        out = [{"id": f.get("id"), "key": f.get("key"), "name": f.get("name"),
+                "type": (f.get("type") or {}).get("id") if isinstance(f.get("type"), dict) else f.get("type")}
+               for f in (r or [])]
+        return JSONResponse({"ok": True, "fields": out})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
 @app.get("/diag/board")
 async def diag_board(id: int = Query(...)):
     if not TRACKER_TOKEN:
