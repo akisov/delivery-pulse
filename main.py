@@ -2881,9 +2881,9 @@ async def osp_improve_create(request: Request):
     team = b.get("team")
     if not summary:
         return JSONResponse({"ok": False, "error": "нужен заголовок"})
-    # поле team роутит задачу на доску команды (X→815, U→3225, R→790; общая 1269)
-    team_field = {"POOLING": "Команда Курьеры X", "UDOSTAVKA": "Команда Курьеры U",
-                  "DOSTAVKAPIKO": "Команда Курьеры R"}.get(team)
+    # локальное поле «Команда» роутит на доску команды (X→815, U→3225, R→790)
+    team_field = {"POOLING": "Команда X", "UDOSTAVKA": "Команда U",
+                  "DOSTAVKAPIKO": "Команда R"}.get(team)
     base = {"queue": "RKDS", "summary": summary[:255], "type": "improvement", "description": description}
     key, err = None, None
     async with httpx.AsyncClient(timeout=30) as client:
