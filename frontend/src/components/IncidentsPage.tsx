@@ -207,6 +207,7 @@ export function IncidentsPage() {
   const [openGroup, setOpenGroup] = useState<string | null>(null)
   const [sel, setSel] = useState<{ month: string; mode: "created" | "closed" } | null>(null)
   const [statSel, setStatSel] = useState<"all" | "crit" | "open" | null>(null)
+  const [costTeam, setCostTeam] = useState<string | null>(null)  // фильтр графика стоимости по команде
   const [refreshKey, setRefreshKey] = useState(0)
   const [dates, setDates] = useState(() => ({ from: `${new Date().getFullYear()}-01-01`, to: fmtDate(new Date()) }))
   const [preset, setPreset] = useState("С начала года")
@@ -279,6 +280,9 @@ export function IncidentsPage() {
     return row
   }), [items, monthsR, team])
   const totalCost = useMemo(() => items.reduce((s, it) => s + (costOf(it) || 0), 0), [items])
+  // команды, показанные на графике стоимости (клик по чипу — оставить одну)
+  const costTeams = costTeam && teamQueues.includes(costTeam) ? [costTeam] : teamQueues
+  const costRows = costByMonth.map(r => ({ ...r, shownCost: costTeams.reduce((s, q) => s + (r[q] || 0), 0) }))
 
   // тренд: выбранный период к ПРЕДЫДУЩЕМУ такой же длины (текущий месяц не закончен)
   const trend = useMemo(() => {
@@ -513,7 +517,7 @@ export function IncidentsPage() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={costByMonth} margin={{ top: 18, right: 16, left: 0, bottom: 4 }} barSize={34}>
+                <BarChart data={costRows} margin={{ top: 18, right: 16, left: 0, bottom: 4 }} barSize={34}>
                   <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false}
@@ -522,23 +526,32 @@ export function IncidentsPage() {
                     content={({ active, payload, label }: any) => active && payload?.length
                       ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl">
                           <b>{label}</b><br />{payload.map((p: any) => <div key={p.dataKey}>{queues[p.dataKey] || p.dataKey}: {fmtRub(p.value)}</div>)}
-                          <div className="mt-0.5 border-t border-border pt-0.5">всего: {fmtRub(payload[0].payload.total)}</div>
+                          {costTeams.length > 1 && <div className="mt-0.5 border-t border-border pt-0.5">всего: {fmtRub(payload[0].payload.shownCost)}</div>}
                         </div> : null} />
-                  {teamQueues.map((q, i) => (
+                  {costTeams.map((q, i) => (
                     <Bar key={q} dataKey={q} stackId="a" name={queues[q] || q} fill={TEAM_COLOR[q]}
-                      radius={i === teamQueues.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}>
-                      {i === teamQueues.length - 1 && (
-                        <LabelList dataKey="total" position="top" formatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}к` : (v || "")}
+                      radius={i === costTeams.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}>
+                      {i === costTeams.length - 1 && (
+                        <LabelList dataKey="shownCost" position="top" formatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}к` : (v || "")}
                           style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
                       )}
                     </Bar>
                   ))}
                 </BarChart>
               </ResponsiveContainer>
-              <div className="flex flex-wrap gap-4 mt-3 justify-center text-[11px] text-muted-foreground">
-                {teamQueues.map(q => (
-                  <span key={q} className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: TEAM_COLOR[q] }} />{queues[q] || q}</span>
-                ))}
+              <div className="flex flex-wrap gap-2 mt-3 justify-center">
+                {teamQueues.map(q => {
+                  const on = !costTeam || costTeam === q
+                  return (
+                    <button key={q} onClick={() => setCostTeam(t => t === q ? null : q)} disabled={teamQueues.length < 2}
+                      className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold transition-all",
+                        on ? "bg-secondary text-foreground" : "bg-secondary/30 text-muted-foreground/40 line-through",
+                        teamQueues.length < 2 ? "cursor-default" : "hover:-translate-y-0.5")}>
+                      <span className="w-2.5 h-2.5 rounded-sm" style={{ background: TEAM_COLOR[q], opacity: on ? 1 : 0.3 }} />{queues[q] || q}
+                    </button>
+                  )
+                })}
+                {costTeam && <button onClick={() => setCostTeam(null)} className="px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground">Сбросить</button>}
               </div>
             </CardContent>
           </Card>
