@@ -24,6 +24,40 @@ function stackColor(s: string) {
   let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0
   return `hsl(${h % 360}, 60%, 50%)`
 }
+
+// ── Стоимость инцидента: часы × ставка роли (₽/час) ────────────────────────────
+const ROLE_RATES: Record<string, number> = {
+  "Аналитик": 2900, "Архитектор": 4900, "Дата аналитик": 2550, "Дизайнер": 2300,
+  "Инженер платформы": 3550, "Консультант": 1350, "Менеджер": 2400, "Программист": 3300,
+  "Руководитель группы": 4900, "Руководитель команды": 3350, "Руководитель проекта": 3000,
+  "Техлид": 4100, "Технический писатель": 1200, "QA Engineer": 1900,
+}
+// фамилия (норм., ё→е) → роль
+const PERSON_ROLE: Record<string, string> = {
+  "кисов": "Руководитель команды", "степин": "QA Engineer", "яцушко": "Программист",
+  "асотикова": "Программист", "резенова": "Аналитик", "спиридонов": "Техлид",
+  "источников": "Программист", "драгун": "QA Engineer", "копосов": "Программист",
+  "ким": "Программист", "корякин": "QA Engineer", "гусев": "Программист",
+  "мартова": "QA Engineer", "рогова": "QA Engineer", "разумова": "Аналитик",
+  "борискин": "Аналитик", "доронин": "Программист", "подлинов": "Программист",
+  "егоров": "Аналитик", "ву": "QA Engineer", "туралиева": "QA Engineer",
+  "исабаев": "QA Engineer", "тюриков": "Руководитель группы", "махмутова": "Аналитик",
+  "мартынов": "Программист", "шестопалов": "Программист", "перевезенцева": "Аналитик",
+  "киреев": "Программист", "памшев": "Программист", "селезнев": "Архитектор",
+}
+function roleOf(assignee: string): string | null {
+  for (const t of (assignee || "").toLowerCase().replace(/ё/g, "е").split(/\s+/)) {
+    if (PERSON_ROLE[t]) return PERSON_ROLE[t]
+  }
+  return null
+}
+function costOf(it: { assignee: string; spentHours: number | null }): number | null {
+  const role = roleOf(it.assignee)
+  if (!role || it.spentHours == null) return null
+  const rate = ROLE_RATES[role]
+  return rate ? Math.round(it.spentHours * rate) : null
+}
+function fmtRub(n: number) { return `${n.toLocaleString("ru-RU")} ₽` }
 function fmtDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
@@ -256,7 +290,10 @@ export function IncidentsPage() {
 
   // топы
   const topDays = useMemo(() => items.filter(i => i.daysInWork != null).slice().sort((a, b) => (b.daysInWork || 0) - (a.daysInWork || 0)).slice(0, 10), [items])
-  const topHours = useMemo(() => items.filter(i => i.spentHours != null).slice().sort((a, b) => (b.spentHours || 0) - (a.spentHours || 0)).slice(0, 10), [items])
+  const topCost = useMemo(() => items.filter(i => i.spentHours != null)
+    .map(it => ({ it, cost: costOf(it) }))
+    .sort((a, b) => (b.cost ?? -1) - (a.cost ?? -1) || (b.it.spentHours || 0) - (a.it.spentHours || 0))
+    .slice(0, 10), [items])
   // сводка
   const stats = useMemo(() => {
     const crit = items.filter(it => it.priorityKey === "critical" || it.priorityKey === "blocker").length
@@ -459,16 +496,21 @@ export function IncidentsPage() {
           </Card>
 
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
-            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><Hourglass className="w-4 h-4 text-primary" /> Самые трудозатратные — топ 10</CardTitle></CardHeader>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm"><Hourglass className="w-4 h-4 text-primary" /> Самые дорогие — топ 10</CardTitle>
+              <p className="text-[11px] text-muted-foreground mt-0.5">стоимость = часы × ставка роли исполнителя</p>
+            </CardHeader>
             <CardContent className="space-y-1">
-              {topHours.length === 0 && <span className="text-xs text-muted-foreground/60">нет данных</span>}
-              {topHours.map((it, i) => (
+              {topCost.length === 0 && <span className="text-xs text-muted-foreground/60">нет данных</span>}
+              {topCost.map(({ it, cost }, i) => (
                 <div key={it.key} className="flex items-center gap-2.5 text-xs rounded-md px-1.5 py-1 hover:bg-accent/30 transition-colors">
                   <span className="w-4 text-right text-muted-foreground/50 font-bold shrink-0">{i + 1}</span>
                   <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0 inline-flex items-center gap-1">{it.key} <ExternalLink className="w-3 h-3" /></a>
                   <span className="flex-1 truncate text-foreground">{it.summary}</span>
-                  <span className="text-[11px] text-muted-foreground shrink-0">{it.daysInWork != null && <>{it.daysInWork}д · </>}{queues[it.queue] || it.queue}</span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary shrink-0 w-12 justify-center"><Hourglass className="w-3 h-3" />{Math.round(it.spentHours || 0)}ч</span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">{Math.round(it.spentHours || 0)}ч · {roleOf(it.assignee) || "роль ?"}</span>
+                  {cost != null
+                    ? <span className="inline-flex items-center rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400 shrink-0 whitespace-nowrap">{fmtRub(cost)}</span>
+                    : <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary shrink-0 w-12 justify-center" title="роль не задана — нет ставки"><Hourglass className="w-3 h-3" />{Math.round(it.spentHours || 0)}ч</span>}
                 </div>
               ))}
             </CardContent>
