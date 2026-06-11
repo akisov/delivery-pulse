@@ -2474,7 +2474,7 @@ async def osp_incidents(months: int = Query(8), refresh: bool = Query(False)):
     return JSONResponse(payload)
 
 # ── Инциденты: отдельный раздел (причина, стек, приоритет, SLE) ──────────────────
-INCIDENTS_VERSION = 1
+INCIDENTS_VERSION = 2  # v2: разбивка часов по логировавшим (worklog) для расчёта стоимости
 
 @app.get("/incidents")
 async def incidents(months: int = Query(12), refresh: bool = Query(False)):
@@ -2540,7 +2540,33 @@ async def incidents(months: int = Query(12), refresh: bool = Query(False)):
                 "cause": cause,
                 "stack": stack,
                 "sleStatus": _field(iss, "--sleStatus") or "",
+                "worklog": [],
             })
+
+    # worklog по каждому инциденту со списаниями: кто сколько залогировал (для стоимости)
+    by_key = {it["key"]: it for it in items}
+    wl_keys = [it["key"] for it in items if it.get("spentHours")]
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            B = 4
+            for i in range(0, len(wl_keys), B):
+                chunk = wl_keys[i:i + B]
+                wls = await asyncio.gather(*[_wl_fetch(client, k) for k in chunk], return_exceptions=True)
+                for k, wl in zip(chunk, wls):
+                    if not isinstance(wl, list):
+                        continue
+                    agg: dict = {}
+                    for e in wl:
+                        hrs = _iso_dur_hours(e.get("duration"))
+                        if hrs <= 0:
+                            continue
+                        who = (e.get("createdBy") or {}).get("display") or "—"
+                        agg[who] = agg.get(who, 0) + hrs
+                    by_key[k]["worklog"] = [{"name": n, "hours": round(h, 2)}
+                                            for n, h in sorted(agg.items(), key=lambda x: -x[1])]
+                await asyncio.sleep(0.25)
+    except Exception as e:
+        print(f"[incidents worklog] {e}")
 
     payload = {"ok": True, "queues": OSP_QUEUES, "months": month_list, "items": items}
     try:

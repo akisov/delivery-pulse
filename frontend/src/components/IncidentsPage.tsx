@@ -44,6 +44,8 @@ const PERSON_ROLE: Record<string, string> = {
   "исабаев": "QA Engineer", "тюриков": "Руководитель группы", "махмутова": "Аналитик",
   "мартынов": "Программист", "шестопалов": "Программист", "перевезенцева": "Аналитик",
   "киреев": "Программист", "памшев": "Программист", "селезнев": "Архитектор",
+  "кушевский": "Программист", "салихьянов": "Программист", "исмаилов": "Программист",
+  "надененко": "Программист", "самрякова": "QA Engineer",
 }
 function roleOf(assignee: string): string | null {
   for (const t of (assignee || "").toLowerCase().replace(/ё/g, "е").split(/\s+/)) {
@@ -51,7 +53,18 @@ function roleOf(assignee: string): string | null {
   }
   return null
 }
-function costOf(it: { assignee: string; spentHours: number | null }): number | null {
+// стоимость = сумма по логам (кто сколько залогировал × ставка его роли);
+// если логов нет — фолбэк на часы исполнителя
+function costOf(it: { assignee: string; spentHours: number | null; worklog?: { name: string; hours: number }[] }): number | null {
+  if (it.worklog && it.worklog.length) {
+    let c = 0, known = false
+    for (const w of it.worklog) {
+      const role = roleOf(w.name); if (!role) continue
+      const rate = ROLE_RATES[role]; if (!rate) continue
+      c += w.hours * rate; known = true
+    }
+    return known ? Math.round(c) : null
+  }
   const role = roleOf(it.assignee)
   if (!role || it.spentHours == null) return null
   const rate = ROLE_RATES[role]
@@ -73,6 +86,7 @@ interface Incident {
   created: string; resolved: string; status: string; statusKey: string
   resolution: string; priority: string; priorityKey: string; assignee: string
   daysInWork: number | null; spentHours: number | null; cause: string; stack: string[]; sleStatus: string
+  worklog?: { name: string; hours: number }[]
 }
 interface Resp { ok: boolean; error?: string; queues: Record<string, string>; months: string[]; items: Incident[]; updatedAt?: string }
 interface WlResp { ok: boolean; data?: Record<string, Record<string, Record<string, number>>>; months?: string[] }
@@ -539,7 +553,7 @@ export function IncidentsPage() {
                   <span className="w-4 text-right text-muted-foreground/50 font-bold shrink-0">{i + 1}</span>
                   <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0 inline-flex items-center gap-1">{it.key} <ExternalLink className="w-3 h-3" /></a>
                   <span className="flex-1 truncate text-foreground">{it.summary}</span>
-                  <span className="text-[11px] text-muted-foreground shrink-0">{Math.round(it.spentHours || 0)}ч · {roleOf(it.assignee) || "роль ?"}</span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">{Math.round(it.spentHours || 0)}ч{it.worklog?.length ? ` · ${it.worklog.length} логир.` : ""}</span>
                   {cost != null
                     ? <span className="inline-flex items-center rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400 shrink-0 whitespace-nowrap">{fmtRub(cost)}</span>
                     : <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary shrink-0 w-12 justify-center" title="роль не задана — нет ставки"><Hourglass className="w-3 h-3" />{Math.round(it.spentHours || 0)}ч</span>}
