@@ -269,11 +269,15 @@ export function IncidentsPage() {
     return { created: c, closed: cl, ratio: c ? Math.round(cl / c * 100) : 0 }
   }, [createdClosed])
 
-  // СТОИМОСТЬ инцидентов по месяцам (часы × ставка роли, по дате создания)
-  const costByMonth = useMemo(() => monthsR.map(m => ({
-    month: m, label: monLabel(m),
-    cost: items.filter(it => it.month === m).reduce((s, it) => s + (costOf(it) || 0), 0),
-  })), [items, monthsR])
+  // СТОИМОСТЬ инцидентов по месяцам (часы × ставка роли) со стеком по командам
+  const costByMonth = useMemo(() => monthsR.map(m => {
+    const row: Record<string, any> = { month: m, label: monLabel(m), total: 0 }
+    for (const q of teamQueues) {
+      const sum = items.filter(it => it.month === m && it.queue === q).reduce((s, it) => s + (costOf(it) || 0), 0)
+      row[q] = sum; row.total += sum
+    }
+    return row
+  }), [items, monthsR, team])
   const totalCost = useMemo(() => items.reduce((s, it) => s + (costOf(it) || 0), 0), [items])
 
   // тренд: выбранный период к ПРЕДЫДУЩЕМУ такой же длины (текущий месяц не закончен)
@@ -290,13 +294,15 @@ export function IncidentsPage() {
     return { cur, prev, delta: cur - prev, pf: pfs, pt: pts }
   }, [items, resp, team, dates])
 
+  // для «Разбора» исключаем нереальные инциденты (резолюция «Не делаем»)
+  const realItems = useMemo(() => items.filter(it => !/не\s*делаем/i.test(it.resolution || "")), [items])
   // группировка
   const groups = useMemo(() => {
-    const totalCount = items.length || 1
-    const totalHours = items.reduce((s, it) => s + (it.spentHours || 0), 0) || 1
+    const totalCount = realItems.length || 1
+    const totalHours = realItems.reduce((s, it) => s + (it.spentHours || 0), 0) || 1
     const map = new Map<string, Incident[]>()
     const push = (k: string, it: Incident) => (map.get(k) || map.set(k, []).get(k)!).push(it)
-    for (const it of items) {
+    for (const it of realItems) {
       if (groupBy === "cause") push(clusterOf(it.cause), it)
       else if (groupBy === "priority") push(it.priority || "— без приоритета", it)
       else if (groupBy === "assignee") push(it.assignee || "— без исполнителя", it)
@@ -306,7 +312,7 @@ export function IncidentsPage() {
       const hours = list.reduce((s, it) => s + (it.spentHours || 0), 0)
       return { key, list, count: list.length, pct: Math.round(list.length / totalCount * 100), hours: Math.round(hours), hoursPct: Math.round(hours / totalHours * 100) }
     }).sort((a, b) => b.count - a.count)
-  }, [items, groupBy, clusterMap])
+  }, [realItems, groupBy, clusterMap])
   const maxGroup = Math.max(1, ...groups.map(g => g.count))
 
   // топы
@@ -514,13 +520,26 @@ export function IncidentsPage() {
                     tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}к` : `${v}`} />
                   <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
                     content={({ active, payload, label }: any) => active && payload?.length
-                      ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl"><b>{label}</b>: {fmtRub(payload[0].payload.cost)}</div> : null} />
-                  <Bar dataKey="cost" name="Стоимость" fill="#10B981" radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="cost" position="top" formatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}к` : (v || "")}
-                      style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
-                  </Bar>
+                      ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl">
+                          <b>{label}</b><br />{payload.map((p: any) => <div key={p.dataKey}>{queues[p.dataKey] || p.dataKey}: {fmtRub(p.value)}</div>)}
+                          <div className="mt-0.5 border-t border-border pt-0.5">всего: {fmtRub(payload[0].payload.total)}</div>
+                        </div> : null} />
+                  {teamQueues.map((q, i) => (
+                    <Bar key={q} dataKey={q} stackId="a" name={queues[q] || q} fill={TEAM_COLOR[q]}
+                      radius={i === teamQueues.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}>
+                      {i === teamQueues.length - 1 && (
+                        <LabelList dataKey="total" position="top" formatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}к` : (v || "")}
+                          style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
+                      )}
+                    </Bar>
+                  ))}
                 </BarChart>
               </ResponsiveContainer>
+              <div className="flex flex-wrap gap-4 mt-3 justify-center text-[11px] text-muted-foreground">
+                {teamQueues.map(q => (
+                  <span key={q} className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: TEAM_COLOR[q] }} />{queues[q] || q}</span>
+                ))}
+              </div>
             </CardContent>
           </Card>
 
@@ -579,7 +598,7 @@ export function IncidentsPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {{ cause: "Причины, сгруппированные в кластеры через AI (внутри — исходные причины)", stack: "Сгруппировано по стеку", priority: "Сгруппировано по приоритету", assignee: "Сгруппировано по исполнителю («пожарные»)" }[groupBy]} · доля от числа и от часов · клик — раскрыть
+                {{ cause: "Причины, сгруппированные в кластеры через AI (внутри — исходные причины)", stack: "Сгруппировано по стеку", priority: "Сгруппировано по приоритету", assignee: "Сгруппировано по исполнителю («пожарные»)" }[groupBy]} · без резолюции «Не делаем» · доля от числа и от часов · клик — раскрыть
               </p>
             </CardHeader>
             <CardContent className="space-y-1.5">
