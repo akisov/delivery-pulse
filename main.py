@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+import hashlib
 import httpx
 from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
@@ -60,6 +61,29 @@ async def ai_complete(system: str, user: str, *, max_tokens: int = 400,
         except Exception as e:
             print(f"[mistral] {e}")
     return None
+
+
+async def ai_cached(prefix: str, system: str, user: str, *, max_tokens: int = 400,
+                    temperature: float = 0.3, refresh: bool = False) -> str | None:
+    """LLM-вызов с кэшем по ХЕШУ входа (system+user+модель). Если те же факты уже
+    считались — берём из БД, не платим за повтор. Экономит на повторных загрузках,
+    смене дат периода (когда цифры те же) и рестартах."""
+    h = hashlib.md5(f"{CLAUDE_MODEL}|{system}|{user}".encode("utf-8")).hexdigest()[:20]
+    ck = f"aic-{prefix}-{h}"
+    if not refresh:
+        snap = await _osp_snap(ck)
+        if isinstance(snap, dict) and snap.get("text") is not None:
+            return snap["text"]
+    txt = await ai_complete(system, user, max_tokens=max_tokens, temperature=temperature)
+    if txt:
+        try:
+            await turso_execute([stmt(
+                "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+                "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+                [ck, json.dumps({"text": txt}, ensure_ascii=False)])])
+        except Exception as e:
+            print(f"[ai-cache] {e}")
+    return txt
 
 # Кратко суть внутренней практики «Анализ (кластеризация) блокировок» — чтобы AI
 # опирался на неё в рекомендациях.
@@ -1213,7 +1237,7 @@ async def mistral_insight(f: dict) -> str | None:
         "ТОН: просто и по-человечески, как объясняешь коллеге за кофе. Короткие живые фразы, без канцелярита. "
         "Например: «у вас не хватает людей», «договоритесь с командой X, чтобы отвечали быстрее», «задачи мешают друг другу».\n\n"
         + PRACTICE_BRIEF + "\n\n" + DOMAIN_NOTES)
-    return await ai_complete(system, facts_txt, max_tokens=300, temperature=0.25)
+    return await ai_cached("blk", system, facts_txt, max_tokens=300, temperature=0.25)
 
 @app.get("/insight-summary")
 async def insight_summary(
@@ -2639,11 +2663,6 @@ async def incidents_ai(team: str = Query("all"), months: int = Query(12),
     такой же длины (а не с прошлым месяцем — текущий месяц не закончен)."""
     if not AI_ENABLED:
         return JSONResponse({"ok": True, "summary": ""})
-    ckey = f"incidents-ai-{team}-{months}-{date_from}-{date_to}-v2"
-    if not refresh:
-        snap = await _osp_snap(ckey)
-        if snap:
-            return JSONResponse(snap)
     titems = [it for it in await _incidents_items(months) if team == "all" or it.get("queue") == team]
     if not titems:
         return JSONResponse({"ok": True, "summary": ""})
@@ -2708,17 +2727,8 @@ async def incidents_ai(team: str = Query("all"), months: int = Query(12),
         "— 2–4 пункта, каждый одно живое предложение, без канцелярита и без вступления.\n"
         "Только на основе чисел, ничего не выдумывай."
     )
-    summary = await ai_complete(system, facts, max_tokens=380, temperature=0.3)
-    payload = {"ok": True, "team": team, "summary": summary or ""}
-    if summary:
-        try:
-            await turso_execute([stmt(
-                "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
-                "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
-                [ckey, json.dumps(payload, ensure_ascii=False)])])
-        except Exception as e:
-            print(f"[incidents-ai save] {e}")
-    return JSONResponse(payload)
+    summary = await ai_cached("inc", system, facts, max_tokens=380, temperature=0.3, refresh=refresh)
+    return JSONResponse({"ok": True, "team": team, "summary": summary or ""})
 
 # Пороги SLE (гарантия 85%): порог LT в днях и трудозатрат в часах, по командам и типам
 OSP_SLE_TARGET = 85
