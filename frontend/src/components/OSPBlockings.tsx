@@ -88,6 +88,8 @@ export function OSPBlockings({ queue, month, refreshKey, onOpenDashboard }: { qu
   })
 
   const grandTotal = chartData.reduce((s, r) => s + r.total, 0)
+  // данные графика с итогом по ПОКАЗАННЫМ причинам (для подписи над столбцом при фильтре)
+  const chartShown = chartData.map(r => ({ ...r, shownTotal: shown.reduce((s, rs) => s + (r[rs] || 0), 0) }))
 
   // данные модалки
   const modalList = useMemo(() => {
@@ -143,7 +145,7 @@ export function OSPBlockings({ queue, month, refreshKey, onOpenDashboard }: { qu
           <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">Нет блокировок за период</div>
         ) : (
           <ResponsiveContainer width="100%" height={340}>
-            <BarChart data={chartData} margin={{ top: 18, right: 16, left: 0, bottom: 4 }} barSize={36}>
+            <BarChart data={chartShown} margin={{ top: 18, right: 16, left: 0, bottom: 4 }} barSize={36}>
               <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
               <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit=" д" />
@@ -154,7 +156,7 @@ export function OSPBlockings({ queue, month, refreshKey, onOpenDashboard }: { qu
                   radius={i === shown.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} style={{ cursor: "pointer" }}
                   onClick={(d: any) => d?.payload?.month && setSel({ month: d.payload.month, reason: rs })}>
                   {i === shown.length - 1 && (
-                    <LabelList dataKey="total" position="top"
+                    <LabelList dataKey="shownTotal" position="top"
                       style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} formatter={(v: number) => `${v}д`} />
                   )}
                 </Bar>
