@@ -255,6 +255,13 @@ export function IncidentsPage() {
     return { created: c, closed: cl, ratio: c ? Math.round(cl / c * 100) : 0 }
   }, [createdClosed])
 
+  // СТОИМОСТЬ инцидентов по месяцам (часы × ставка роли, по дате создания)
+  const costByMonth = useMemo(() => monthsR.map(m => ({
+    month: m, label: monLabel(m),
+    cost: items.filter(it => it.month === m).reduce((s, it) => s + (costOf(it) || 0), 0),
+  })), [items, monthsR])
+  const totalCost = useMemo(() => items.reduce((s, it) => s + (costOf(it) || 0), 0), [items])
+
   // тренд: выбранный период к ПРЕДЫДУЩЕМУ такой же длины (текущий месяц не закончен)
   const trend = useMemo(() => {
     const fromD = new Date(dates.from), toD = new Date(dates.to)
@@ -475,6 +482,31 @@ export function IncidentsPage() {
                 <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-[#3B82F6]" /> создано (по дате создания)</span>
                 <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> закрыто (по дате закрытия)</span>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* СТОИМОСТЬ по месяцам */}
+          <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
+            <CardHeader className="pb-1">
+              <CardTitle>💰 Стоимость инцидентов по месяцам</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">часы × ставка роли исполнителя (по дате создания) · всего за период <b>{fmtRub(totalCost)}</b></p>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={costByMonth} margin={{ top: 18, right: 16, left: 0, bottom: 4 }} barSize={34}>
+                  <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false}
+                    tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}к` : `${v}`} />
+                  <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
+                    content={({ active, payload, label }: any) => active && payload?.length
+                      ? <div className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs shadow-xl"><b>{label}</b>: {fmtRub(payload[0].payload.cost)}</div> : null} />
+                  <Bar dataKey="cost" name="Стоимость" fill="#10B981" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="cost" position="top" formatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}к` : (v || "")}
+                      style={{ fontSize: 10, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </CardContent>
           </Card>
 
