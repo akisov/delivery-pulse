@@ -2498,7 +2498,7 @@ async def osp_incidents(months: int = Query(8), refresh: bool = Query(False)):
     return JSONResponse(payload)
 
 # ── Инциденты: отдельный раздел (причина, стек, приоритет, SLE) ──────────────────
-INCIDENTS_VERSION = 2  # v2: разбивка часов по логировавшим (worklog) для расчёта стоимости
+INCIDENTS_VERSION = 3  # v3: worklog с месяцем списания (для стоимости по месяцу траты)
 
 @app.get("/incidents")
 async def incidents(months: int = Query(12), refresh: bool = Query(False)):
@@ -2579,15 +2579,16 @@ async def incidents(months: int = Query(12), refresh: bool = Query(False)):
                 for k, wl in zip(chunk, wls):
                     if not isinstance(wl, list):
                         continue
-                    agg: dict = {}
+                    agg: dict = {}  # (исполнитель, месяц списания) -> часы
                     for e in wl:
                         hrs = _iso_dur_hours(e.get("duration"))
                         if hrs <= 0:
                             continue
                         who = (e.get("createdBy") or {}).get("display") or "—"
-                        agg[who] = agg.get(who, 0) + hrs
-                    by_key[k]["worklog"] = [{"name": n, "hours": round(h, 2)}
-                                            for n, h in sorted(agg.items(), key=lambda x: -x[1])]
+                        mo = _msk_month(e.get("start") or e.get("createdAt") or "")
+                        agg[(who, mo)] = agg.get((who, mo), 0) + hrs
+                    by_key[k]["worklog"] = [{"name": n, "month": mo, "hours": round(h, 2)}
+                                            for (n, mo), h in sorted(agg.items(), key=lambda x: -x[1])]
                 await asyncio.sleep(0.25)
     except Exception as e:
         print(f"[incidents worklog] {e}")

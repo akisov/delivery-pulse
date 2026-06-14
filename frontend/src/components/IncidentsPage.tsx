@@ -87,7 +87,12 @@ interface Incident {
   created: string; resolved: string; status: string; statusKey: string
   resolution: string; priority: string; priorityKey: string; assignee: string
   daysInWork: number | null; spentHours: number | null; cause: string; stack: string[]; sleStatus: string
-  worklog?: { name: string; hours: number }[]
+  worklog?: { name: string; hours: number; month?: string }[]
+}
+// ставка ₽/час по имени логировавшего (0, если роль не задана)
+function rateOfName(name: string): number {
+  const role = roleOf(name)
+  return role ? (ROLE_RATES[role] || 0) : 0
 }
 interface Resp { ok: boolean; error?: string; queues: Record<string, string>; months: string[]; items: Incident[]; updatedAt?: string }
 interface WlResp { ok: boolean; data?: Record<string, Record<string, Record<string, number>>>; months?: string[] }
@@ -271,16 +276,27 @@ export function IncidentsPage() {
     return { created: c, closed: cl, ratio: c ? Math.round(cl / c * 100) : 0 }
   }, [createdClosed])
 
-  // СТОИМОСТЬ инцидентов по месяцам (часы × ставка роли) со стеком по командам
-  const costByMonth = useMemo(() => monthsR.map(m => {
-    const row: Record<string, any> = { month: m, label: monLabel(m), total: 0 }
-    for (const q of teamQueues) {
-      const sum = items.filter(it => it.month === m && it.queue === q).reduce((s, it) => s + (costOf(it) || 0), 0)
-      row[q] = sum; row.total += sum
+  // СТОИМОСТЬ по месяцам — деньги, потраченные В каждом месяце (по дате списания часов),
+  // по ВСЕМ инцидентам команды (открытым и закрытым), стек по командам
+  const costByMonth = useMemo(() => {
+    const acc: Record<string, Record<string, number>> = {}  // month -> queue -> ₽
+    for (const it of teamItemsAll) {
+      for (const w of (it.worklog || [])) {
+        if (!w.month) continue
+        const rub = w.hours * rateOfName(w.name)
+        if (!rub) continue
+        ;(acc[w.month] ||= {})[it.queue] = ((acc[w.month] || {})[it.queue] || 0) + rub
+      }
     }
-    return row
-  }), [items, monthsR, team])
-  const totalCost = useMemo(() => items.reduce((s, it) => s + (costOf(it) || 0), 0), [items])
+    return monthsR.map(m => {
+      const row: Record<string, any> = { month: m, label: monLabel(m), total: 0 }
+      for (const q of teamQueues) {
+        row[q] = Math.round((acc[m]?.[q]) || 0); row.total += row[q]
+      }
+      return row
+    })
+  }, [teamItemsAll, monthsR, team])
+  const totalCost = useMemo(() => costByMonth.reduce((s, r) => s + r.total, 0), [costByMonth])
   // команды, показанные на графике стоимости (клик по чипу — оставить одну)
   const costTeams = costTeam && teamQueues.includes(costTeam) ? [costTeam] : teamQueues
   const costRows = costByMonth.map(r => ({ ...r, shownCost: costTeams.reduce((s, q) => s + (r[q] || 0), 0) }))
@@ -517,7 +533,7 @@ export function IncidentsPage() {
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
             <CardHeader className="pb-1">
               <CardTitle>💰 Стоимость инцидентов по месяцам</CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">часы × ставка роли исполнителя (по дате создания) · всего за период <b>{fmtRub(totalCost)}</b></p>
+              <p className="text-xs text-muted-foreground mt-0.5">сколько потрачено в каждом месяце (по дате списания часов, все инциденты) = Σ часы × ставка роли · всего за период <b>{fmtRub(totalCost)}</b></p>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={260}>
