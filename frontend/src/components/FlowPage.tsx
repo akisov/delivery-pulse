@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { FlowCompleted } from "@/components/FlowCompleted"
+import { SectionInfo } from "@/components/SectionInfo"
 import { cn } from "@/lib/utils"
 
 interface FlowTask { key: string; summary: string; assignee: string; status?: string; statusKey: string; url: string; days: number; sleRisk: string }
@@ -258,10 +259,13 @@ export function FlowPage() {
             {data?.week && <span className="ml-1">· неделя {data.week}</span>}
           </p>
         </div>
-        <button onClick={load} disabled={loading} title="Обновить"
-          className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-        </button>
+        <div className="flex items-center gap-2">
+          <SectionInfo section="flow" />
+          <button onClick={load} disabled={loading} title="Обновить"
+            className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+          </button>
+        </div>
       </div>
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}

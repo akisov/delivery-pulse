@@ -8,6 +8,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
+import { SectionInfo } from "@/components/SectionInfo"
 import { cn } from "@/lib/utils"
 
 const TEAM_ORDER = ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"]
@@ -367,10 +368,13 @@ export function IncidentsPage() {
             {resp?.updatedAt && <span className="ml-1">· обновлено: {resp.updatedAt}</span>}
           </p>
         </div>
-        <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading} title="Пересчитать заново"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
-        </button>
+        <div className="flex items-center gap-2">
+          <SectionInfo section="incidents" />
+          <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading} title="Пересчитать заново"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
+          </button>
+        </div>
       </div>
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}

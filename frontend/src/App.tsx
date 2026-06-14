@@ -13,6 +13,7 @@ import { HomePage } from "@/components/HomePage"
 import { FlowPage } from "@/components/FlowPage"
 import { OSPPage } from "@/components/OSPPage"
 import { IncidentsPage } from "@/components/IncidentsPage"
+import { SectionInfo } from "@/components/SectionInfo"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
 import { BlockingDaysTrend } from "@/components/BlockingDaysTrend"
@@ -257,9 +258,12 @@ export default function App() {
          section === "flow" ? <FlowPage /> :
          section === "sle" ? <SLEPage /> : (
         <>
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-foreground">Время разрешения блокировок</h1>
-          <p className="text-sm text-muted-foreground mt-1">Длительность и причины блокировок по задачам трёх очередей</p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-3xl font-black tracking-tight text-foreground">Время разрешения блокировок</h1>
+            <p className="text-sm text-muted-foreground mt-1">Длительность и причины блокировок по задачам трёх очередей</p>
+          </div>
+          <SectionInfo section="blockings" />
         </div>
 
         {/* Фильтр по периоду */}

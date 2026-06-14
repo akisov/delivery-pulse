@@ -6,6 +6,7 @@ import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check, Lock
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
+import { SectionInfo } from "@/components/SectionInfo"
 import { cn } from "@/lib/utils"
 
 const CLUSTER_ORDER = [
@@ -482,6 +483,7 @@ export function SLEPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <SectionInfo section="sle" />
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
             {([["current", "Текущая"], ["historical", "История"]] as const).map(([v, label]) => (
               <button key={v} onClick={() => { setWhich(v); setFilter(null); setRiskModal(null); setAssignee(""); setExpanded(false) }}

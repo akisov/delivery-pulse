@@ -13,6 +13,7 @@ import { OSPAiSummary } from "@/components/OSPAiSummary"
 import { OSPBlockings } from "@/components/OSPBlockings"
 import { OSPIncidents } from "@/components/OSPIncidents"
 import { OSPSettings } from "@/components/OSPSettings"
+import { SectionInfo } from "@/components/SectionInfo"
 import { cn } from "@/lib/utils"
 
 const CAT_COLORS: Record<string, string> = {
@@ -214,6 +215,7 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <SectionInfo section="osp" />
           <button onClick={() => setShowSettings(true)}
             title="Настройки ОСП: SLE-пороги и состав команд"
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
