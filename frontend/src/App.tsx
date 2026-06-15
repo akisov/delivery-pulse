@@ -59,6 +59,7 @@ export default function App() {
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
   const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents">("home")
+  const [sleReloadKey, setSleReloadKey] = useState(0)  // пересбор SLE после синка
 
   const [data, setData] = useState<DashboardData | null>(null)
   const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null)
@@ -115,6 +116,12 @@ export default function App() {
           } else {
             await loadSyncInfo()
             await load()
+            // после синка блокировок пересобираем анализ SLE (он зависит от блокировок).
+            // refresh дешёвый: AI-разбор кэшируется по фактам, платим только за изменившееся.
+            Promise.all([
+              fetch("/sle-clusters?which=current&refresh=true").catch(() => {}),
+              fetch("/sle-clusters?which=historical&refresh=true").catch(() => {}),
+            ]).then(() => setSleReloadKey(k => k + 1))
           }
         }
       } catch {}
@@ -256,7 +263,7 @@ export default function App() {
          section === "osp" ? <OSPPage onGo={setSection} /> :
          section === "incidents" ? <IncidentsPage /> :
          section === "flow" ? <FlowPage /> :
-         section === "sle" ? <SLEPage /> : (
+         section === "sle" ? <SLEPage reloadKey={sleReloadKey} /> : (
         <>
         <PageHeader icon={Lock} title="Время разрешения блокировок" info="blockings"
           subtitle="Длительность и причины блокировок по задачам трёх очередей" />

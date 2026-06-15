@@ -375,7 +375,7 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
   )
 }
 
-export function SLEPage() {
+export function SLEPage({ reloadKey }: { reloadKey?: number }) {
   const [which, setWhich] = useState<"current" | "historical">("current")
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
@@ -395,6 +395,8 @@ export function SLEPage() {
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [which])
+  // синк наверху пересобрал SLE → перечитываем свежий снимок (без повторного refresh)
+  useEffect(() => { if (reloadKey) load() }, [reloadKey])
 
   const overrideCluster = async (key: string, cluster: string) => {
     setData(prev => prev ? { ...prev, tasks: prev.tasks.map(t => t.key === key ? { ...t, cluster: cluster || t.aiCluster || t.cluster, overridden: !!cluster } : t) } : prev)
