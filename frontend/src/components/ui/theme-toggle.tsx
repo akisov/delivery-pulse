@@ -6,9 +6,37 @@ export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme()
   const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
 
+  const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const next = isDark ? "light" : "dark"
+    const apply = () => {
+      // меняем класс синхронно (чтобы снимок «новой» темы был сразу верным) + сохраняем в состояние
+      const root = document.documentElement
+      root.classList.remove("light", "dark")
+      root.classList.add(next)
+      setTheme(next)
+    }
+    const startVT = (document as any).startViewTransition?.bind(document)
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    if (!startVT || reduce) { apply(); return }
+
+    // круг раскрытия из центра кнопки до самого дальнего угла экрана
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    const end = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y))
+
+    const t = startVT(apply)
+    t.ready.then(() => {
+      document.documentElement.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${end}px at ${x}px ${y}px)`] },
+        { duration: 550, easing: "cubic-bezier(.4,0,.2,1)", pseudoElement: "::view-transition-new(root)" }
+      )
+    }).catch(() => {})
+  }
+
   return (
     <button
-      onClick={() => setTheme(isDark ? "light" : "dark")}
+      onClick={toggle}
       title={isDark ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
       className={cn(
         "relative h-9 w-16 rounded-full border border-border bg-secondary",

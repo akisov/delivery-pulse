@@ -115,3 +115,13 @@
   70% { transform: rotate(6deg); }
 }
 .animate-wobble { animation: wobble3 0.5s ease-in-out both; }
+
+/* Переключение темы — круговой «наплыв» через View Transitions API.
+   Отключаем дефолтный кроссфейд; новую тему раскрываем кругом (clip-path задаётся в JS). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) { z-index: 0; }
+::view-transition-new(root) { z-index: 1; }
