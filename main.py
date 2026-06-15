@@ -1670,7 +1670,8 @@ async def classify_sle_task(client, t: dict) -> dict:
             "этот этап ЗАВЕРШЁН, а НЕ что задача чего-то ждёт — не делай вывод о блокировке из названия статуса. "
             "Если конкретики нет — скажи общими словами. Без вступлений."
         )
-        txt = await ai_complete(system, facts, max_tokens=120, temperature=0.3)
+        # кэш по фактам: переразбор бесплатен, если ситуация по задаче не изменилась
+        txt = await ai_cached("slecls", system, facts, max_tokens=120, temperature=0.3)
         if txt:
             reason = txt.replace("*", "")
     return {"cluster": cluster, "reason": reason}
