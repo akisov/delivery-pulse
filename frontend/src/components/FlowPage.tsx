@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react"
 import { LineChart, Line, BarChart, Bar, Cell, LabelList, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ReferenceLine, ReferenceArea } from "recharts"
-import { ExternalLink, RefreshCw, AlertTriangle, CheckCircle } from "lucide-react"
+import { ExternalLink, RefreshCw, AlertTriangle, CheckCircle, Workflow } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { FlowCompleted } from "@/components/FlowCompleted"
-import { SectionInfo } from "@/components/SectionInfo"
+import { PageHeader } from "@/components/PageHeader"
 import { cn } from "@/lib/utils"
 
 interface FlowTask { key: string; summary: string; assignee: string; status?: string; statusKey: string; url: string; days: number; sleRisk: string }
@@ -251,22 +251,13 @@ export function FlowPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-foreground">Поток E2E — Discovery / Delivery</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Возраст работы в потоке (WIP Age P90) и WIP-лимиты по очереди PUTKURERA
-            {data?.week && <span className="ml-1">· неделя {data.week}</span>}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <SectionInfo section="flow" />
-          <button onClick={load} disabled={loading} title="Обновить"
-            className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          </button>
-        </div>
-      </div>
+      <PageHeader icon={Workflow} title="Поток E2E — Discovery / Delivery" info="flow"
+        subtitle={<>Возраст работы в потоке (WIP Age P90) и WIP-лимиты по очереди PUTKURERA{data?.week && <span className="ml-1">· неделя {data.week}</span>}</>}>
+        <button onClick={load} disabled={loading} title="Обновить"
+          className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+        </button>
+      </PageHeader>
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
 

@@ -8,7 +8,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
-import { SectionInfo } from "@/components/SectionInfo"
+import { PageHeader } from "@/components/PageHeader"
 import { cn } from "@/lib/utils"
 
 const TEAM_ORDER = ["POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"]
@@ -374,24 +374,13 @@ export function IncidentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-foreground flex items-center gap-2">
-            <AlertTriangle className="w-7 h-7 text-rose-500" /> Инциденты
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Все инциденты трёх очередей курьеров (X / U / R) · причина, стек, приоритет · доля времени и динамика
-            {resp?.updatedAt && <span className="ml-1">· обновлено: {resp.updatedAt}</span>}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <SectionInfo section="incidents" />
-          <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading} title="Пересчитать заново"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
-          </button>
-        </div>
-      </div>
+      <PageHeader icon={AlertTriangle} title="Инциденты" info="incidents"
+        subtitle={<>Все инциденты трёх очередей курьеров (X / U / R) · причина, стек, приоритет · доля времени и динамика{resp?.updatedAt && <span className="ml-1">· обновлено: {resp.updatedAt}</span>}</>}>
+        <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading} title="Пересчитать заново"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
+        </button>
+      </PageHeader>
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
 } from "recharts"
-import { RefreshCw, ChevronDown, ChevronUp, ExternalLink, ListFilter, X, Settings } from "lucide-react"
+import { RefreshCw, ChevronDown, ChevronUp, ExternalLink, ListFilter, X, Settings, Truck } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
@@ -13,7 +13,7 @@ import { OSPAiSummary } from "@/components/OSPAiSummary"
 import { OSPBlockings } from "@/components/OSPBlockings"
 import { OSPIncidents } from "@/components/OSPIncidents"
 import { OSPSettings } from "@/components/OSPSettings"
-import { SectionInfo } from "@/components/SectionInfo"
+import { PageHeader } from "@/components/PageHeader"
 import { cn } from "@/lib/utils"
 
 const CAT_COLORS: Record<string, string> = {
@@ -206,28 +206,19 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-foreground">ОСП — обзор сервиса поставки</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Сколько сделали по месяцам (пол года) · Story · Тех. долг · Инциденты · по командам курьеров (X / U / R)
-            {data?.updatedAt && <span className="ml-1">· обновлено: {data.updatedAt}</span>}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <SectionInfo section="osp" />
-          <button onClick={() => setShowSettings(true)}
-            title="Настройки ОСП: SLE-пороги и состав команд"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-            <Settings className="w-4 h-4" /> Настройки
-          </button>
-          <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading}
-            title="Обновить все блоки ОСП (пересчитать заново)"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
-          </button>
-        </div>
-      </div>
+      <PageHeader icon={Truck} title="ОСП — обзор сервиса поставки" info="osp"
+        subtitle={<>Сколько сделали по месяцам (пол года) · Story · Тех. долг · Инциденты · по командам курьеров (X / U / R){data?.updatedAt && <span className="ml-1">· обновлено: {data.updatedAt}</span>}</>}>
+        <button onClick={() => setShowSettings(true)}
+          title="Настройки ОСП: SLE-пороги и состав команд"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+          <Settings className="w-4 h-4" /> Настройки
+        </button>
+        <button onClick={() => { load(true); setRefreshKey(k => k + 1) }} disabled={loading}
+          title="Обновить все блоки ОСП (пересчитать заново)"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
+        </button>
+      </PageHeader>
 
       {/* Админка ОСП */}
       <OSPSettings open={showSettings} onClose={() => setShowSettings(false)}

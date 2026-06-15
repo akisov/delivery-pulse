@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, Cell, LabelList, ResponsiveContainer, Tooltip,
 } from "recharts"
-import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check, Lock, Unlock, Download, Users, Tags, Activity } from "lucide-react"
+import { ExternalLink, RefreshCw, ChevronDown, ChevronUp, EyeOff, X, Check, Lock, Unlock, Download, Users, Tags, Activity, Target } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
-import { SectionInfo } from "@/components/SectionInfo"
+import { PageHeader } from "@/components/PageHeader"
 import { cn } from "@/lib/utils"
 
 const CLUSTER_ORDER = [
@@ -474,31 +474,22 @@ export function SLEPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-foreground">Анализ нарушений SLE</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Очередь PUTKURERA · {which === "current" ? "риски нарушения SLE" : "причины нарушений SLE"} (ИИ + правка вручную)
-            {data?.updatedAt && <span className="ml-1">· обновлено: {data.updatedAt}</span>}
-          </p>
+      <PageHeader icon={Target} title="Анализ нарушений SLE" info="sle"
+        subtitle={<>Очередь PUTKURERA · {which === "current" ? "риски нарушения SLE" : "причины нарушений SLE"} (ИИ + правка вручную){data?.updatedAt && <span className="ml-1">· обновлено: {data.updatedAt}</span>}</>}>
+        <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
+          {([["current", "Текущая"], ["historical", "История"]] as const).map(([v, label]) => (
+            <button key={v} onClick={() => { setWhich(v); setFilter(null); setRiskModal(null); setAssignee(""); setExpanded(false) }}
+              className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
+                which === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
+              {label}
+            </button>
+          ))}
         </div>
-        <div className="flex items-center gap-2">
-          <SectionInfo section="sle" />
-          <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
-            {([["current", "Текущая"], ["historical", "История"]] as const).map(([v, label]) => (
-              <button key={v} onClick={() => { setWhich(v); setFilter(null); setRiskModal(null); setAssignee(""); setExpanded(false) }}
-                className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all",
-                  which === v ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-secondary")}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => load(true)} disabled={loading} title="Пересчитать (заново через ИИ)"
-            className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          </button>
-        </div>
-      </div>
+        <button onClick={() => load(true)} disabled={loading} title="Пересчитать (заново через ИИ)"
+          className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+        </button>
+      </PageHeader>
 
       {/* Сводка */}
       {stats && (
