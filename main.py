@@ -1364,7 +1364,7 @@ def _sub_phase(status_key: str) -> str:
     if status_key in SLE_SUB_NOTSTARTED: return "todo"
     return "working"                                            # inProgress, analyticalstudy, review, testing…
 SLE_QUERIES = {
-    "current":    'Type: newFeature Queue: PUTKURERA Status: inProgress Putkurera."sle risk": notEmpty() "Sort by": Putkurera."sle risk" DESC',
+    "current":    'Type: newFeature Queue: PUTKURERA Status: inProgress PUTKURERA."Operating mode": "В работе" Putkurera."sle risk": notEmpty() "Sort by": Putkurera."sle risk" DESC',
     "historical": 'Type: newFeature Queue: PUTKURERA Status: zaverseno, analizRezults, closed Putkurera."sle risk": notEmpty() "Sort by": Putkurera."sle risk" DESC',
 }
 
@@ -1525,7 +1525,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 13  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 14  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:

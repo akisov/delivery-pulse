@@ -67,7 +67,8 @@ const CONTENT: Record<string, { title: string; blocks: Block[] }> = {
     title: "Анализ SLE — как это считается",
     blocks: [
       { h: "Запросы к Трекеру", lines: [
-        "Задачи: `POST /v2/issues/_search`, фильтр **Type: newFeature, Queue: PUTKURERA, Status: inProgress, «sle risk»: notEmpty()** (текущие) либо завершённые (история).",
+        "Задачи: `POST /v2/issues/_search`, фильтр **Type: newFeature, Queue: PUTKURERA, Status: inProgress, Режим работы: «В работе», «sle risk»: notEmpty()** (текущие) либо завершённые (история).",
+        "Считаем только задачи в режиме **«В работе»** (как Discovery/Delivery в «Потоке»); «Отложено» не учитываем.",
         "Подзадачи — тем же поиском по **Parent issue: <ключи родителей>**. Блокировки подзадач — из нашей БД.",
       ]},
       { h: "Риск SLE", lines: [
