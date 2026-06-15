@@ -1480,10 +1480,12 @@ async def fetch_sle_tasks(which: str) -> dict:
         if is_current and len(plist) > 0 and working_cnt == 0:
             signals.append("Никто не работает — есть подзадачи, но ни одной в работе")
         needs_attention = is_current and len(signals) > 0
-        # кластеризуем только реально рисковые: нарушен/высокий, либо умеренный с блокерами.
-        # низкий и умеренный без блокеров — ещё ничего не нарушено, кластер не присваиваем.
-        any_block = bool(blocked_subs) or any(sub_blockings.get(s.get("key")) for s in plist) \
-            or bool(p.get("theLastReasonForBlocking")) or bool(p.get("historyOfBlockingReasons"))
+        # кластеризуем только реально рисковые: нарушен/высокий, либо умеренный с АКТИВНЫМ блокером.
+        # низкий и умеренный без активной блокировки — ещё ничего не нарушено, кластер не присваиваем.
+        # ВАЖНО: учитываем только ОТКРЫТЫЕ блокировки в активных подзадачах (blocked_subs).
+        # Снятые/исторические блокировки НЕ делают задачу «в блоке» — иначе ложные срабатывания
+        # (задача всё в работе, блок давно снят, а она висит в разборе).
+        any_block = bool(blocked_subs)
         # История (завершённые): кластеризуем только реально НАРУШЕННЫЕ.
         # Текущие: нарушен всегда; высокий/умеренный — только если есть блокеры.
         if which == "historical":
@@ -1525,7 +1527,7 @@ async def fetch_sle_tasks(which: str) -> dict:
 
     return {"which": which, "count": len(tasks), "tasks": tasks}
 
-SLE_SNAPSHOT_VERSION = 14  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
+SLE_SNAPSHOT_VERSION = 15  # bump при изменении логики сигналов/полей — старые снапшоты инвалидируются
 
 async def load_snapshot(which: str):
     try:
