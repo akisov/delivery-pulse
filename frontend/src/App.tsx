@@ -26,19 +26,14 @@ import { cn } from "@/lib/utils"
 
 const QUEUES = ["ALL", "POOLING", "DOSTAVKAPIKO", "UDOSTAVKA"] as const
 type Queue = typeof QUEUES[number]
+const QUEUE_LABEL: Record<Queue, string> = {
+  ALL: "Все команды", POOLING: "Курьеры X", UDOSTAVKA: "Курьеры U", DOSTAVKAPIKO: "Курьеры R",
+}
 
 function fmt(d: Date) {
   // локальная дата YYYY-MM-DD (toISOString сдвигал бы на день в МСК)
   const m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0")
   return `${d.getFullYear()}-${m}-${day}`
-}
-
-function plural(n: number) {
-  const m10 = n % 10, m100 = n % 100
-  if (m100 >= 11 && m100 <= 19) return "задач"
-  if (m10 === 1) return "задача"
-  if (m10 >= 2 && m10 <= 4) return "задачи"
-  return "задач"
 }
 
 const PRESETS = [
@@ -331,41 +326,22 @@ export default function App() {
 
         {!syncing && !emptyDb && (
           <>
-            <div className="flex gap-3 flex-wrap">
-              {QUEUES.map(q => {
-                const tasks = q === "ALL" ? (data?.tasks ?? []) : (data?.queues[q]?.tasks ?? [])
-                const isActive = queue === q
-                return (
-                  <button key={q} onClick={() => { setQueue(q); setActiveReasons(null) }}
-                    className={cn(
-                      "flex flex-col text-left px-4 py-3 rounded-xl border transition-all duration-200 min-w-[140px]",
-                      "hover:-translate-y-[3px] hover:scale-[1.01] active:scale-[0.98]",
-                      isActive
-                        ? "border-primary bg-card shadow-[0_4px_24px_rgba(108,99,255,0.35),0_0_0_1px_rgba(108,99,255,0.3)]"
-                        : "border-border bg-card hover:border-primary/60 hover:shadow-[0_6px_28px_rgba(108,99,255,0.25),0_0_0_1px_rgba(108,99,255,0.15)]"
-                    )}>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">
-                      {q === "ALL" ? "Все очереди" : q}
-                    </span>
-                    {loading ? <Skeleton className="h-8 w-12 mb-1" /> : (
-                      <div className="mb-1 flex items-baseline gap-1">
-                        <span className="text-3xl font-black tracking-tighter text-primary leading-none">{tasks.length}</span>
-                        <span className="text-xs text-muted-foreground">{plural(tasks.length)}</span>
-                      </div>
-                    )}
-                    <div className="flex gap-3 text-[11px] text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-destructive inline-block" />
-                        {tasks.filter(t => t.blockings.some(b => b.isActive)).length} активн.
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                        {tasks.reduce((s, t) => s + t.blockings.length, 0)} блок.
-                      </span>
-                    </div>
-                  </button>
-                )
-              })}
+            <div className="flex items-center gap-2.5 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
+              <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
+              <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
+                {(["ALL", "POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"] as const).map(q => {
+                  const count = q === "ALL" ? (data?.tasks?.length ?? 0) : (data?.queues[q]?.tasks?.length ?? 0)
+                  const isActive = queue === q
+                  return (
+                    <button key={q} onClick={() => { setQueue(q); setActiveReasons(null) }}
+                      className={cn("inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-semibold transition-all whitespace-nowrap",
+                        isActive ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
+                      {QUEUE_LABEL[q]}
+                      {!loading && <span className={cn("text-xs", isActive ? "opacity-80" : "opacity-60")}>{count}</span>}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {loading ? (
