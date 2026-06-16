@@ -239,7 +239,7 @@ interface DeferredItem {
   guillotine: string; diff: number | null; daysOnStatus: number | null; daysOfResearch: number | null
   gChanges: number; gChanges30: number; needsDecision: boolean; frequentlyParked: boolean
 }
-interface DeferredResp { ok: boolean; items: DeferredItem[]; count: number; needsDecision: number; frequentlyParked: number }
+interface DeferredResp { ok: boolean; items: DeferredItem[]; count: number; totalBasket: number; needsDecision: number; frequentlyParked: number }
 
 export function FlowPage() {
   const [data, setData] = useState<Resp | null>(null)
@@ -269,47 +269,6 @@ export function FlowPage() {
       </PageHeader>
 
       {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠️ {error}</div>}
-
-      {/* Корзина (отложенные на Discovery) — требуют решения / часто откладывают */}
-      {deferred && deferred.count > 0 && (
-        <Card className="border-amber-500/40 bg-amber-500/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(245,158,11,0.18)]">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
-              <Trash2 className="w-4 h-4" /> Корзина (отложенные) — {deferred.count}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Режим «Отложено» (в WIP-лимит не входят) · <b className="text-rose-500">{deferred.needsDecision}</b> требуют решения (гильотина наступила) · <b className="text-amber-500">{deferred.frequentlyParked}</b> часто откладывают · продакт: вернуть в корзину или сменить режим работы
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-1.5">
-            {deferred.items.map(it => (
-              <div key={it.key} className="rounded-lg border border-border bg-card px-3 py-2 hover:bg-accent/30 transition-colors">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1">
-                    {it.key} <ExternalLink className="w-3 h-3" />
-                  </a>
-                  {!it.guillotine
-                    ? <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"><Clock className="w-3 h-3" />гильотина не задана</span>
-                    : it.needsDecision
-                      ? <span className="inline-flex items-center gap-1 rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400"><Clock className="w-3 h-3" />гильотина наступила{it.diff ? ` (${it.diff} дн назад)` : " (сегодня)"}</span>
-                      : <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"><Clock className="w-3 h-3" />до гильотины {it.diff != null ? -it.diff : "?"} дн</span>}
-                  {it.frequentlyParked && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400" title={`Дату гильотины меняли ${it.gChanges} раз (за 30 дней: ${it.gChanges30})`}>
-                      <Repeat className="w-3 h-3" />откладывали {it.gChanges}×
-                    </span>
-                  )}
-                  {it.team && <span className="text-[10px] text-muted-foreground">{it.team.replace(/^Команда\s*/, "")}</span>}
-                  <span className="ml-auto text-[10px] text-muted-foreground whitespace-nowrap">
-                    гильотина {it.guillotine || "—"}{it.daysOnStatus != null && <> · в статусе {it.daysOnStatus}д</>}
-                  </span>
-                </div>
-                <p className="text-xs text-foreground mt-1 leading-snug">{it.summary}</p>
-                <p className="text-[11px] text-muted-foreground/70 mt-0.5">{it.assignee} · {it.status}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -396,6 +355,45 @@ export function FlowPage() {
 
       {/* Завершено задач по месяцам — динамика throughput */}
       <FlowCompleted />
+
+      {/* Корзина (отложенные): только наступившая гильотина + часто откладываемые */}
+      {deferred && deferred.count > 0 && (
+        <Card className="border-amber-500/40 bg-amber-500/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(245,158,11,0.18)]">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <Trash2 className="w-4 h-4" /> Корзина — требуют внимания: {deferred.count}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Из {deferred.totalBasket} в корзине (режим «Отложено», в WIP-лимит не входят): <b className="text-rose-500">{deferred.needsDecision}</b> с наступившей гильотиной (требуют решения) · <b className="text-amber-500">{deferred.frequentlyParked}</b> часто откладывают. Продакт: вернуть в корзину или сменить режим работы.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {deferred.items.map(it => (
+              <div key={it.key} className="rounded-lg border border-border bg-card px-3 py-2 hover:bg-accent/30 transition-colors">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1">
+                    {it.key} <ExternalLink className="w-3 h-3" />
+                  </a>
+                  {it.needsDecision
+                    ? <span className="inline-flex items-center gap-1 rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400"><Clock className="w-3 h-3" />гильотина наступила</span>
+                    : <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"><Clock className="w-3 h-3" />{it.guillotine ? "гильотина ещё не наступила" : "гильотина не задана"}</span>}
+                  {it.frequentlyParked && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400" title={`Дату гильотины меняли ${it.gChanges} раз (за 30 дней: ${it.gChanges30})`}>
+                      <Repeat className="w-3 h-3" />откладывали {it.gChanges}×
+                    </span>
+                  )}
+                  {it.team && <span className="text-[10px] text-muted-foreground">{it.team.replace(/^Команда\s*/, "")}</span>}
+                  <span className="ml-auto text-[10px] text-muted-foreground whitespace-nowrap">
+                    гильотина {it.guillotine || "—"} · разница {it.diff ?? "?"}{it.daysOnStatus != null && <> · в статусе {it.daysOnStatus}д</>}
+                  </span>
+                </div>
+                <p className="text-xs text-foreground mt-1 leading-snug">{it.summary}</p>
+                <p className="text-[11px] text-muted-foreground/70 mt-0.5">{it.assignee} · {it.status}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <ProductModal row={product} onClose={() => setProduct(null)} />
     </div>

@@ -1938,7 +1938,7 @@ async def flow_deferred(refresh: bool = Query(False)):
     наступила) и часто откладываемые (дату гильотины меняли многократно)."""
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
-    ckey = "flow-deferred-v2"
+    ckey = "flow-deferred-v3"
     if not refresh:
         try:
             res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
@@ -1964,23 +1964,23 @@ async def flow_deferred(refresh: bool = Query(False)):
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
-    today = date.today()
-    items = []
+    all_items = []
     for t in tasks:
         k = t["key"]
-        g = _field(t, "--theGuillotineOfTime") or ""
-        gd = _date_only(g)
-        # разницу считаем сами: дней с момента гильотины. >=0 → гильотина наступила,
-        # <0 → ещё есть время (|diff| дней до гильотины).
-        diff = (today - gd).days if gd else None
+        # разницу с гильотиной берём из поля задачи: >=0 → гильотина НАСТУПИЛА, <0 → ещё нет.
+        diff = _field(t, "--theDifferenceWithGw")
+        try:
+            diff = int(float(diff)) if diff is not None else None
+        except (TypeError, ValueError):
+            diff = None
         g_total, g_30 = chg.get(k, (0, 0))
-        items.append({
+        all_items.append({
             "key": k, "summary": t.get("summary", "—"),
             "url": f"https://tracker.yandex.ru/{k}",
             "assignee": (t.get("assignee") or {}).get("display", "—"),
             "team": t.get("team") or "",
             "status": (t.get("status") or {}).get("display", ""),
-            "guillotine": g,
+            "guillotine": _field(t, "--theGuillotineOfTime") or "",
             "diff": diff,
             "daysOnStatus": t.get("daysOnTheStatus"),
             "daysOfResearch": _field(t, "--daysOfResearch"),
@@ -1988,10 +1988,11 @@ async def flow_deferred(refresh: bool = Query(False)):
             "needsDecision": diff is not None and diff >= 0,
             "frequentlyParked": g_total >= 3 or g_30 >= 2,
         })
-    # сортировка: сначала требующие решения (самые «просроченные» — diff больше), затем частые
+    # показываем ТОЛЬКО: наступившая гильотина (diff>=0) ИЛИ часто откладывают
+    items = [x for x in all_items if x["needsDecision"] or x["frequentlyParked"]]
     items.sort(key=lambda x: (not x["needsDecision"], not x["frequentlyParked"],
                               -(x["diff"] if x["diff"] is not None else -10**9)))
-    payload = {"ok": True, "items": items, "count": len(items),
+    payload = {"ok": True, "items": items, "count": len(items), "totalBasket": len(all_items),
                "needsDecision": sum(1 for i in items if i["needsDecision"]),
                "frequentlyParked": sum(1 for i in items if i["frequentlyParked"])}
     try:
