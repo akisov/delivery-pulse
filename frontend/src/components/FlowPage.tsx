@@ -378,8 +378,8 @@ export function FlowPage() {
                     ? <span className="inline-flex items-center gap-1 rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400"><Clock className="w-3 h-3" />гильотина наступила</span>
                     : <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"><Clock className="w-3 h-3" />{it.guillotine ? "гильотина ещё не наступила" : "гильотина не задана"}</span>}
                   {it.frequentlyParked && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400" title={`Дату гильотины меняли ${it.gChanges} раз (за 30 дней: ${it.gChanges30})`}>
-                      <Repeat className="w-3 h-3" />откладывали {it.gChanges}×
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400" title="Сколько раз меняли дату «Гильотина времени» по истории задачи">
+                      <Repeat className="w-3 h-3" />откладывали {it.gChanges}× всего{it.gChanges30 ? ` · ${it.gChanges30} за мес` : ""}
                     </span>
                   )}
                   {it.team && <span className="text-[10px] text-muted-foreground">{it.team.replace(/^Команда\s*/, "")}</span>}
