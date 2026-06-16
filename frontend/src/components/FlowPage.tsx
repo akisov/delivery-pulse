@@ -388,7 +388,11 @@ export function FlowPage() {
                   </span>
                 </div>
                 <p className="text-xs text-foreground mt-1 leading-snug">{it.summary}</p>
-                <p className="text-[11px] text-muted-foreground/70 mt-0.5">{it.assignee} · {it.status}</p>
+                <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1.5">
+                  <span className="inline-flex items-center justify-center rounded-full text-white font-bold shrink-0"
+                    style={{ width: 16, height: 16, fontSize: 8, background: avatarColor(it.assignee) }}>{initials(it.assignee)}</span>
+                  {it.assignee} · {it.status}
+                </p>
               </div>
             ))}
           </CardContent>
