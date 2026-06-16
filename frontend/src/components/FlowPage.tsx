@@ -289,7 +289,9 @@ export function FlowPage() {
                     {it.key} <ExternalLink className="w-3 h-3" />
                   </a>
                   {it.needsDecision
-                    ? <span className="inline-flex items-center gap-1 rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400"><Clock className="w-3 h-3" />гильотина наступила</span>
+                    ? (it.guillotine
+                        ? <span className="inline-flex items-center gap-1 rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400"><Clock className="w-3 h-3" />гильотина наступила</span>
+                        : <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"><Clock className="w-3 h-3" />гильотина не задана</span>)
                     : it.diff != null && <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"><Clock className="w-3 h-3" />до гильотины {it.diff}</span>}
                   {it.frequentlyParked && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400" title={`Дату гильотины меняли ${it.gChanges} раз (за 30 дней: ${it.gChanges30})`}>
