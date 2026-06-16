@@ -1911,6 +1911,98 @@ async def flow_metrics():
                          "sleBreakdown": sle_break, "week": week, "target": FLOW_TARGET,
                          "history": history})
 
+# ── Поток: Корзина (отложенные на Discovery) ────────────────────────────────────
+DEFERRED_QUERY = ('Type: newFeature Queue: PUTKURERA PUTKURERA."Operating mode": "Отложено" '
+                  'Resolution: empty() "Status Type": !cancelled "Status Type": !done')
+
+async def _guillotine_changes(client, key: str):
+    """Сколько раз меняли дату «Гильотина времени» (всего и за 30 дней) — по истории задачи."""
+    try:
+        data = await tracker_request(client, "GET", f"/v2/issues/{key}/changelog?perPage=100")
+    except Exception:
+        return 0, 0
+    total, last30 = 0, 0
+    cutoff = (date.today() - timedelta(days=30)).isoformat()
+    for ev in (data if isinstance(data, list) else []):
+        for f in (ev.get("fields") or []):
+            fid = (f.get("field") or {}).get("id") or ""
+            if fid.endswith("theGuillotineOfTime"):
+                total += 1
+                if (ev.get("updatedAt") or "")[:10] >= cutoff:
+                    last30 += 1
+    return total, last30
+
+@app.get("/flow-deferred")
+async def flow_deferred(refresh: bool = Query(False)):
+    """Корзина: задачи в режиме «Отложено». Подсвечиваем требующие решения (гильотина
+    наступила) и часто откладываемые (дату гильотины меняли многократно)."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    ckey = "flow-deferred-v1"
+    if not refresh:
+        try:
+            res = await turso_execute([stmt("SELECT data, updated_at FROM osp_snapshot WHERE which=?", [ckey])])
+            rows = rows_to_dicts(res[0]) if res else []
+            if rows and rows[0].get("data"):
+                obj = json.loads(rows[0]["data"]); obj["updatedAt"] = rows[0].get("updated_at") or ""
+                return JSONResponse(obj)
+        except Exception as e:
+            print(f"[flow-deferred load] {e}")
+
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            tasks = await tracker_query(client, DEFERRED_QUERY)
+            chg = {}
+            B = 4
+            for i in range(0, len(tasks), B):
+                chunk = tasks[i:i + B]
+                rs = await asyncio.gather(*[_guillotine_changes(client, t["key"]) for t in chunk],
+                                          return_exceptions=True)
+                for t, r in zip(chunk, rs):
+                    chg[t["key"]] = r if isinstance(r, tuple) else (0, 0)
+                await asyncio.sleep(0.2)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+    items = []
+    for t in tasks:
+        k = t["key"]
+        diff = _field(t, "--theDifferenceWithGw")
+        try:
+            diff = int(float(diff)) if diff is not None else None
+        except (TypeError, ValueError):
+            diff = None
+        g_total, g_30 = chg.get(k, (0, 0))
+        items.append({
+            "key": k, "summary": t.get("summary", "—"),
+            "url": f"https://tracker.yandex.ru/{k}",
+            "assignee": (t.get("assignee") or {}).get("display", "—"),
+            "team": t.get("team") or "",
+            "status": (t.get("status") or {}).get("display", ""),
+            "guillotine": _field(t, "--theGuillotineOfTime") or "",
+            "diff": diff,
+            "daysOnStatus": t.get("daysOnTheStatus"),
+            "daysOfResearch": _field(t, "--daysOfResearch"),
+            "gChanges": g_total, "gChanges30": g_30,
+            "needsDecision": diff is not None and diff <= 0,
+            "frequentlyParked": g_total >= 3 or g_30 >= 2,
+        })
+    # сортировка: сначала требующие решения (по «просрочке»), затем часто откладываемые
+    items.sort(key=lambda x: (not x["needsDecision"], not x["frequentlyParked"],
+                              x["diff"] if x["diff"] is not None else 1e9))
+    payload = {"ok": True, "items": items, "count": len(items),
+               "needsDecision": sum(1 for i in items if i["needsDecision"]),
+               "frequentlyParked": sum(1 for i in items if i["frequentlyParked"])}
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ckey, json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[flow-deferred save] {e}")
+    payload["updatedAt"] = "только что"
+    return JSONResponse(payload)
+
 @app.get("/flow-completed")
 async def flow_completed(months: int = Query(8), refresh: bool = Query(False)):
     """Сколько задач PUTKURERA перешло в «Завершено» по месяцам (по дате завершения)."""
