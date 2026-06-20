@@ -1,30 +1,36 @@
-import { Sun, Moon } from "lucide-react"
+import { Sun, Moon, Monitor, type LucideIcon } from "lucide-react"
 import { useTheme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 
+type Mode = "system" | "light" | "dark"
+const MODES: [Mode, LucideIcon, string][] = [
+  ["system", Monitor, "Как в системе"],
+  ["light", Sun, "Светлая"],
+  ["dark", Moon, "Тёмная"],
+]
+
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme()
-  const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+  const mql = window.matchMedia("(prefers-color-scheme: dark)")
+  const resolve = (m: Mode) => (m === "system" ? (mql.matches ? "dark" : "light") : m)
 
-  const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const next = isDark ? "light" : "dark"
+  const pick = (e: React.MouseEvent<HTMLButtonElement>, m: Mode) => {
+    if (m === theme) return
     const apply = () => {
-      // меняем класс синхронно (чтобы снимок «новой» темы был сразу верным) + сохраняем в состояние
+      const r = resolve(m)
       const root = document.documentElement
       root.classList.remove("light", "dark")
-      root.classList.add(next)
-      setTheme(next)
+      root.classList.add(r)
+      setTheme(m)
     }
     const startVT = (document as any).startViewTransition?.bind(document)
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    if (!startVT || reduce) { apply(); return }
-
-    // круг раскрытия из центра кнопки до самого дальнего угла экрана
+    // анимируем «наплыв» только когда реально меняется цвет (light↔dark)
+    if (!startVT || reduce || resolve(theme as Mode) === resolve(m)) { apply(); return }
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const x = rect.left + rect.width / 2
     const y = rect.top + rect.height / 2
     const end = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y))
-
     const t = startVT(apply)
     t.ready.then(() => {
       document.documentElement.animate(
@@ -35,34 +41,21 @@ export function ThemeToggle({ className }: { className?: string }) {
   }
 
   return (
-    <button
-      onClick={toggle}
-      title={isDark ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
-      className={cn(
-        "relative h-9 w-16 rounded-full border border-border bg-secondary",
-        "transition-all duration-300 ease-out",
-        "hover:border-primary/50 hover:shadow-[0_2px_12px_rgba(108,99,255,0.2)]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        "active:scale-[0.96]",
-        className
-      )}
-    >
-      <span className={cn(
-        "absolute inset-[3px] rounded-full transition-all duration-300",
-        isDark ? "bg-primary/10" : "bg-amber-400/15"
-      )} />
-      <span className={cn(
-        "absolute top-[3px] h-[26px] w-[26px] rounded-full flex items-center justify-center",
-        "shadow-sm transition-all duration-300 ease-out",
-        isDark
-          ? "left-[3px] bg-secondary border border-border"
-          : "left-[calc(100%-29px)] bg-amber-400/90 border border-amber-300"
-      )}>
-        {isDark
-          ? <Moon className="w-3.5 h-3.5 text-primary" />
-          : <Sun className="w-3.5 h-3.5 text-amber-900" />
-        }
-      </span>
-    </button>
+    <div className={cn("inline-flex items-center gap-0.5 rounded-full border border-border bg-secondary p-0.5", className)}>
+      {MODES.map(([m, Icon, label]) => {
+        const active = theme === m
+        return (
+          <button key={m} onClick={e => pick(e, m)} title={label} aria-label={label}
+            className={cn(
+              "flex items-center justify-center w-7 h-7 rounded-full transition-all active:scale-95",
+              active
+                ? "bg-card text-primary shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}>
+            <Icon className="w-3.5 h-3.5" />
+          </button>
+        )
+      })}
+    </div>
   )
 }
