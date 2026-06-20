@@ -255,7 +255,7 @@ export function IncidentsPage() {
     if (!c || c === "— не указана") return "— не указана"
     return clusterMap[c] || c
   }
-  // причина записана «на похер»: AI-флаг или эвристика
+  // формальная причина (мусор/отписка): AI-флаг или эвристика
   const isBadCause = (cause: string) => {
     const c = (cause || "").trim()
     if (!c || c === "— не указана") return false
@@ -338,13 +338,13 @@ export function IncidentsPage() {
     return { cur, prev, delta: cur - prev, pf: pfs, pt: pts }
   }, [items, resp, team, dates])
 
-  // для «Разбора» исключаем нереальные инциденты (резолюция «Не делаем»)
-  const realItems = useMemo(() => items.filter(it => !/не\s*делаем/i.test(it.resolution || "")), [items])
-  // инциденты с причиной «на похер» (мусор/отписка) и без причины вовсе
-  const badItems = useMemo(() => items.filter(it => isBadCause(it.cause)), [items, badCauses])
-  const emptyCauseCount = useMemo(() => items.filter(it => {
+  // анализ причин — только по ЗАКРЫТЫМ (у открытых причины ещё нет) и без «Не делаем»
+  const realItems = useMemo(() => items.filter(it => isResolved(it) && !/не\s*делаем/i.test(it.resolution || "")), [items])
+  // формальные причины (мусор/отписка) и совсем без причины — среди закрытых
+  const badItems = useMemo(() => realItems.filter(it => isBadCause(it.cause)), [realItems, badCauses])
+  const emptyCauseCount = useMemo(() => realItems.filter(it => {
     const c = (it.cause || "").trim(); return !c || c === "— не указана"
-  }).length, [items])
+  }).length, [realItems])
   // группировка
   const groups = useMemo(() => {
     const totalCount = realItems.length || 1
@@ -632,20 +632,20 @@ export function IncidentsPage() {
           </Card>
 
 
-          {/* Качество причин: «на похер» (мусор/отписка) + без причины */}
+          {/* Качество заполнения причин (только по закрытым): формальные + без причины */}
           {(badItems.length > 0 || emptyCauseCount > 0) && (
             <Card className="border-amber-500/40 bg-amber-500/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(245,158,11,0.18)]">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
-                  <AlertTriangle className="w-4 h-4" /> Качество причин — <b className="text-rose-500">{badItems.length}</b> на похер · <b className="text-amber-500">{emptyCauseCount}</b> без причины
+                  <AlertTriangle className="w-4 h-4" /> Качество заполнения причин — <b className="text-rose-500">{badItems.length}</b> формальных · <b className="text-amber-500">{emptyCauseCount}</b> без причины
                 </CardTitle>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  «На похер» — бессмыслица/отписки/без объяснения (эвристика + AI). «Без причины» — поле не заполнено (их список — в «Разборе» → группа «— не указана»). Стоит дозаполнять.
+                  Считаем только по закрытым инцидентам. «Формальная» — бессмыслица/отписки/без объяснения корневой причины (эвристика + AI). «Без причины» — поле не заполнено (их список — в «Разборе» → группа «— не указана»). Стоит дозаполнять.
                 </p>
               </CardHeader>
               <CardContent className="space-y-1.5">
                 {badItems.length === 0 && (
-                  <p className="text-xs text-muted-foreground/70">Причин, записанных «на похер», не найдено — заполненные написаны осмысленно. Не заполнено вовсе: <b>{emptyCauseCount}</b>.</p>
+                  <p className="text-xs text-muted-foreground/70">Формальных причин не найдено — заполненные написаны осмысленно. Закрытых без причины: <b>{emptyCauseCount}</b>.</p>
                 )}
                 {badItems.map(it => (
                   <div key={it.key} className="flex items-center gap-2.5 text-xs rounded-md px-1.5 py-1 hover:bg-accent/30 transition-colors">
@@ -675,7 +675,7 @@ export function IncidentsPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {{ cause: "Причины, сгруппированные в кластеры через AI (внутри — исходные причины)", stack: "Сгруппировано по стеку", priority: "Сгруппировано по приоритету", assignee: "Сгруппировано по исполнителю («пожарные»)" }[groupBy]} · без резолюции «Не делаем» · доля от числа и от часов · клик — раскрыть
+                {{ cause: "Причины, сгруппированные в кластеры через AI (внутри — исходные причины)", stack: "Сгруппировано по стеку", priority: "Сгруппировано по приоритету", assignee: "Сгруппировано по исполнителю («пожарные»)" }[groupBy]} · только закрытые, без «Не делаем» · доля от числа и от часов · клик — раскрыть
               </p>
             </CardHeader>
             <CardContent className="space-y-1.5">
