@@ -340,8 +340,11 @@ export function IncidentsPage() {
 
   // для «Разбора» исключаем нереальные инциденты (резолюция «Не делаем»)
   const realItems = useMemo(() => items.filter(it => !/не\s*делаем/i.test(it.resolution || "")), [items])
-  // инциденты с причиной «на похер» (мусор/отписка)
+  // инциденты с причиной «на похер» (мусор/отписка) и без причины вовсе
   const badItems = useMemo(() => items.filter(it => isBadCause(it.cause)), [items, badCauses])
+  const emptyCauseCount = useMemo(() => items.filter(it => {
+    const c = (it.cause || "").trim(); return !c || c === "— не указана"
+  }).length, [items])
   // группировка
   const groups = useMemo(() => {
     const totalCount = realItems.length || 1
@@ -629,16 +632,21 @@ export function IncidentsPage() {
           </Card>
 
 
-          {/* Причина записана «на похер» (мусор/отписка) */}
-          {badItems.length > 0 && (
+          {/* Качество причин: «на похер» (мусор/отписка) + без причины */}
+          {(badItems.length > 0 || emptyCauseCount > 0) && (
             <Card className="border-amber-500/40 bg-amber-500/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(245,158,11,0.18)]">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
-                  <AlertTriangle className="w-4 h-4" /> Причина записана формально / «на похер» — {badItems.length}
+                  <AlertTriangle className="w-4 h-4" /> Качество причин — <b className="text-rose-500">{badItems.length}</b> на похер · <b className="text-amber-500">{emptyCauseCount}</b> без причины
                 </CardTitle>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Бессмысленный текст, отписки или без понятного объяснения корневой причины (эвристика + AI). Стоит дозаполнить.</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  «На похер» — бессмыслица/отписки/без объяснения (эвристика + AI). «Без причины» — поле не заполнено (их список — в «Разборе» → группа «— не указана»). Стоит дозаполнять.
+                </p>
               </CardHeader>
               <CardContent className="space-y-1.5">
+                {badItems.length === 0 && (
+                  <p className="text-xs text-muted-foreground/70">Причин, записанных «на похер», не найдено — заполненные написаны осмысленно. Не заполнено вовсе: <b>{emptyCauseCount}</b>.</p>
+                )}
                 {badItems.map(it => (
                   <div key={it.key} className="flex items-center gap-2.5 text-xs rounded-md px-1.5 py-1 hover:bg-accent/30 transition-colors">
                     <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0 inline-flex items-center gap-1">{it.key} <ExternalLink className="w-3 h-3" /></a>
