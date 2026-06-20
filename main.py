@@ -3687,11 +3687,15 @@ async def osp_worklog_status():
 
 import os as _os
 
+# index.html отдаём без кэша, чтобы новые сборки (с новым хешем JS) подхватывались
+# сразу — иначе браузер держит старый index.html и тянет устаревший бандл.
+_NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+
 @app.get("/{full_path:path}", include_in_schema=False)
 async def spa_fallback(full_path: str):
     file = f"static/{full_path}"
-    if _os.path.isfile(file):
+    if _os.path.isfile(file) and not file.endswith("index.html"):
         return FileResponse(file)
-    return FileResponse("static/index.html")
+    return FileResponse("static/index.html", headers=_NO_CACHE)
 
 app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
