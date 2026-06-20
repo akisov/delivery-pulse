@@ -459,7 +459,7 @@ export function IncidentsPage() {
           {/* Сводка */}
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {([
-              { label: "Всего инцидентов", value: stats.total, color: "text-foreground", kind: "all" as const },
+              { label: "Всего", value: stats.total, color: "text-foreground", kind: "all" as const },
               { label: "Критичных", value: stats.crit, color: "text-rose-500", kind: "crit" as const },
               { label: "Открытых", value: stats.open, color: "text-amber-500", kind: "open" as const },
               { label: "% завершено", value: `${stats.rate}%`, color: "text-emerald-500" },
@@ -469,7 +469,7 @@ export function IncidentsPage() {
               <div key={s.label} onClick={s.kind ? () => setStatSel(s.kind!) : undefined}
                 className={cn("rounded-xl border border-border bg-card px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(108,99,255,0.1)]",
                   s.kind && "cursor-pointer hover:border-primary/40")}>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{s.label}{s.kind && " ›"}</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{s.label}{s.kind && " ›"}</p>
                 <p className={cn("text-2xl font-black tracking-tight leading-none mt-1", s.color)}>{s.value}</p>
               </div>
             ))}
