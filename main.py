@@ -2709,7 +2709,7 @@ async def _incidents_items(months: int) -> list:
 async def incidents_clusters(months: int = Query(12), refresh: bool = Query(False)):
     """AI-кластеризация сырых причин инцидентов в осмысленные группы.
     Возвращает {clusters: {исходная_причина: кластер}, names: [...]}. Кэшируется."""
-    ckey = f"incidents-clusters-{months}-v1"
+    ckey = f"incidents-clusters-{months}-v2"
     if not refresh:
         snap = await _osp_snap(ckey)
         if snap:
@@ -2718,32 +2718,38 @@ async def incidents_clusters(months: int = Query(12), refresh: bool = Query(Fals
     causes = sorted({(it.get("cause") or "").strip() for it in items
                      if (it.get("cause") or "").strip() and (it.get("cause") or "").strip() != "— не указана"})
     if not causes or not AI_ENABLED:
-        return JSONResponse({"ok": True, "clusters": {}, "names": []})
+        return JSONResponse({"ok": True, "clusters": {}, "names": [], "bad": []})
     numbered = "\n".join(f"{i}. {c}" for i, c in enumerate(causes))
     system = (
         "Ты группируешь причины инцидентов сервиса доставки в осмысленные кластеры (категории корневых причин). "
         "Сделай 5–9 кластеров с короткими понятными названиями на русском (например: «Ошибки фронта», "
         "«Интеграции/внешние API», «Данные и координаты», «Логика расчётов», «Инфраструктура/деплой», "
         "«Человеческий фактор», «Конфигурация»). Каждой исходной причине присвой ровно один кластер.\n"
+        "Также пометь причины, записанные ФОРМАЛЬНО/«на отвали»: бессмысленные («111», «ааа», набор символов), "
+        "отписки («хз», «не знаю», «тест»), или без понятного объяснения корневой причины — для них bad=true.\n"
         "Верни СТРОГО валидный JSON-массив без пояснений, формата: "
-        "[{\"i\": <номер причины из списка>, \"cluster\": \"<название кластера>\"}, ...]. "
+        "[{\"i\": <номер причины из списка>, \"cluster\": \"<название кластера>\", \"bad\": true|false}, ...]. "
         "Покрой ВСЕ номера. Никакого текста вокруг JSON."
     )
-    txt = await ai_complete(system, "Причины:\n" + numbered, max_tokens=3000, temperature=0.2)
+    txt = await ai_complete(system, "Причины:\n" + numbered, max_tokens=4000, temperature=0.2)
     mapping: dict = {}
+    bad: list = []
     try:
         s = txt[txt.index("["): txt.rindex("]") + 1]
         for row in json.loads(s):
             i = int(row.get("i"))
             cl = str(row.get("cluster") or "").strip()
-            if 0 <= i < len(causes) and cl:
-                mapping[causes[i]] = cl
+            if 0 <= i < len(causes):
+                if cl:
+                    mapping[causes[i]] = cl
+                if row.get("bad") is True:
+                    bad.append(causes[i])
     except Exception as e:
         print(f"[incidents-clusters parse] {e}")
     for c in causes:
         mapping.setdefault(c, "Прочее")
     names = sorted(set(mapping.values()))
-    payload = {"ok": True, "clusters": mapping, "names": names}
+    payload = {"ok": True, "clusters": mapping, "names": names, "bad": bad}
     try:
         await turso_execute([stmt(
             "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "

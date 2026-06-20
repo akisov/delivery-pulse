@@ -72,6 +72,21 @@ function costOf(it: { assignee: string; spentHours: number | null; worklog?: { n
   return rate ? Math.round(it.spentHours * rate) : null
 }
 function fmtRub(n: number) { return `${n.toLocaleString("ru-RU")} ₽` }
+
+// эвристика «причина записана на похер» (мусор/отписка) — дополняет AI-флаг
+function causeHeuristicBad(raw: string): boolean {
+  const c = (raw || "").trim()
+  if (!c || c === "— не указана") return false
+  const letters = (c.match(/[A-Za-zА-Яа-яЁё]/g) || []).length
+  const compact = c.replace(/\s/g, "")
+  const norm = c.toLowerCase().replace(/ё/g, "е")
+  if (letters <= 2) return true                    // только цифры/символы: «111», «—», «...»
+  if (compact.length <= 4) return true             // слишком коротко
+  if (/^(.)\1{2,}$/.test(compact)) return true      // повтор одного символа: «аааа», «11111»
+  const junk = ["хз", "пох", "не знаю", "нет причины", "забей", "тест", "test", "asdf", "qwert", "йцук", "фыва", "ничего", "нету"]
+  if (junk.some(j => norm === j || norm.startsWith(j + " "))) return true
+  return false
+}
 function fmtDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
@@ -206,6 +221,7 @@ export function IncidentsPage() {
   const [resp, setResp] = useState<Resp | null>(null)
   const [wl, setWl] = useState<WlResp | null>(null)
   const [clusterMap, setClusterMap] = useState<Record<string, string>>({})
+  const [badCauses, setBadCauses] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [team, setTeam] = useState<string>("all")
@@ -228,6 +244,7 @@ export function IncidentsPage() {
       if (d.ok) setResp(d); else setError(d.error || "Ошибка")
       setWl(w || null)
       setClusterMap((c && c.clusters) || {})
+      setBadCauses(new Set((c && c.bad) || []))
     }).catch(e => setError(String(e))).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
@@ -237,6 +254,12 @@ export function IncidentsPage() {
     const c = (cause || "").trim()
     if (!c || c === "— не указана") return "— не указана"
     return clusterMap[c] || c
+  }
+  // причина записана «на похер»: AI-флаг или эвристика
+  const isBadCause = (cause: string) => {
+    const c = (cause || "").trim()
+    if (!c || c === "— не указана") return false
+    return badCauses.has(c) || causeHeuristicBad(c)
   }
 
   const queues = resp?.queues ?? {}
@@ -317,6 +340,8 @@ export function IncidentsPage() {
 
   // для «Разбора» исключаем нереальные инциденты (резолюция «Не делаем»)
   const realItems = useMemo(() => items.filter(it => !/не\s*делаем/i.test(it.resolution || "")), [items])
+  // инциденты с причиной «на похер» (мусор/отписка)
+  const badItems = useMemo(() => items.filter(it => isBadCause(it.cause)), [items, badCauses])
   // группировка
   const groups = useMemo(() => {
     const totalCount = realItems.length || 1
@@ -603,6 +628,28 @@ export function IncidentsPage() {
             </CardContent>
           </Card>
 
+
+          {/* Причина записана «на похер» (мусор/отписка) */}
+          {badItems.length > 0 && (
+            <Card className="border-amber-500/40 bg-amber-500/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(245,158,11,0.18)]">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="w-4 h-4" /> Причина записана формально / «на похер» — {badItems.length}
+                </CardTitle>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Бессмысленный текст, отписки или без понятного объяснения корневой причины (эвристика + AI). Стоит дозаполнить.</p>
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                {badItems.map(it => (
+                  <div key={it.key} className="flex items-center gap-2.5 text-xs rounded-md px-1.5 py-1 hover:bg-accent/30 transition-colors">
+                    <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0 inline-flex items-center gap-1">{it.key} <ExternalLink className="w-3 h-3" /></a>
+                    <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 font-semibold text-amber-700 dark:text-amber-300 shrink-0 max-w-[40%] truncate" title={it.cause}>«{it.cause}»</span>
+                    <span className="flex-1 truncate text-muted-foreground">{it.summary}</span>
+                    <span className="text-[11px] text-muted-foreground shrink-0">{queues[it.queue] || it.queue} · {it.assignee}</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Разбор по группам */}
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
