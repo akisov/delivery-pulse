@@ -686,16 +686,40 @@ async def _sync_arch_queue(client, queue, updated_from, send):
         "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
         [queue, datetime.now(MSK).strftime("%Y-%m-%dT%H:%M:%S")])])
 
+async def _arch_tables():
+    """Источник данных арх.кома: наши arch_tasks/arch_transitions, либо — если они ещё
+    пусты, а арх_ком жил в ТОЙ ЖЕ Turso-базе под общими именами — legacy tasks/transitions.
+    Так данные показываются сразу (общая база), без долгого пересинка; при разных базах
+    legacy-таблиц нет → используем arch_* (наполняются кнопкой «Синк»)."""
+    try:
+        r = await turso_execute([stmt("SELECT COUNT(*) AS c FROM arch_transitions")])
+        if r and int(rows_to_dicts(r[0])[0]["c"]) > 0:
+            return ("arch_tasks", "arch_transitions")
+    except Exception:
+        pass
+    try:
+        r = await turso_execute([stmt(
+            "SELECT COUNT(*) AS c FROM sqlite_master "
+            "WHERE type='table' AND name IN ('tasks','transitions')")])
+        if r and int(rows_to_dicts(r[0])[0]["c"]) >= 2:
+            r2 = await turso_execute([stmt("SELECT COUNT(*) AS c FROM transitions")])
+            if r2 and int(rows_to_dicts(r2[0])[0]["c"]) > 0:
+                return ("tasks", "transitions")
+    except Exception:
+        pass
+    return ("arch_tasks", "arch_transitions")
+
 async def query_arch_dashboard(date_from: str, date_to: str, queues: list[str]):
     """Событийная модель: задача попадает в выборку, если в периоде был хотя бы один из событий:
     вход в комитет (→180), возврат АрхКома (180→151) или возврат ТА (145→175)."""
+    tk_tbl, tr_tbl = await _arch_tables()
     q_ph = ",".join("?" * len(queues))
     ev = await turso_execute([stmt(f"""
         SELECT tr.issue_key, tr.from_status AS frm, tr.to_status AS too,
                substr(tr.ts,1,10) AS d,
                tk.title, tk.queue, tk.issue_type, tk.issue_type_display
-        FROM arch_transitions tr
-        JOIN arch_tasks tk ON tk.key = tr.issue_key
+        FROM {tr_tbl} tr
+        JOIN {tk_tbl} tk ON tk.key = tr.issue_key
         WHERE substr(tr.ts,1,10) >= ? AND substr(tr.ts,1,10) <= ?
           AND tk.queue IN ({q_ph})
           AND ( tr.to_status = ?
@@ -733,7 +757,7 @@ async def query_arch_dashboard(date_from: str, date_to: str, queues: list[str]):
     keys = list(tmap)
     key_ph = ",".join("?" * len(keys))
     trans_results = await turso_execute([stmt(f"""
-        SELECT issue_key, to_status, ts FROM arch_transitions
+        SELECT issue_key, to_status, ts FROM {tr_tbl}
         WHERE issue_key IN ({key_ph}) ORDER BY ts ASC
     """, keys)])
     seq: dict = {}
@@ -772,19 +796,20 @@ async def query_arch_dashboard(date_from: str, date_to: str, queues: list[str]):
 
 async def query_arch_current(queues: list[str]):
     """Задачи, которые сейчас находятся в одном из статусов Арх. комитета."""
+    tk_tbl, tr_tbl = await _arch_tables()
     q_ph = ",".join("?" * len(queues))
     st_ph = ",".join("?" * len(ARCH_STATUSES))
     results = await turso_execute([stmt(f"""
         WITH latest AS (
             SELECT issue_key, to_status, ts,
                    ROW_NUMBER() OVER (PARTITION BY issue_key ORDER BY ts DESC, id DESC) AS rn
-            FROM arch_transitions
+            FROM {tr_tbl}
         )
         SELECT l.issue_key, l.to_status, l.ts AS latest_ts,
                tk.title, tk.queue, tk.issue_type, tk.issue_type_display,
                tk.assignee, tk.status_start, tk.status_display
         FROM latest l
-        JOIN arch_tasks tk ON tk.key = l.issue_key
+        JOIN {tk_tbl} tk ON tk.key = l.issue_key
         WHERE l.rn = 1 AND l.to_status IN ({st_ph}) AND tk.queue IN ({q_ph})
     """, [*ARCH_STATUSES.keys(), *queues])])
 
@@ -799,7 +824,7 @@ async def query_arch_current(queues: list[str]):
         SELECT issue_key,
                SUM(CASE WHEN from_status=? AND to_status=? THEN 1 ELSE 0 END) AS v1n,
                SUM(CASE WHEN from_status=? AND to_status=? THEN 1 ELSE 0 END) AS v2n
-        FROM arch_transitions WHERE issue_key IN ({key_ph}) GROUP BY issue_key
+        FROM {tr_tbl} WHERE issue_key IN ({key_ph}) GROUP BY issue_key
     """, [ARCH_V1_FROM, ARCH_V1_TO, ARCH_V2_FROM, ARCH_V2_TO, *keys_all])])
     cuts = {r["issue_key"]: (int(r["v1n"] or 0), int(r["v2n"] or 0))
             for r in rows_to_dicts(cut_results[0])} if cut_results else {}
