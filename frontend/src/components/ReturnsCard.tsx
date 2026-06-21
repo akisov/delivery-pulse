@@ -52,7 +52,7 @@ function StagePill({ icon, label, accent }: { icon: string; label: string; accen
 
 export function ReturnsCard({ tasks, totalTasks, onShowTasks }: ReturnsCardProps) {
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardContent className="p-0">
         <div className="px-6 pt-6 pb-2">
           <p className="text-sm font-bold text-foreground">Возвраты на доработку</p>

@@ -88,7 +88,7 @@ export function TaskTable({ tasks, activeFilter, onFilter }: TaskTableProps) {
   const td = "py-3 text-sm"
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-border flex-wrap">
         <div>
           <span className="text-sm font-bold text-foreground">Задачи</span>

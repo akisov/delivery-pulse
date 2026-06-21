@@ -62,7 +62,7 @@ export function ArchCommitteeReport({ tasks, loading }: Props) {
   const stuck = tasks.filter(t => t.daysInStatus >= 7).length
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-border flex-wrap">
         <div className="flex items-center gap-2">
           <span className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center text-sm">🏛</span>

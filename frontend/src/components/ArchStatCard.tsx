@@ -68,13 +68,10 @@ export function ArchStatCard({ label, value, sub, icon, color, onClick, delta, d
         boxShadow: hovered ? `0 8px 28px ${c.glow}, 0 0 0 1px ${c.border}` : "none",
       }}
       className={cn(
-        "relative overflow-hidden rounded-xl border border-border bg-card flex flex-col gap-3 p-5 h-full",
+        "relative overflow-hidden rounded-xl border border-border bg-card flex flex-col gap-3 p-5 h-full shadow-none",
         onClick && "cursor-pointer"
       )}
     >
-      {/* Верхняя акцентная полоса */}
-      <div className={cn("absolute top-0 left-0 right-0 h-0.5", c.bar)} />
-
       {/* Фоновый градиент при ховере */}
       <div style={{
         position: "absolute", inset: 0, opacity: hovered ? 1 : 0,
@@ -86,7 +83,7 @@ export function ArchStatCard({ label, value, sub, icon, color, onClick, delta, d
       <div className="flex items-center justify-between relative">
         <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
         <span
-          className={cn("w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-transform duration-200", c.text, c.bg)}
+          className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-base transition-transform duration-200", c.text, c.bg)}
           style={{ transform: hovered ? "rotate(10deg) scale(1.15)" : "rotate(0) scale(1)" }}
         >
           {icon}
@@ -95,7 +92,7 @@ export function ArchStatCard({ label, value, sub, icon, color, onClick, delta, d
 
       <div className="relative">
         <div className="flex items-end gap-2 flex-wrap">
-          <p className={cn("text-4xl font-black tracking-tighter leading-none transition-colors duration-200", hovered ? c.text : "text-foreground")}>
+          <p className={cn("text-3xl font-black tracking-tighter leading-none transition-colors duration-200", hovered && onClick ? c.text : "text-foreground")}>
             <AnimatedNumber value={value} />
           </p>
           {hasDelta && (
@@ -104,8 +101,14 @@ export function ArchStatCard({ label, value, sub, icon, color, onClick, delta, d
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground mt-1.5">{sub}</p>
+        <p className="text-xs text-muted-foreground mt-1">{sub}</p>
       </div>
+
+      {onClick && (
+        <p className={cn("text-[10px] font-semibold transition-opacity duration-200", c.text, hovered ? "opacity-100" : "opacity-0")}>
+          Показать список →
+        </p>
+      )}
     </div>
   )
 }

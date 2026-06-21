@@ -30,7 +30,7 @@ export function QueueBreakdown({ tasks, onShowTasks }: QueueBreakdownProps) {
   const maxCount = Math.max(...QUEUES.map(q => ent.filter(t => t.queue === q).length), 1)
 
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardContent className="p-6">
         <p className="text-sm font-bold text-foreground mb-1">По очередям</p>
         <p className="text-xs text-muted-foreground mb-5">
