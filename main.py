@@ -3173,7 +3173,12 @@ async def incidents_ai(team: str = Query("all"), months: int = Query(12),
     from collections import Counter
     by_team = Counter(it["queue"] for it in items)
     by_prio = Counter(it.get("priority") or "—" for it in items)
-    causes = Counter(it.get("cause") or "—" for it in items).most_common(6)
+    # Причины только начали заполнять — НЕ кормим AI «— не указана»/пустыми,
+    # иначе сводка пишет про «неизвестную причину», что сейчас бессмысленно.
+    causes = Counter(
+        c for it in items
+        if (c := (it.get("cause") or "").strip()) and c != "— не указана"
+    ).most_common(6)
     stacks = Counter(s for it in items for s in (it.get("stack") or [])).most_common(5)
     crit = sum(1 for it in items if it.get("priorityKey") in ("critical", "blocker"))
     done = sum(1 for it in items if it.get("resolution") or it.get("statusKey") == "closed")
@@ -3203,6 +3208,8 @@ async def incidents_ai(team: str = Query("all"), months: int = Query(12),
         "Сравнивай период с предыдущим РАВНЫМ периодом. НЕ сравнивай 'текущий месяц с прошлым' — текущий "
         "период может быть не завершён, такой вывод обманчив.\n"
         "Примеры: динамика к прошлому равному периоду; доминирующая причина/стек; много критичных; долго чинят.\n"
+        "Причины инцидентов ТОЛЬКО НАЧАЛИ заполнять — НЕ делай выводов о «неизвестной»/незаполненной "
+        "причине, не упоминай отсутствие или нехватку причин. Работай только с заполненными причинами.\n"
         "ФОРМАТ СТРОГО:\n"
         "— Каждый пункт с новой строки, начинается с эмодзи: 📈 рост, 📉 спад, 🔥/🚨 тревога, ⚠️ риск, ✅ хорошо, "
         "🐞 баги/инциденты, 🧱 стек/тех, 🐌 долго чинят.\n"

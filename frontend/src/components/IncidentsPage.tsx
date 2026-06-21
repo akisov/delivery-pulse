@@ -340,11 +340,9 @@ export function IncidentsPage() {
 
   // анализ причин — только по ЗАКРЫТЫМ (у открытых причины ещё нет) и без «Не делаем»
   const realItems = useMemo(() => items.filter(it => isResolved(it) && !/не\s*делаем/i.test(it.resolution || "")), [items])
-  // формальные причины (мусор/отписка) и совсем без причины — среди закрытых
+  // формальные причины (мусор/отписка) — среди закрытых.
+  // «Без причины» НЕ показываем: причины только начали заполнять.
   const badItems = useMemo(() => realItems.filter(it => isBadCause(it.cause)), [realItems, badCauses])
-  const emptyCauseCount = useMemo(() => realItems.filter(it => {
-    const c = (it.cause || "").trim(); return !c || c === "— не указана"
-  }).length, [realItems])
   // группировка
   const groups = useMemo(() => {
     const totalCount = realItems.length || 1
@@ -632,21 +630,19 @@ export function IncidentsPage() {
           </Card>
 
 
-          {/* Качество заполнения причин (только по закрытым): формальные + без причины */}
-          {(badItems.length > 0 || emptyCauseCount > 0) && (
+          {/* Качество заполнения причин (только по закрытым): формальные/«на отвали».
+              «Без причины» не показываем — причины только начали заполнять. */}
+          {badItems.length > 0 && (
             <Card className="border-amber-500/40 bg-amber-500/[0.05] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(245,158,11,0.18)]">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
-                  <AlertTriangle className="w-4 h-4" /> Качество заполнения причин — <b className="text-rose-500">{badItems.length}</b> формальных · <b className="text-amber-500">{emptyCauseCount}</b> без причины
+                  <AlertTriangle className="w-4 h-4" /> Качество заполнения причин — <b className="text-rose-500">{badItems.length}</b> формальных
                 </CardTitle>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Считаем только по закрытым инцидентам. «Формальная» — бессмыслица/отписки/без объяснения корневой причины (эвристика + AI). «Без причины» — поле не заполнено (их список — в «Разборе» → группа «— не указана»). Стоит дозаполнять.
+                  Считаем только по закрытым инцидентам. «Формальная» — бессмыслица/отписки/без объяснения корневой причины (эвристика + AI). Стоит дозаполнять осмысленно.
                 </p>
               </CardHeader>
               <CardContent className="space-y-1.5">
-                {badItems.length === 0 && (
-                  <p className="text-xs text-muted-foreground/70">Формальных причин не найдено — заполненные написаны осмысленно. Закрытых без причины: <b>{emptyCauseCount}</b>.</p>
-                )}
                 {badItems.map(it => (
                   <div key={it.key} className="flex items-center gap-2.5 text-xs rounded-md px-1.5 py-1 hover:bg-accent/30 transition-colors">
                     <a href={it.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline shrink-0 inline-flex items-center gap-1">{it.key} <ExternalLink className="w-3 h-3" /></a>
