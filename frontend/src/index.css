@@ -23,6 +23,11 @@
     --destructive-foreground: 210 40% 98%;
     --ring: 252 87% 70%;
     --radius: 0.75rem;
+    --chart-1: 252 87% 70%;
+    --chart-2: 166 76% 40%;
+    --chart-3: 350 89% 60%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 199 89% 60%;
     --shadow-card: 0 4px 24px rgba(0,0,0,0.4);
     --shadow-hover: 0 8px 32px rgba(108,99,255,0.25);
   }
@@ -45,6 +50,11 @@
     --destructive: 350 84% 55%;
     --destructive-foreground: 0 0% 100%;
     --ring: 252 80% 58%;
+    --chart-1: 252 80% 58%;
+    --chart-2: 166 70% 36%;
+    --chart-3: 350 84% 55%;
+    --chart-4: 38 88% 45%;
+    --chart-5: 199 84% 48%;
     --shadow-card: 0 2px 12px rgba(0,0,0,0.07);
     --shadow-hover: 0 6px 24px rgba(108,99,255,0.18);
   }

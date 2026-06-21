@@ -3,7 +3,7 @@ import re
 import asyncio
 import hashlib
 import httpx
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
@@ -128,6 +128,26 @@ DOMAIN_NOTES = """Важные особенности данных (учитыв
 
 QUEUES = ["POOLING", "DOSTAVKAPIKO", "UDOSTAVKA"]
 
+# ── Арх. комитет (возвраты): константы ──────────────────────────────────────────
+MSK = timezone(timedelta(hours=3))   # даты статусов в Трекере — по московскому времени
+ARCH_ENTRY_STATUS = "180"   # analiticeskaaProrabotkaGotovo — задача пришла к техархам
+ARCH_V1_FROM, ARCH_V1_TO = "180", "151"   # АрхКом: аналит.проработка готово → ревью аналитики
+ARCH_V2_FROM, ARCH_V2_TO = "145", "175"   # ТА: согласование архитектуры → доработка
+# Типы задач, проходящих через арх. комитет
+ARCH_ISSUE_TYPES = ["story", "analytics", "technicaldebt", "improvement", "elaboration"]
+# Статусы, в которых задача считается «сейчас в Арх. комитете»
+ARCH_STATUSES = {
+    "180": "Аналитическая проработка готово",
+    "151": "Ревью аналитики",
+    "145": "Согласование архитектуры",
+    "175": "Доработка",
+}
+_ARCH_TEST_RE = re.compile(r"\b(?:test|тест|тестов\w*)\b", re.IGNORECASE)
+
+def arch_is_test_task(title: str) -> bool:
+    """Тестовые задачи: слово «тест»/«test» или «тестовый/тестовая/тестовое»."""
+    return bool(_ARCH_TEST_RE.search(title or ""))
+
 # ── Turso HTTP client ─────────────────────────────────────────────────────────
 
 async def turso_execute(statements: list[dict]) -> list:
@@ -239,6 +259,20 @@ async def init_db():
             team TEXT, month TEXT, criterion TEXT, score REAL, updated_at TEXT,
             PRIMARY KEY(team, month, criterion)
         )"""),
+        # ── Арх. комитет (возвраты): задачи + история переходов статусов ──────────
+        stmt("""CREATE TABLE IF NOT EXISTS arch_tasks (
+            key TEXT PRIMARY KEY, title TEXT, queue TEXT, created_at TEXT,
+            issue_type TEXT, issue_type_display TEXT,
+            status_key TEXT, status_display TEXT, assignee TEXT, status_start TEXT)"""),
+        stmt("""CREATE TABLE IF NOT EXISTS arch_transitions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_key TEXT NOT NULL, from_status TEXT, to_status TEXT, ts TEXT NOT NULL)"""),
+        stmt("CREATE INDEX IF NOT EXISTS idx_arch_trans_key ON arch_transitions(issue_key)"),
+        stmt("CREATE INDEX IF NOT EXISTS idx_arch_trans_ts  ON arch_transitions(ts)"),
+        stmt("CREATE INDEX IF NOT EXISTS idx_arch_trans_to  ON arch_transitions(to_status)"),
+        # Отдельный журнал синка арх.кома — НЕ мешаем с sync_log блокировок
+        stmt("""CREATE TABLE IF NOT EXISTS arch_sync_log (
+            queue TEXT PRIMARY KEY, last_synced TEXT)"""),
     ])
     # Миграция: добавляем колонки если не существуют (игнорируем ошибку если уже есть)
     for col_sql in [
@@ -544,6 +578,287 @@ async def get_sync_info():
     results = await turso_execute([stmt("SELECT queue, last_synced FROM sync_log")])
     return {r["queue"]: r["last_synced"] for r in rows_to_dicts(results[0])} if results else {}
 
+# ── Арх. комитет: синк истории переходов + запросы ──────────────────────────────
+
+async def get_arch_sync_info():
+    results = await turso_execute([stmt("SELECT queue, last_synced FROM arch_sync_log")])
+    return {r["queue"]: r["last_synced"] for r in rows_to_dicts(results[0])} if results else {}
+
+async def fetch_arch_issues_page(client, queue, updated_from, page):
+    """Задачи очереди нужных типов, обновлённые с updated_from."""
+    frm = updated_from if "T" in updated_from else f"{updated_from}T00:00:00"
+    data = await tracker_request(client, "POST",
+        f"/v2/issues/_search?perPage=100&page={page}",
+        {"filter": {"queue": queue, "type": ARCH_ISSUE_TYPES,
+                    "updatedAt": {"from": frm, "to": "2099-01-01T00:00:00"}}})
+    return data if isinstance(data, list) else []
+
+async def fetch_arch_changelog(client, key):
+    """Полная история переходов статусов задачи (с пагинацией)."""
+    all_entries, page = [], 1
+    while True:
+        try:
+            data = await tracker_request(client, "GET",
+                f"/v2/issues/{key}/changelog?perPage=100&page={page}&type=IssueWorkflow")
+        except Exception as e:
+            print(f"  [WARN] arch changelog {key} page {page} failed: {e}")
+            break
+        if not isinstance(data, list) or not data:
+            break
+        all_entries.extend(data)
+        if len(data) < 100:
+            break
+        page += 1
+        await asyncio.sleep(0.2)
+    return all_entries
+
+async def _sync_arch_queue(client, queue, updated_from, send):
+    """Синк очереди арх.кома: задачи + история переходов начиная с updated_from."""
+    await send({"type": "progress", "msg": f"АрхКом {queue}: загружаем задачи…", "pct": 5})
+
+    issues = await fetch_arch_issues_page(client, queue, updated_from, 1)
+    if len(issues) == 100:
+        page = 2
+        while True:
+            data = await fetch_arch_issues_page(client, queue, updated_from, page)
+            issues.extend(data)
+            await asyncio.sleep(0.5)
+            if len(data) < 100:
+                break
+            page += 1
+
+    await send({"type": "progress", "msg": f"АрхКом {queue}: {len(issues)} задач, история…", "pct": 15})
+
+    BATCH = 3
+    for i in range(0, len(issues), BATCH):
+        chunk = issues[i:i + BATCH]
+        changelogs = await asyncio.gather(
+            *[fetch_arch_changelog(client, iss["key"]) for iss in chunk],
+            return_exceptions=True)
+        await asyncio.sleep(1.0)
+
+        stmts = []
+        for iss, cl in zip(chunk, changelogs):
+            if isinstance(cl, Exception):
+                print(f"  [FAIL] arch {iss.get('key')}: {cl}")
+                continue
+            key = iss["key"]
+            itype = iss.get("type", {}) or {}
+            status = iss.get("status", {}) or {}
+            assignee = (iss.get("assignee") or {}).get("display", "")
+            status_change_ts = [
+                (e.get("updatedAt") or e.get("createdAt") or "")
+                for e in cl
+                for f in e.get("fields", [])
+                if f.get("field", {}).get("id") == "status"
+            ]
+            status_start = max(status_change_ts) if status_change_ts else iss.get("createdAt", "")
+            stmts.append(stmt(
+                "INSERT INTO arch_tasks(key,title,queue,created_at,issue_type,issue_type_display,"
+                "status_key,status_display,assignee,status_start) VALUES(?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET title=excluded.title, issue_type=excluded.issue_type, "
+                "issue_type_display=excluded.issue_type_display, status_key=excluded.status_key, "
+                "status_display=excluded.status_display, assignee=excluded.assignee, "
+                "status_start=excluded.status_start",
+                [key, iss.get("summary", "—"), queue, iss.get("createdAt", ""),
+                 itype.get("key", ""), itype.get("display", ""),
+                 str(status.get("id", "")), status.get("display", ""), assignee, status_start]))
+            for e in cl:
+                ts = e.get("updatedAt") or e.get("createdAt") or ""
+                for f in e.get("fields", []):
+                    if f.get("field", {}).get("id") == "status":
+                        from_s = str(f.get("from", {}).get("id", ""))
+                        to_s   = str(f.get("to",   {}).get("id", ""))
+                        stmts.append(stmt(
+                            "INSERT INTO arch_transitions(issue_key,from_status,to_status,ts) "
+                            "SELECT ?,?,?,? WHERE NOT EXISTS ("
+                            "SELECT 1 FROM arch_transitions WHERE issue_key=? AND ts=? AND to_status=?)",
+                            [key, from_s, to_s, ts, key, ts, to_s]))
+        if stmts:
+            await turso_execute(stmts)
+
+        done = i + len(chunk)
+        pct = 15 + round(done / max(len(issues), 1) * 75)
+        await send({"type": "progress", "msg": f"АрхКом {queue}: {done}/{len(issues)}", "pct": pct})
+
+    await turso_execute([stmt(
+        "INSERT INTO arch_sync_log(queue,last_synced) VALUES(?,?) "
+        "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
+        [queue, datetime.now(MSK).strftime("%Y-%m-%dT%H:%M:%S")])])
+
+async def query_arch_dashboard(date_from: str, date_to: str, queues: list[str]):
+    """Событийная модель: задача попадает в выборку, если в периоде был хотя бы один из событий:
+    вход в комитет (→180), возврат АрхКома (180→151) или возврат ТА (145→175)."""
+    q_ph = ",".join("?" * len(queues))
+    ev = await turso_execute([stmt(f"""
+        SELECT tr.issue_key, tr.from_status AS frm, tr.to_status AS too,
+               substr(tr.ts,1,10) AS d,
+               tk.title, tk.queue, tk.issue_type, tk.issue_type_display
+        FROM arch_transitions tr
+        JOIN arch_tasks tk ON tk.key = tr.issue_key
+        WHERE substr(tr.ts,1,10) >= ? AND substr(tr.ts,1,10) <= ?
+          AND tk.queue IN ({q_ph})
+          AND ( tr.to_status = ?
+             OR (tr.from_status = ? AND tr.to_status = ?)
+             OR (tr.from_status = ? AND tr.to_status = ?) )
+    """, [date_from, date_to, *queues, ARCH_ENTRY_STATUS,
+          ARCH_V1_FROM, ARCH_V1_TO, ARCH_V2_FROM, ARCH_V2_TO])])
+
+    rows = rows_to_dicts(ev[0]) if ev else []
+    rows = [r for r in rows if not arch_is_test_task(r.get("title"))]
+    if not rows:
+        return {"tasks": [], "queues": {q: {"tasks": []} for q in queues},
+                "dateFrom": date_from, "dateTo": date_to}
+
+    tmap: dict = {}
+    for r in rows:
+        k = r["issue_key"]
+        t = tmap.get(k)
+        if t is None:
+            t = tmap[k] = {
+                "key": k, "title": r["title"] or "—",
+                "url": f"https://tracker.yandex.ru/{k}",
+                "queue": r["queue"], "issueType": r.get("issue_type") or "story",
+                "issueTypeDisplay": r.get("issue_type_display") or "Story",
+                "entryDates": [], "v1Dates": [], "v2Dates": [],
+            }
+        frm, too, dd = str(r["frm"]), str(r["too"]), r["d"]
+        if too == ARCH_ENTRY_STATUS:
+            t["entryDates"].append(dd)
+        elif frm == ARCH_V1_FROM and too == ARCH_V1_TO:
+            t["v1Dates"].append(dd)
+        elif frm == ARCH_V2_FROM and too == ARCH_V2_TO:
+            t["v2Dates"].append(dd)
+
+    keys = list(tmap)
+    key_ph = ",".join("?" * len(keys))
+    trans_results = await turso_execute([stmt(f"""
+        SELECT issue_key, to_status, ts FROM arch_transitions
+        WHERE issue_key IN ({key_ph}) ORDER BY ts ASC
+    """, keys)])
+    seq: dict = {}
+    for tr in (rows_to_dicts(trans_results[0]) if trans_results else []):
+        seq.setdefault(tr["issue_key"], []).append(tr)
+
+    def cycle_days(key: str):
+        items = seq.get(key, [])
+        entry = next((t["ts"] for t in items if str(t["to_status"]) == ARCH_ENTRY_STATUS), None)
+        if not entry:
+            return None
+        exit_ts = next((t["ts"] for t in items
+                        if t["ts"] > entry and str(t["to_status"]) not in ARCH_STATUSES), None)
+        if not exit_ts:
+            return None  # ещё в комитете
+        try:
+            return max(0, (date.fromisoformat(exit_ts[:10]) - date.fromisoformat(entry[:10])).days)
+        except ValueError:
+            return None
+
+    tasks, queues_out = [], {q: {"tasks": []} for q in queues}
+    for k, t in tmap.items():
+        v1n, v2n = len(t["v1Dates"]), len(t["v2Dates"])
+        entered = len(t["entryDates"]) > 0
+        task = {
+            **t, "entered": entered,
+            "entryDate": sorted(t["entryDates"])[0] if entered else None,
+            "v1n": v1n, "v2n": v2n, "total": v1n + v2n,
+            "cycleDays": cycle_days(k),
+        }
+        tasks.append(task)
+        if t["queue"] in queues_out:
+            queues_out[t["queue"]]["tasks"].append(task)
+
+    return {"tasks": tasks, "queues": queues_out, "dateFrom": date_from, "dateTo": date_to}
+
+async def query_arch_current(queues: list[str]):
+    """Задачи, которые сейчас находятся в одном из статусов Арх. комитета."""
+    q_ph = ",".join("?" * len(queues))
+    st_ph = ",".join("?" * len(ARCH_STATUSES))
+    results = await turso_execute([stmt(f"""
+        WITH latest AS (
+            SELECT issue_key, to_status, ts,
+                   ROW_NUMBER() OVER (PARTITION BY issue_key ORDER BY ts DESC, id DESC) AS rn
+            FROM arch_transitions
+        )
+        SELECT l.issue_key, l.to_status, l.ts AS latest_ts,
+               tk.title, tk.queue, tk.issue_type, tk.issue_type_display,
+               tk.assignee, tk.status_start, tk.status_display
+        FROM latest l
+        JOIN arch_tasks tk ON tk.key = l.issue_key
+        WHERE l.rn = 1 AND l.to_status IN ({st_ph}) AND tk.queue IN ({q_ph})
+    """, [*ARCH_STATUSES.keys(), *queues])])
+
+    rows = rows_to_dicts(results[0]) if results else []
+    rows = [r for r in rows if not arch_is_test_task(r.get("title"))]
+    if not rows:
+        return []
+
+    keys_all = [r["issue_key"] for r in rows]
+    key_ph = ",".join("?" * len(keys_all))
+    cut_results = await turso_execute([stmt(f"""
+        SELECT issue_key,
+               SUM(CASE WHEN from_status=? AND to_status=? THEN 1 ELSE 0 END) AS v1n,
+               SUM(CASE WHEN from_status=? AND to_status=? THEN 1 ELSE 0 END) AS v2n
+        FROM arch_transitions WHERE issue_key IN ({key_ph}) GROUP BY issue_key
+    """, [ARCH_V1_FROM, ARCH_V1_TO, ARCH_V2_FROM, ARCH_V2_TO, *keys_all])])
+    cuts = {r["issue_key"]: (int(r["v1n"] or 0), int(r["v2n"] or 0))
+            for r in rows_to_dicts(cut_results[0])} if cut_results else {}
+
+    # Живое обогащение из Трекера: исполнитель, актуальный статус и дата входа
+    live: dict = {}
+    if TRACKER_TOKEN:
+        async def _fetch(client, key):
+            try:
+                return key, await tracker_request(client, "GET", f"/v2/issues/{key}")
+            except Exception:
+                return key, None
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                fetched = await asyncio.gather(*[_fetch(client, k) for k in keys_all])
+            live = {k: iss for k, iss in fetched if iss}
+        except Exception:
+            live = {}
+
+    today = datetime.now(MSK).date()
+    out = []
+    for r in rows:
+        key = r["issue_key"]
+        iss = live.get(key)
+        if iss is not None:
+            st = iss.get("status", {}) or {}
+            st_id = str(st.get("id", ""))
+            if st_id and st_id not in ARCH_STATUSES:
+                continue  # уже вышла из статусов арх.кома
+            status_disp = ARCH_STATUSES.get(st_id) or st.get("display") or "—"
+            status_key = st_id or str(r["to_status"])
+            assignee = (iss.get("assignee") or {}).get("display", "") or ""
+            started = (iss.get("statusStartTime") or r.get("status_start") or r.get("latest_ts") or "")[:10]
+        else:
+            status_key = str(r["to_status"])
+            status_disp = ARCH_STATUSES.get(status_key) or r.get("status_display") or "—"
+            assignee = r.get("assignee") or ""
+            started = (r.get("status_start") or r.get("latest_ts") or "")[:10]
+
+        days = 0
+        if started:
+            try:
+                days = max(1, (today - date.fromisoformat(started)).days + 1)
+            except ValueError:
+                days = 0
+
+        v1n, v2n = cuts.get(key, (0, 0))
+        out.append({
+            "key": key, "title": r["title"] or "—",
+            "url": f"https://tracker.yandex.ru/{key}", "queue": r["queue"],
+            "issueType": r.get("issue_type") or "story",
+            "issueTypeDisplay": r.get("issue_type_display") or "Story",
+            "status": status_disp, "statusKey": status_key,
+            "assignee": assignee, "since": started, "daysInStatus": days,
+            "v1n": v1n, "v2n": v2n,
+        })
+    out.sort(key=lambda t: t["daysInStatus"], reverse=True)
+    return out
+
 # ── Background sync job ───────────────────────────────────────────────────────
 
 _sync_status: dict = {"running": False, "pct": 0, "msg": "", "error": ""}
@@ -553,7 +868,9 @@ async def run_sync_job(selected: list[str], full: bool):
     _sync_status = {"running": True, "pct": 2, "msg": "Подключаемся к Трекеру…", "error": ""}
     try:
         info = await get_sync_info()
+        arch_info = await get_arch_sync_info()
         async with httpx.AsyncClient(timeout=60) as client:
+            # ── Фаза 1: блокировки (0–80%) ──────────────────────────────────────
             for qi, queue in enumerate(selected):
                 # Дата с которой грузим: полный = 2 года, инкрементальный = с последнего синка
                 if full or queue not in info or not info[queue]:
@@ -563,15 +880,31 @@ async def run_sync_job(selected: list[str], full: bool):
                     raw = info[queue]
                     updated_from = raw.replace(" ", "T") + ":00" if " " in raw else raw
 
-                base_pct = qi * (90 // len(selected))
+                base_pct = qi * (80 // len(selected))
 
                 async def send(m, _base=base_pct, _total=len(selected)):
                     if m.get("type") == "progress":
                         _sync_status["msg"] = m.get("msg", "")
-                        _sync_status["pct"] = _base + (m.get("pct", 0) * (90 // _total) // 100)
+                        _sync_status["pct"] = _base + (m.get("pct", 0) * (80 // _total) // 100)
 
                 # Переопределяем updated_from в sync_queue через временную замену DATE_FROM
                 await _sync_queue_from(client, queue, updated_from, send)
+
+            # ── Фаза 2: арх. комитет / возвраты (80–95%) ────────────────────────
+            for qi, queue in enumerate(selected):
+                if full or queue not in arch_info or not arch_info[queue]:
+                    a_from = (date.today() - timedelta(days=730)).isoformat()
+                else:
+                    a_from = arch_info[queue]
+
+                a_base = 80 + qi * (15 // len(selected))
+
+                async def arch_send(m, _base=a_base, _total=len(selected)):
+                    if m.get("type") == "progress":
+                        _sync_status["msg"] = m.get("msg", "")
+                        _sync_status["pct"] = _base + (m.get("pct", 0) * (15 // _total) // 100)
+
+                await _sync_arch_queue(client, queue, a_from, arch_send)
 
         _sync_status = {"running": False, "pct": 100, "msg": "Синк завершён", "error": ""}
     except Exception as e:
@@ -735,6 +1068,22 @@ async def sync_start(full: bool = Query(False), queues: str = Query("POOLING,DOS
 @app.get("/sync-status")
 async def sync_status_endpoint():
     return JSONResponse(_sync_status)
+
+# ── Арх. комитет (возвраты) ─────────────────────────────────────────────────────
+@app.get("/arch-data")
+async def arch_data(date_from: str = Query(None), date_to: str = Query(None),
+                    queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
+    if not date_from:
+        date_from = (date.today() - timedelta(days=30)).isoformat()
+    if not date_to:
+        date_to = date.today().isoformat()
+    selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    return JSONResponse(await query_arch_dashboard(date_from, date_to, selected))
+
+@app.get("/arch-current")
+async def arch_current(queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
+    selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    return JSONResponse(await query_arch_current(selected))
 
 _backfill_status: dict = {"running": False, "done": 0, "total": 0, "updated": 0, "error": "", "msg": ""}
 

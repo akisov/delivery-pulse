@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle } from "lucide-react"
+import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -13,6 +13,7 @@ import { HomePage } from "@/components/HomePage"
 import { FlowPage } from "@/components/FlowPage"
 import { OSPPage } from "@/components/OSPPage"
 import { IncidentsPage } from "@/components/IncidentsPage"
+import { ArchPage } from "@/components/ArchPage"
 import { PageHeader } from "@/components/PageHeader"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
@@ -53,7 +54,7 @@ export default function App() {
   const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
-  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents">("home")
+  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch">("home")
   const [sleReloadKey, setSleReloadKey] = useState(0)  // пересбор SLE после синка
 
   const [data, setData] = useState<DashboardData | null>(null)
@@ -235,7 +236,7 @@ export default function App() {
         <aside className="hidden md:block w-52 shrink-0 py-8 sticky top-14 self-start">
           <nav className="rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-card)]">
             <p className="px-3 pt-1.5 pb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Разделы</p>
-            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["sle", Target, "Анализ SLE"], ["flow", Workflow, "Поток E2E"], ["osp", Truck, "ОСП"]] as const).map(([v, Icon, label]) => {
+            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["sle", Target, "Анализ SLE"], ["flow", Workflow, "Поток E2E"], ["osp", Truck, "ОСП"]] as const).map(([v, Icon, label]) => {
               const active = section === v
               return (
                 <button key={v} onClick={() => setSection(v)}
@@ -257,6 +258,7 @@ export default function App() {
         {section === "home" ? <HomePage onGo={setSection} /> :
          section === "osp" ? <OSPPage onGo={setSection} /> :
          section === "incidents" ? <IncidentsPage /> :
+         section === "arch" ? <ArchPage /> :
          section === "flow" ? <FlowPage /> :
          section === "sle" ? <SLEPage reloadKey={sleReloadKey} /> : (
         <>
