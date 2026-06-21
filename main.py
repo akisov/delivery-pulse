@@ -708,7 +708,12 @@ async def _daily_scheduler():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    # инициализацию БД оборачиваем, чтобы сбой/таймаут Turso не блокировал старт
+    # приложения (иначе health-check на холодном старте может не пройти).
+    try:
+        await init_db()
+    except Exception as e:
+        print(f"[init_db] WARNING: {e}")
     asyncio.create_task(_daily_scheduler())
     yield
 
@@ -3691,11 +3696,12 @@ import os as _os
 # сразу — иначе браузер держит старый index.html и тянет устаревший бандл.
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
 
+# /assets монтируем ДО catch-all (иначе spa_fallback перехватывал бы и эти запросы)
+app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
+
 @app.get("/{full_path:path}", include_in_schema=False)
 async def spa_fallback(full_path: str):
     file = f"static/{full_path}"
     if _os.path.isfile(file) and not file.endswith("index.html"):
         return FileResponse(file)
     return FileResponse("static/index.html", headers=_NO_CACHE)
-
-app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
