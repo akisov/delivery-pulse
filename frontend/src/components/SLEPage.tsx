@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { PageHeader } from "@/components/PageHeader"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
 const CLUSTER_ORDER = [
@@ -458,6 +459,7 @@ export function SLEPage({ reloadKey }: { reloadKey?: number }) {
     a.download = `sle_${which}_${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(a.href)
+    toast.success("Список выгружен в CSV", { description: `${rows.length} задач` })
   }
 
   const attentionTasks = useMemo(

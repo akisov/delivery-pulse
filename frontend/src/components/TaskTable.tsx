@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ExternalLink, ArrowUpDown, Download, Flame } from "lucide-react"
+import { toast } from "sonner"
 import type { ArchReturnTask as Task } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -107,7 +108,7 @@ export function TaskTable({ tasks, activeFilter, onFilter }: TaskTableProps) {
             </button>
           ))}
           <button
-            onClick={() => downloadCsv(sorted)}
+            onClick={() => { downloadCsv(sorted); toast.success("Список выгружен в CSV", { description: `${sorted.length} задач` }) }}
             disabled={sorted.length === 0}
             title="Скачать текущий список в CSV"
             className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border border-border text-muted-foreground hover:border-primary/40 hover:text-foreground transition-all disabled:opacity-40 disabled:cursor-default">

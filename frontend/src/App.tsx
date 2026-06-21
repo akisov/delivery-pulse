@@ -1,7 +1,19 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
 import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Command as CommandIcon } from "lucide-react"
 import { Toaster, toast } from "sonner"
 import { CommandPalette } from "@/components/CommandPalette"
+import { SimpleTooltip } from "@/components/ui/tooltip"
+import { useTheme } from "@/lib/theme"
+
+const NAV_HINT: Record<string, string> = {
+  home: "Обзор и релиз-ноты",
+  blockings: "Время разрешения, причины",
+  incidents: "По месяцам · причины · топы",
+  arch: "Возвраты · воронка · цикл",
+  sle: "Риски и кластеры причин",
+  flow: "WIP Age · WIP-лимиты",
+  osp: "Обзор сервиса поставки",
+}
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -71,6 +83,24 @@ export default function App() {
   const [statModal, setStatModal] = useState<StatFilter | null>(null)
   const [cmdOpen, setCmdOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const { theme } = useTheme()
+
+  // Плавный индикатор активного раздела в меню
+  const navRef = useRef<HTMLElement>(null)
+  const [ind, setInd] = useState<{ top: number; height: number } | null>(null)
+  useLayoutEffect(() => {
+    const nav = navRef.current
+    if (!nav) return
+    const measure = () => {
+      const el = nav.querySelector<HTMLElement>(`[data-section="${section}"]`)
+      if (!el) return
+      const nr = nav.getBoundingClientRect(), r = el.getBoundingClientRect()
+      setInd({ top: r.top - nr.top, height: r.height })
+    }
+    measure()
+    window.addEventListener("resize", measure)
+    return () => window.removeEventListener("resize", measure)
+  }, [section])
 
   // ⌘K / Ctrl+K — командная палитра
   useEffect(() => {
@@ -228,30 +258,33 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             {/* Командная палитра ⌘K */}
-            <button
-              onClick={() => setCmdOpen(true)}
-              title="Командная палитра (⌘K / Ctrl+K)"
-              className="hidden sm:flex items-center gap-2 px-3 h-9 rounded-lg border border-border bg-card text-xs font-semibold text-muted-foreground hover:border-primary/50 hover:text-foreground transition-all">
-              <CommandIcon className="w-3.5 h-3.5" />
-              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-bold tracking-wide">⌘K</span>
-            </button>
+            <SimpleTooltip label="Поиск и быстрый переход по разделам">
+              <button
+                onClick={() => setCmdOpen(true)}
+                className="hidden sm:flex items-center gap-2 px-3 h-9 rounded-lg border border-border bg-card text-xs font-semibold text-muted-foreground hover:border-primary/50 hover:text-foreground transition-all">
+                <CommandIcon className="w-3.5 h-3.5" />
+                <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-bold tracking-wide">⌘K</span>
+              </button>
+            </SimpleTooltip>
             {/* Кнопка синка с датой */}
-            <button
-              onClick={doSync}
-              disabled={syncing}
-              className={cn(
-                "flex items-center gap-2 px-3 h-9 rounded-lg border text-xs font-semibold transition-all",
-                syncing
-                  ? "border-primary/40 bg-primary/10 text-primary cursor-not-allowed"
-                  : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground hover:shadow-[0_2px_12px_rgba(108,99,255,0.2)]"
-              )}
-            >
-              <RefreshCw className={cn("w-3.5 h-3.5", syncing && "animate-spin")} />
-              <span>{syncing ? "Синкуем…" : "Синк"}</span>
-              {lastSync && !syncing && (
-                <span className="text-muted-foreground/60 font-normal">· {lastSync}</span>
-              )}
-            </button>
+            <SimpleTooltip label={syncing ? "Идёт синхронизация…" : "Обновить данные из Трекера: блокировки + история арх. комитета"}>
+              <button
+                onClick={doSync}
+                disabled={syncing}
+                className={cn(
+                  "flex items-center gap-2 px-3 h-9 rounded-lg border text-xs font-semibold transition-all",
+                  syncing
+                    ? "border-primary/40 bg-primary/10 text-primary cursor-not-allowed"
+                    : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground hover:shadow-[0_2px_12px_rgba(108,99,255,0.2)]"
+                )}
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5", syncing && "animate-spin")} />
+                <span>{syncing ? "Синкуем…" : "Синк"}</span>
+                {lastSync && !syncing && (
+                  <span className="text-muted-foreground/60 font-normal">· {lastSync}</span>
+                )}
+              </button>
+            </SimpleTooltip>
             <ThemeToggle />
           </div>
         </div>
@@ -260,21 +293,29 @@ export default function App() {
       <div className="max-w-screen-xl mx-auto flex gap-6 px-6">
         {/* Боковое меню */}
         <aside className="hidden md:block w-52 shrink-0 py-8 sticky top-14 self-start">
-          <nav className="rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-card)]">
+          <nav ref={navRef} className="relative rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-card)]">
             <p className="px-3 pt-1.5 pb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Разделы</p>
+            {/* Плавный индикатор активного раздела */}
+            {ind && (
+              <span aria-hidden className="pointer-events-none absolute left-1.5 right-1.5 rounded-xl bg-gradient-to-r from-primary/20 to-primary/5 shadow-[inset_0_0_0_1px_rgba(108,99,255,0.22)] transition-all duration-300 ease-out"
+                style={{ top: ind.top, height: ind.height }} />
+            )}
+            {ind && (
+              <span aria-hidden className="pointer-events-none absolute left-0 w-1 rounded-r-full transition-all duration-300 ease-out"
+                style={{ top: ind.top + 8, height: Math.max(0, ind.height - 16), background: "linear-gradient(180deg,#6C63FF,#EC4899)" }} />
+            )}
             {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["sle", Target, "Анализ SLE"], ["flow", Workflow, "Поток E2E"], ["osp", Truck, "ОСП"]] as const).map(([v, Icon, label]) => {
               const active = section === v
               return (
-                <button key={v} onClick={() => setSection(v)}
-                  className={cn(
-                    "relative w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left mb-0.5",
-                    active
-                      ? "bg-gradient-to-r from-primary/20 to-primary/5 text-primary shadow-[inset_0_0_0_1px_rgba(108,99,255,0.2)]"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  )}>
-                  {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full" style={{ background: "linear-gradient(180deg,#6C63FF,#EC4899)" }} />}
-                  <Icon className="w-4 h-4 shrink-0" /> {label}
-                </button>
+                <SimpleTooltip key={v} side="right" label={NAV_HINT[v]}>
+                  <button data-section={v} onClick={() => setSection(v)}
+                    className={cn(
+                      "relative z-10 w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left mb-0.5",
+                      active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                    )}>
+                    <Icon className="w-4 h-4 shrink-0" /> {label}
+                  </button>
+                </SimpleTooltip>
               )
             })}
           </nav>
@@ -454,7 +495,7 @@ export default function App() {
         onNavigate={s => { setSection(s); setCmdOpen(false) }}
         onSync={() => { setCmdOpen(false); if (!syncing) doSync() }}
       />
-      <Toaster position="top-right" richColors closeButton theme="system" />
+      <Toaster position="top-right" richColors closeButton theme={theme} />
     </div>
   )
 }

@@ -19,6 +19,7 @@ import { InsightBar } from "@/components/InsightBar"
 import { ArchTaskListModal, type ArchModalData } from "@/components/ArchTaskListModal"
 import { fetchArchDashboard, fetchArchCurrent } from "@/lib/api"
 import type { ArchReturnTask, ArchTask } from "@/lib/types"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
 const QUEUES = ["ALL", "POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"] as const
@@ -113,7 +114,7 @@ export function ArchPage() {
     setLoading(true); setError(null)
     fetchArchDashboard(wide.from, wide.to)
       .then(d => setRawTasks(d.tasks))
-      .catch((e: any) => setError(e.message))
+      .catch((e: any) => { setError(e.message); toast.error("Не удалось загрузить арх. комитет", { description: e.message }) })
       .finally(() => setLoading(false))
     setArchLoading(true)
     fetchArchCurrent().then(setArchTasks).catch(() => {}).finally(() => setArchLoading(false))
