@@ -95,10 +95,11 @@ export function ArchPage() {
   const [typeFilter, setTypeFilter] = useState("all")
   const [timeView, setTimeView] = useState<"weeks" | "months" | "cycle">("weeks")
 
-  // широкое окно (2 года) — грузим один раз, дальше всё на клиенте
+  // окно ~6 мес — грузим один раз, дальше фильтр на клиенте. Покрывает все пресеты
+  // (макс. квартал = 90д) и тренд к предыдущему равному периоду (квартал+квартал = 180д).
   const [wide] = useState(() => {
     const to = new Date(), from = new Date()
-    from.setDate(from.getDate() - 730)
+    from.setDate(from.getDate() - 190)
     return { from: fmt(from), to: fmt(to) }
   })
   const [rawTasks, setRawTasks] = useState<ArchReturnTask[] | null>(null)
