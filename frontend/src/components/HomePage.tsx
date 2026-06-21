@@ -1,11 +1,22 @@
-import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Props {
-  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents") => void
+  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch") => void
 }
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  {
+    date: "Июнь 2026",
+    title: "Раздел «Арх. комитет» (возвраты)",
+    items: [
+      "Прохождение архитектурного комитета и возвраты по трём очередям курьеров (X / U / R): вход в комитет, возвраты АрхКома (на ревью аналитики) и ТА (на доработку).",
+      "Метрики периода со сравнением с предыдущим равным: пришло, прошло с первого раза, возвраты АрхКом / ТА / оба, всего возвратов.",
+      "«Сейчас в Арх. комитете» — задачи в статусах комитета с днями на статусе, исполнителем и счётчиком возвратов; подсветка засидевшихся (≥7 дней).",
+      "Воронка, динамика по неделям/месяцам, время прохождения комитета и разбивки по очереди и типу задачи.",
+      "Общая синхронизация: одна кнопка «Синк» тянет и блокировки, и историю переходов арх. комитета.",
+    ],
+  },
   {
     date: "Июнь 2026",
     title: "Раздел «Инциденты»",
@@ -84,6 +95,8 @@ const NAV_CARDS = [
     title: "Блокировки", desc: "Время разрешения, причины, этапы и AI-сводка по трём очередям." },
   { section: "incidents" as const, icon: AlertTriangle, color: "#EF4444",
     title: "Инциденты", desc: "Все инциденты курьеров по месяцам: доля времени, AI-кластеры причин, стек, приоритет и топы." },
+  { section: "arch" as const, icon: Landmark, color: "#6366F1",
+    title: "Арх. комитет", desc: "Прохождение арх. комитета и возвраты (АрхКом · ТА) по трём очередям: воронка, время цикла и «сейчас в комитете»." },
   { section: "sle" as const, icon: Target, color: "#10B981",
     title: "Анализ SLE", desc: "Кластеризация причин нарушения SLE по PUTKURERA, скрытые блокировки." },
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",
