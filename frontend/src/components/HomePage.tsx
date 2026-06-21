@@ -112,7 +112,7 @@ export function HomePage({ onGo }: Props) {
         <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold text-primary mb-3">
           <Sparkles className="w-3.5 h-3.5" /> Дашборд процессов доставки
         </div>
-        <h1 className="text-4xl font-black tracking-tight text-foreground">Пульс доставки</h1>
+        <h1 className="text-4xl font-black tracking-tight text-gradient inline-block">Пульс доставки</h1>
         <p className="text-base text-muted-foreground mt-2 max-w-2xl">
           Блокировки, нарушения SLE, поток и обзор сервиса поставки (ОСП) по командам курьеров
           POOLING · DOSTAVKAPIKO · UDOSTAVKA · PUTKURERA — с автоматическим разбором причин от ИИ.

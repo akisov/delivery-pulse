@@ -93,6 +93,72 @@
 .stagger-2 { animation-delay: 0.10s; }
 .stagger-3 { animation-delay: 0.15s; }
 .stagger-4 { animation-delay: 0.20s; }
+.stagger-5 { animation-delay: 0.25s; }
+
+/* ── Брендовый градиентный текст (заголовки/логотип) ── */
+.text-gradient {
+  background: linear-gradient(90deg, #6C63FF, #A855F7, #EC4899);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradientShift 8s ease infinite;
+}
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ── Шиммер-скелетоны (бегущий блик вместо pulse) ── */
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: hsl(var(--muted));
+}
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, hsl(var(--foreground) / 0.08), transparent);
+  animation: shimmer 1.6s infinite;
+}
+
+/* ── Aurora: тонкие дрейфующие градиентные пятна за контентом ── */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+}
+.aurora::before,
+.aurora::after {
+  content: "";
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(100px);
+  opacity: 0.13;
+}
+.aurora::before {
+  width: 620px; height: 620px; top: -220px; left: -120px;
+  background: radial-gradient(circle, hsl(252 87% 65%), transparent 70%);
+  animation: auroraA 26s ease-in-out infinite alternate;
+}
+.aurora::after {
+  width: 540px; height: 540px; top: 8%; right: -160px;
+  background: radial-gradient(circle, hsl(199 89% 60%), transparent 70%);
+  animation: auroraB 32s ease-in-out infinite alternate;
+}
+.light .aurora::before, .light .aurora::after { opacity: 0.08; }
+@keyframes auroraA { from { transform: translate(0,0) scale(1); } to { transform: translate(130px, 90px) scale(1.15); } }
+@keyframes auroraB { from { transform: translate(0,0) scale(1); } to { transform: translate(-110px, 70px) scale(1.1); } }
+
+/* Уважаем системную настройку «меньше движения» */
+@media (prefers-reduced-motion: reduce) {
+  .aurora::before, .aurora::after, .text-gradient, .skeleton-shimmer::after { animation: none; }
+}
 
 /* ── Анимации оценки продакта ── */
 @keyframes scorePop {
