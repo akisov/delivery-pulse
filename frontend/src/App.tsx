@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark } from "lucide-react"
+import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Command as CommandIcon } from "lucide-react"
+import { Toaster, toast } from "sonner"
+import { CommandPalette } from "@/components/CommandPalette"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -67,7 +69,19 @@ export default function App() {
   const [emptyDb, setEmptyDb] = useState(false)
   const [selectedTask, setSelectedTask] = useState<BlockedTask | null>(null)
   const [statModal, setStatModal] = useState<StatFilter | null>(null)
+  const [cmdOpen, setCmdOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // ⌘K / Ctrl+K — командная палитра
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault(); setCmdOpen(o => !o)
+      }
+    }
+    document.addEventListener("keydown", h)
+    return () => document.removeEventListener("keydown", h)
+  }, [])
 
   const loadSyncInfo = useCallback(async () => {
     try {
@@ -109,7 +123,9 @@ export default function App() {
           setSyncing(false)
           if (s.error) {
             setError(s.error)
+            toast.error("Синхронизация прервалась", { description: s.error })
           } else {
+            toast.success("Синхронизация завершена", { description: "Данные обновлены из Трекера" })
             await loadSyncInfo()
             await load()
             // после синка блокировок пересобираем анализ SLE (он зависит от блокировок).
@@ -131,10 +147,11 @@ export default function App() {
     setError(null)
     try {
       const res = await startSync(false)
-      if (!res.ok) { setSyncing(false); setError(res.error ?? "Ошибка"); return }
+      if (!res.ok) { setSyncing(false); setError(res.error ?? "Ошибка"); toast.error(res.error ?? "Не удалось запустить синк"); return }
+      toast("Синхронизация запущена…", { description: "Тянем блокировки и арх. комитет из Трекера" })
       startPoll()
     } catch (e: any) {
-      setSyncing(false); setError(e.message)
+      setSyncing(false); setError(e.message); toast.error(e.message)
     }
   }, [startPoll])
 
@@ -210,6 +227,14 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/* Командная палитра ⌘K */}
+            <button
+              onClick={() => setCmdOpen(true)}
+              title="Командная палитра (⌘K / Ctrl+K)"
+              className="hidden sm:flex items-center gap-2 px-3 h-9 rounded-lg border border-border bg-card text-xs font-semibold text-muted-foreground hover:border-primary/50 hover:text-foreground transition-all">
+              <CommandIcon className="w-3.5 h-3.5" />
+              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-bold tracking-wide">⌘K</span>
+            </button>
             {/* Кнопка синка с датой */}
             <button
               onClick={doSync}
@@ -422,6 +447,14 @@ export default function App() {
         tasks={queueTasks}
         filter={statModal ?? "all"}
       />
+
+      <CommandPalette
+        open={cmdOpen}
+        onClose={() => setCmdOpen(false)}
+        onNavigate={s => { setSection(s); setCmdOpen(false) }}
+        onSync={() => { setCmdOpen(false); if (!syncing) doSync() }}
+      />
+      <Toaster position="top-right" richColors closeButton theme="system" />
     </div>
   )
 }
