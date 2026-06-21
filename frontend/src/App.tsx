@@ -323,17 +323,13 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-lg px-3 h-9 focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_rgba(108,99,255,0.15)] transition-all">
                   <input type="date" value={dates.from}
-                    onChange={e => { setDates(d => ({ ...d, from: e.target.value })); setActivePreset("") }}
+                    onChange={e => { const v = e.target.value; setDates(d => ({ ...d, from: v })); setActivePreset(""); load(v, dates.to) }}
                     className="bg-transparent border-none text-sm text-foreground outline-none w-[104px] [color-scheme:light] dark:[color-scheme:dark]" />
                   <span className="text-muted-foreground text-xs">—</span>
                   <input type="date" value={dates.to}
-                    onChange={e => { setDates(d => ({ ...d, to: e.target.value })); setActivePreset("") }}
+                    onChange={e => { const v = e.target.value; setDates(d => ({ ...d, to: v })); setActivePreset(""); load(dates.from, v) }}
                     className="bg-transparent border-none text-sm text-foreground outline-none w-[104px] [color-scheme:light] dark:[color-scheme:dark]" />
                 </div>
-                <Button onClick={() => load(dates.from, dates.to)} disabled={loading || syncing} size="sm">
-                  {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                  Показать
-                </Button>
               </div>
             </div>
 

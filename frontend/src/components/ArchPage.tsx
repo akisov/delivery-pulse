@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback } from "react"
-import { RefreshCw, Landmark } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { useState, useEffect, useMemo } from "react"
+import { Landmark } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageHeader } from "@/components/PageHeader"
 import { ArchStatCard } from "@/components/ArchStatCard"
@@ -19,7 +18,7 @@ import { HealthStrip } from "@/components/HealthStrip"
 import { InsightBar } from "@/components/InsightBar"
 import { ArchTaskListModal, type ArchModalData } from "@/components/ArchTaskListModal"
 import { fetchArchDashboard, fetchArchCurrent } from "@/lib/api"
-import type { ArchDashboardData, ArchReturnTask, ArchTask } from "@/lib/types"
+import type { ArchReturnTask, ArchTask } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const QUEUES = ["ALL", "POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"] as const
@@ -71,6 +70,24 @@ function calcMetrics(tasks: ArchReturnTask[]): Metrics {
   }
 }
 
+// Клиентский пересчёт под выбранный период (как в Инцидентах): данные грузим один раз
+// широким окном, а смена периода/команды/типа фильтруется на клиенте — мгновенно.
+const inP = (d: string, from: string, to: string) => d >= from && d <= to
+function clipToPeriod(t: ArchReturnTask, from: string, to: string): ArchReturnTask {
+  const eD = t.entryDates.filter(d => inP(d, from, to))
+  const v1 = t.v1Dates.filter(d => inP(d, from, to))
+  const v2 = t.v2Dates.filter(d => inP(d, from, to))
+  return {
+    ...t, entryDates: eD, v1Dates: v1, v2Dates: v2,
+    entered: eD.length > 0, entryDate: eD.length ? [...eD].sort()[0] : null,
+    v1n: v1.length, v2n: v2.length, total: v1.length + v2.length,
+  }
+}
+// Задача попадает в выборку периода, если в нём был вход или возврат (как на бэке)
+function tasksInPeriod(tasks: ArchReturnTask[], from: string, to: string): ArchReturnTask[] {
+  return tasks.map(t => clipToPeriod(t, from, to)).filter(t => t.entered || t.total > 0)
+}
+
 export function ArchPage() {
   const [dates, setDates] = useState(initDates)
   const [activePreset, setActivePreset] = useState("Месяц")
@@ -78,41 +95,40 @@ export function ArchPage() {
   const [typeFilter, setTypeFilter] = useState("all")
   const [timeView, setTimeView] = useState<"weeks" | "months" | "cycle">("weeks")
 
-  const [data, setData] = useState<ArchDashboardData | null>(null)
-  const [prevData, setPrevData] = useState<ArchDashboardData | null>(null)
+  // широкое окно (2 года) — грузим один раз, дальше всё на клиенте
+  const [wide] = useState(() => {
+    const to = new Date(), from = new Date()
+    from.setDate(from.getDate() - 730)
+    return { from: fmt(from), to: fmt(to) }
+  })
+  const [rawTasks, setRawTasks] = useState<ArchReturnTask[] | null>(null)
   const [archTasks, setArchTasks] = useState<ArchTask[]>([])
   const [archLoading, setArchLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [taskModal, setTaskModal] = useState<ArchModalData | null>(null)
 
-  const loadArch = useCallback(async () => {
+  useEffect(() => {
+    setLoading(true); setError(null)
+    fetchArchDashboard(wide.from, wide.to)
+      .then(d => setRawTasks(d.tasks))
+      .catch((e: any) => setError(e.message))
+      .finally(() => setLoading(false))
     setArchLoading(true)
-    try { setArchTasks(await fetchArchCurrent()) }
-    catch { /* отчёт не критичен */ }
-    finally { setArchLoading(false) }
-  }, [])
+    fetchArchCurrent().then(setArchTasks).catch(() => {}).finally(() => setArchLoading(false))
+  }, [wide])
 
-  const load = useCallback(async (df: string, dt: string) => {
-    setError(null)
-    setLoading(true)
-    try {
-      const d = await fetchArchDashboard(df, dt)
-      setData(d)
-      loadArch()
-      const pr = prevRange(df, dt)
-      fetchArchDashboard(pr.from, pr.to).then(setPrevData).catch(() => setPrevData(null))
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [loadArch])
+  // выборка под выбранный период + предыдущий равный период (для трендов) — на клиенте
+  const periodTasks = useMemo(
+    () => rawTasks ? tasksInPeriod(rawTasks, dates.from, dates.to) : [],
+    [rawTasks, dates])
+  const prevTasks = useMemo(() => {
+    if (!rawTasks) return null
+    const pr = prevRange(dates.from, dates.to)
+    return tasksInPeriod(rawTasks, pr.from, pr.to)
+  }, [rawTasks, dates])
 
-  useEffect(() => { load(dates.from, dates.to) }, [])
-
-  // Derive view by queue + type
-  const viewByQueue = !data ? [] : queue === "ALL" ? data.tasks : (data.queues[queue]?.tasks ?? [])
+  const viewByQueue = queue === "ALL" ? periodTasks : periodTasks.filter(t => t.queue === queue)
   const view = typeFilter === "all" ? viewByQueue : viewByQueue.filter(t => t.issueType === typeFilter)
 
   const typeCounts = { all: viewByQueue.length } as Record<string, number>
@@ -121,8 +137,8 @@ export function ArchPage() {
   const m = calcMetrics(view)
   const total = m.total
 
-  const prevView = !prevData ? null : (() => {
-    const byQ = queue === "ALL" ? prevData.tasks : (prevData.queues[queue]?.tasks ?? [])
+  const prevView = !prevTasks ? null : (() => {
+    const byQ = queue === "ALL" ? prevTasks : prevTasks.filter(t => t.queue === queue)
     return typeFilter === "all" ? byQ : byQ.filter(t => t.issueType === typeFilter)
   })()
   const pm = prevView ? calcMetrics(prevView) : null
@@ -133,7 +149,8 @@ export function ArchPage() {
     .filter(t => queue === "ALL" || t.queue === queue)
     .filter(t => typeFilter === "all" || t.issueType === typeFilter)
 
-  const empty = !loading && data && data.tasks.length === 0
+  const ready = !loading && rawTasks !== null
+  const empty = ready && periodTasks.length === 0
 
   return (
     <>
@@ -146,7 +163,7 @@ export function ArchPage() {
           <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
           <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
             {QUEUES.map(q => {
-              const all = q === "ALL" ? (data?.tasks ?? []) : (data?.queues[q]?.tasks ?? [])
+              const all = q === "ALL" ? periodTasks : periodTasks.filter(t => t.queue === q)
               const count = all.filter(t => t.entered).length
               const isActive = queue === q
               return (
@@ -154,7 +171,7 @@ export function ArchPage() {
                   className={cn("inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-semibold transition-all whitespace-nowrap",
                     isActive ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
                   {QUEUE_LABEL[q]}
-                  {!loading && <span className={cn("text-xs", isActive ? "opacity-80" : "opacity-60")}>{count}</span>}
+                  {ready && <span className={cn("text-xs", isActive ? "opacity-80" : "opacity-60")}>{count}</span>}
                 </button>
               )
             })}
@@ -165,7 +182,7 @@ export function ArchPage() {
           <div className="flex gap-1 bg-secondary/60 rounded-lg p-1">
             {PRESETS.map(p => (
               <button key={p.label}
-                onClick={() => { const d = p.getDates(); setDates(d); setActivePreset(p.label); load(d.from, d.to) }}
+                onClick={() => { setDates(p.getDates()); setActivePreset(p.label) }}
                 className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap",
                   activePreset === p.label ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
                 {p.label}
@@ -181,10 +198,6 @@ export function ArchPage() {
               onChange={e => { setDates(d => ({ ...d, to: e.target.value })); setActivePreset("") }}
               className="bg-transparent border-none text-sm text-foreground outline-none w-[104px] [color-scheme:light] dark:[color-scheme:dark]" />
           </div>
-          <Button onClick={() => load(dates.from, dates.to)} disabled={loading} size="sm">
-            {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-            Показать
-          </Button>
         </div>
       </div>
 
@@ -199,8 +212,8 @@ export function ArchPage() {
           <div className="text-5xl mb-5">🏛</div>
           <h2 className="text-2xl font-black tracking-tight mb-3">Нет данных за период</h2>
           <p className="text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
-            Если арх. комитет ещё не синхронизировался — нажмите <b>Синк</b> в шапке (он догружает и
-            блокировки, и историю переходов арх. комитета), затем выберите период.
+            За выбранный период событий комитета нет — попробуйте расширить период. Если арх. комитет
+            ещё ни разу не синхронизировался — нажмите <b>Синк</b> в шапке.
           </p>
         </div>
       )}
@@ -208,14 +221,14 @@ export function ArchPage() {
       {!empty && (
         <>
           {/* Тип задачи */}
-          {data && <TypeFilter active={typeFilter} counts={typeCounts} onChange={setTypeFilter} />}
+          {ready && <TypeFilter active={typeFilter} counts={typeCounts} onChange={setTypeFilter} />}
 
           {/* Карточки */}
           {loading ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {Array(6).fill(0).map((_, i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
             </div>
-          ) : data && (
+          ) : ready && (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-stretch">
               <div className="animate-fade-in-up stagger-1 h-full"><ArchStatCard label="Пришло в АрхКом" value={total}      sub="за период"             icon="📋" color="purple" delta={dlt(m.total, pm?.total)} onClick={() => setTaskModal({ title: "Пришло в АрхКом за период", tasks: view.filter(t => t.entered) })} /></div>
               <div className="animate-fade-in-up stagger-1 h-full"><ArchStatCard label="С первого раза"  value={`${m.pctOk}%`} sub={`${m.ok} без возвратов`}  icon="🎯" color="teal" delta={pmReliable ? dlt(m.pctOk, pm?.pctOk) : undefined} deltaSuffix="%" onClick={() => setTaskModal({ title: "Прошли с первого раза", tasks: view.filter(t => t.entered && t.total === 0) })} /></div>
@@ -227,7 +240,7 @@ export function ArchPage() {
           )}
 
           {/* Инсайт + слим-строка */}
-          {!loading && data && (
+          {ready && (
             <div className="space-y-3 animate-fade-in-up" style={{ animationDelay: "0.1s" }}>
               <InsightBar tasks={view} prevTasks={prevView} />
               <HealthStrip tasks={view} stuck={archView.filter(t => t.daysInStatus >= 7).length} onShowTasks={setTaskModal} />
@@ -235,7 +248,7 @@ export function ArchPage() {
           )}
 
           {/* Сейчас в Арх. комитете */}
-          {loading ? <Skeleton className="h-64 rounded-xl" /> : data && (
+          {loading ? <Skeleton className="h-64 rounded-xl" /> : ready && (
             <div className="animate-fade-in-up" style={{ animationDelay: "0.15s" }}>
               <ArchCommitteeReport tasks={archView} loading={archLoading} />
             </div>
@@ -246,7 +259,7 @@ export function ArchPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Skeleton className="h-64 rounded-xl" /><Skeleton className="h-64 rounded-xl" />
             </div>
-          ) : data && (
+          ) : ready && (
             <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-4 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
               <FunnelChart tasks={view} onShowTasks={setTaskModal} />
               <ReturnsCard tasks={view} totalTasks={total} onShowTasks={setTaskModal} />
@@ -254,7 +267,7 @@ export function ArchPage() {
           )}
 
           {/* Динамика */}
-          {loading ? <Skeleton className="h-72 rounded-xl" /> : data && (
+          {loading ? <Skeleton className="h-72 rounded-xl" /> : ready && (
             <div className="space-y-3 animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
               <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 w-fit">
                 {([
@@ -273,7 +286,7 @@ export function ArchPage() {
                   </button>
                 ))}
               </div>
-              {timeView === "weeks" && <TimelineChart tasks={view} dateFrom={data.dateFrom} dateTo={data.dateTo} onShowTasks={setTaskModal} />}
+              {timeView === "weeks" && <TimelineChart tasks={view} dateFrom={dates.from} dateTo={dates.to} onShowTasks={setTaskModal} />}
               {timeView === "months" && <MonthlyChart tasks={view} onShowTasks={setTaskModal} />}
               {timeView === "cycle" && <CycleTrendChart tasks={view} onShowTasks={setTaskModal} />}
             </div>
@@ -284,7 +297,7 @@ export function ArchPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Skeleton className="h-72 rounded-xl" /><Skeleton className="h-72 rounded-xl" />
             </div>
-          ) : data && (
+          ) : ready && (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 animate-fade-in-up" style={{ animationDelay: "0.4s" }}>
               <QueueBreakdown tasks={view} onShowTasks={setTaskModal} />
               <TypeBreakdown tasks={view} onShowTasks={setTaskModal} />
@@ -293,7 +306,7 @@ export function ArchPage() {
           )}
 
           {/* Таблица */}
-          {loading ? <Skeleton className="h-72 rounded-xl" /> : data && (
+          {loading ? <Skeleton className="h-72 rounded-xl" /> : ready && (
             <div className="animate-fade-in-up" style={{ animationDelay: "0.45s" }}>
               <TaskTable tasks={view} activeFilter="all" onFilter={() => {}} />
             </div>
