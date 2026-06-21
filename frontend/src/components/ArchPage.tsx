@@ -140,42 +140,52 @@ export function ArchPage() {
       <PageHeader icon={Landmark} title="Возвраты в Арх. комитете" info="arch"
         subtitle="Прохождение арх. комитета и возвраты (АрхКом · ТА) по трём очередям" />
 
-      {/* Фильтр по периоду */}
-      <div className="flex items-center gap-2 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
-        <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground mr-1">Период</span>
-        <div className="flex gap-1 bg-secondary/60 rounded-lg p-1">
-          {PRESETS.map(p => (
-            <button key={p.label}
-              onClick={() => { const d = p.getDates(); setDates(d); setActivePreset(p.label); load(d.from, d.to) }}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap",
-                activePreset === p.label
-                  ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]"
-                  : "text-muted-foreground hover:text-foreground hover:bg-card"
-              )}>
-              {p.label}
-            </button>
-          ))}
+      {/* Команда + период — один блок (как в ОСП/Инцидентах) */}
+      <div className="flex items-center gap-4 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
+          <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
+            {QUEUES.map(q => {
+              const all = q === "ALL" ? (data?.tasks ?? []) : (data?.queues[q]?.tasks ?? [])
+              const count = all.filter(t => t.entered).length
+              const isActive = queue === q
+              return (
+                <button key={q} onClick={() => { setQueue(q); setTypeFilter("all") }}
+                  className={cn("inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-semibold transition-all whitespace-nowrap",
+                    isActive ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
+                  {QUEUE_LABEL[q]}
+                  {!loading && <span className={cn("text-xs", isActive ? "opacity-80" : "opacity-60")}>{count}</span>}
+                </button>
+              )
+            })}
+          </div>
         </div>
-
-        <div className="h-6 w-px bg-border" />
-
-        <div className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-lg px-3 h-9 focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_rgba(108,99,255,0.15)] transition-all">
-          <span className="text-xs text-muted-foreground whitespace-nowrap">с</span>
-          <input type="date" value={dates.from}
-            onChange={e => { setDates(d => ({ ...d, from: e.target.value })); setActivePreset("") }}
-            className="bg-transparent border-none text-sm text-foreground outline-none w-[110px] [color-scheme:light] dark:[color-scheme:dark]" />
-          <span className="text-muted-foreground text-xs">—</span>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">по</span>
-          <input type="date" value={dates.to}
-            onChange={e => { setDates(d => ({ ...d, to: e.target.value })); setActivePreset("") }}
-            className="bg-transparent border-none text-sm text-foreground outline-none w-[110px] [color-scheme:light] dark:[color-scheme:dark]" />
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Период</span>
+          <div className="flex gap-1 bg-secondary/60 rounded-lg p-1">
+            {PRESETS.map(p => (
+              <button key={p.label}
+                onClick={() => { const d = p.getDates(); setDates(d); setActivePreset(p.label); load(d.from, d.to) }}
+                className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap",
+                  activePreset === p.label ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-lg px-3 h-9 focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_rgba(108,99,255,0.15)] transition-all">
+            <input type="date" value={dates.from}
+              onChange={e => { setDates(d => ({ ...d, from: e.target.value })); setActivePreset("") }}
+              className="bg-transparent border-none text-sm text-foreground outline-none w-[104px] [color-scheme:light] dark:[color-scheme:dark]" />
+            <span className="text-muted-foreground text-xs">—</span>
+            <input type="date" value={dates.to}
+              onChange={e => { setDates(d => ({ ...d, to: e.target.value })); setActivePreset("") }}
+              className="bg-transparent border-none text-sm text-foreground outline-none w-[104px] [color-scheme:light] dark:[color-scheme:dark]" />
+          </div>
+          <Button onClick={() => load(dates.from, dates.to)} disabled={loading} size="sm">
+            {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+            Показать
+          </Button>
         </div>
-
-        <Button onClick={() => load(dates.from, dates.to)} disabled={loading} size="sm">
-          {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-          Показать
-        </Button>
       </div>
 
       {error && (
@@ -197,26 +207,6 @@ export function ArchPage() {
 
       {!empty && (
         <>
-          {/* Фильтр по команде */}
-          <div className="flex items-center gap-2.5 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
-            <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
-              {QUEUES.map(q => {
-                const all = q === "ALL" ? (data?.tasks ?? []) : (data?.queues[q]?.tasks ?? [])
-                const count = all.filter(t => t.entered).length
-                const isActive = queue === q
-                return (
-                  <button key={q} onClick={() => { setQueue(q); setTypeFilter("all") }}
-                    className={cn("inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-semibold transition-all whitespace-nowrap",
-                      isActive ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
-                    {QUEUE_LABEL[q]}
-                    {!loading && <span className={cn("text-xs", isActive ? "opacity-80" : "opacity-60")}>{count}</span>}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
           {/* Тип задачи */}
           {data && <TypeFilter active={typeFilter} counts={typeCounts} onChange={setTypeFilter} />}
 
