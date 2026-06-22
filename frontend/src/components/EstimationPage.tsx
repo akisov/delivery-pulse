@@ -34,6 +34,18 @@ function fmtD(iso: string) {
 }
 const factColor = (plan: number, fact: number) => (plan > 0 && fact > plan ? OVER_C : OK_C)
 
+const SPRINT_DAYS = 14   // спринт по умолчанию — 2 недели
+function isoAdd(iso: string, n: number) {
+  const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n)
+  const m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${m}-${day}`
+}
+function isoToday() {
+  const d = new Date(); const m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${m}-${day}`
+}
+function dmLabel(iso: string) { const p = iso.split("-"); return p.length === 3 ? `${+p[2]}.${p[1]}` : "" }
+
 export function EstimationPage() {
   const [team] = useState("U")
   const [sprints, setSprints] = useState<Sprint[]>([])
@@ -354,7 +366,7 @@ export function EstimationPage() {
       )}
 
       {/* Модалка нового спринта */}
-      <NewSprintModal open={showNew} busy={busy} onClose={() => setShowNew(false)} onCreate={onCreate} />
+      <NewSprintModal open={showNew} busy={busy} sprints={sprints} onClose={() => setShowNew(false)} onCreate={onCreate} />
     </>
   )
 }
@@ -421,28 +433,53 @@ function PFChart({ title, data, linkBy }: { title: string; data: { label: string
   )
 }
 
-function NewSprintModal({ open, busy, onClose, onCreate }: {
-  open: boolean; busy: boolean; onClose: () => void; onCreate: (name: string, df: string, dt: string) => void
+function NewSprintModal({ open, busy, sprints, onClose, onCreate }: {
+  open: boolean; busy: boolean; sprints: Sprint[]; onClose: () => void; onCreate: (name: string, df: string, dt: string) => void
 }) {
   const [name, setName] = useState("")
   const [df, setDf] = useState("")
   const [dt, setDt] = useState("")
-  useEffect(() => { if (open) { setName(""); setDf(""); setDt("") } }, [open])
+  const [nameTouched, setNameTouched] = useState(false)
+
+  // Подставляем следующий спринт: старт = на след. день после последнего, 2 недели
+  useEffect(() => {
+    if (!open) return
+    const lastEnd = sprints.map(s => s.date_to).filter(Boolean).sort().slice(-1)[0]
+    const start = lastEnd ? isoAdd(lastEnd, 1) : isoToday()
+    const end = isoAdd(start, SPRINT_DAYS - 1)
+    const nums = sprints.map(s => { const m = /Sprint\s+(\d+)/i.exec(s.name); return m ? +m[1] : 0 })
+    const next = (nums.length ? Math.max(...nums) : 0) + 1
+    setDf(start); setDt(end); setNameTouched(false)
+    setName(`Sprint ${next} (${dmLabel(start)}-${dmLabel(end)})`)
+  }, [open, sprints])
+
+  // Смена старта → конец = старт + 2 недели; имя пересобираем, если его не правили вручную
+  const onStart = (v: string) => {
+    setDf(v)
+    if (v) {
+      const end = isoAdd(v, SPRINT_DAYS - 1)
+      setDt(end)
+      if (!nameTouched) {
+        const m = /Sprint\s+(\d+)/i.exec(name)
+        setName(`Sprint ${m ? m[1] : ""} (${dmLabel(v)}-${dmLabel(end)})`.replace("Sprint  ", "Sprint "))
+      }
+    }
+  }
   const inp = "w-full bg-secondary/60 border border-border rounded-lg px-3 h-10 text-sm text-foreground outline-none focus:border-primary/50 [color-scheme:light] dark:[color-scheme:dark]"
   return (
-    <Modal open={open} onClose={onClose} title="Новый спринт" subtitle="Период определяет окно, за которое считается факт (worklog)">
+    <Modal open={open} onClose={onClose} title="Новый спринт" subtitle="По умолчанию 2 недели · период задаёт окно расчёта факта (worklog)">
       <div className="space-y-3">
         <div>
           <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Название</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Sprint 29 (11.05-24.05)" className={cn(inp, "mt-1")} />
+          <input value={name} onChange={e => { setName(e.target.value); setNameTouched(true) }} placeholder="Sprint 32 (22.06-05.07)" className={cn(inp, "mt-1")} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Начало</label>
-            <input type="date" value={df} onChange={e => setDf(e.target.value)} className={cn(inp, "mt-1")} />
+            <input type="date" value={df} onChange={e => onStart(e.target.value)} className={cn(inp, "mt-1")} />
           </div>
           <div>
-            <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Конец</label>
+            <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Конец <span className="text-muted-foreground/60 normal-case font-normal">(2 недели)</span></label>
             <input type="date" value={dt} onChange={e => setDt(e.target.value)} className={cn(inp, "mt-1")} />
           </div>
         </div>
