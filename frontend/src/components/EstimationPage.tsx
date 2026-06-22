@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Cell, Legend,
 } from "recharts"
-import { Gauge, Plus, Trash2, Lock, Unlock, RefreshCw, Pencil, Check, ExternalLink } from "lucide-react"
+import { Gauge, Plus, Trash2, Lock, Unlock, RefreshCw, Pencil, Check, ChevronDown, ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
@@ -44,7 +44,17 @@ export function EstimationPage() {
   const [showNew, setShowNew] = useState(false)
   const [newKey, setNewKey] = useState("")
   const [busy, setBusy] = useState(false)
+  const [sprOpen, setSprOpen] = useState(false)
+  const sprRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // закрытие выпадашки спринтов по клику вне
+  useEffect(() => {
+    if (!sprOpen) return
+    const h = (e: MouseEvent) => { if (sprRef.current && !sprRef.current.contains(e.target as Node)) setSprOpen(false) }
+    document.addEventListener("mousedown", h)
+    return () => document.removeEventListener("mousedown", h)
+  }, [sprOpen])
 
   const loadSprints = async (pick?: number) => {
     const list = await fetchSprints(team).catch(() => [])
@@ -73,6 +83,7 @@ export function EstimationPage() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [sel, planMode, data?.finalized])
 
+  const selSprint = sprints.find(s => s.id === sel) ?? null
   const roles = data?.roles ?? []
   const roleLabels = data?.roleLabels ?? {}
   const tasks = data?.tasks ?? []
@@ -183,21 +194,33 @@ export function EstimationPage() {
       {/* Спринты */}
       <div className="flex items-center gap-2 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
         <span className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">Спринт</span>
-        <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
-          {sprints.map(s => (
-            <button key={s.id} onClick={() => setSel(s.id)}
-              className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap",
-                sel === s.id ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
-              {s.name}{s.finalized && <Lock className="w-3 h-3 opacity-70" />}
-            </button>
-          ))}
-          {sprints.length === 0 && <span className="px-2 text-xs text-muted-foreground">спринтов пока нет</span>}
+        <div ref={sprRef} className="relative">
+          <button onClick={() => setSprOpen(o => !o)}
+            className="inline-flex items-center justify-between gap-2 min-w-[240px] rounded-lg bg-secondary/60 border border-border px-3 h-9 text-sm font-semibold text-foreground hover:border-primary/50 transition-all">
+            <span className="inline-flex items-center gap-1.5 truncate">
+              {selSprint ? <>{selSprint.name}{selSprint.finalized && <Lock className="w-3 h-3 opacity-70" />}</> : <span className="text-muted-foreground">Выберите спринт</span>}
+            </span>
+            <ChevronDown className={cn("w-4 h-4 shrink-0 transition-transform", sprOpen && "rotate-180")} />
+          </button>
+          {sprOpen && (
+            <div className="absolute z-30 left-0 mt-1 min-w-[280px] max-h-[340px] overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-[0_16px_50px_rgba(0,0,0,0.35)]">
+              {sprints.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">спринтов пока нет</p>}
+              {sprints.map(s => (
+                <button key={s.id} onClick={() => { setSel(s.id); setSprOpen(false) }}
+                  className={cn("w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
+                    sel === s.id ? "bg-primary/15 text-primary font-semibold" : "text-foreground hover:bg-secondary")}>
+                  <span className="inline-flex items-center gap-1.5 truncate">{s.name}{s.finalized && <Lock className="w-3 h-3 opacity-70" />}</span>
+                  {sel === s.id && <Check className="w-3.5 h-3.5 shrink-0" />}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-        <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-8 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+        <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
           <Plus className="w-3.5 h-3.5" /> Новый спринт
         </button>
         {sel != null && (
-          <button onClick={onDeleteSprint} title="Удалить спринт" className="inline-flex items-center justify-center rounded-lg border border-border bg-card w-8 h-8 text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-all">
+          <button onClick={onDeleteSprint} title="Удалить спринт" className="inline-flex items-center justify-center rounded-lg border border-border bg-card w-9 h-9 text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-all">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         )}
