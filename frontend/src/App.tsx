@@ -296,7 +296,6 @@ export default function App() {
         {/* Боковое меню */}
         <aside className="hidden md:block w-52 shrink-0 py-8 sticky top-14 self-start">
           <nav ref={navRef} className="relative rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-card)]">
-            <p className="px-3 pt-1.5 pb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Разделы</p>
             {/* Плавный индикатор активного раздела */}
             {ind && (
               <span aria-hidden className="pointer-events-none absolute left-1.5 right-1.5 rounded-xl bg-gradient-to-r from-primary/20 to-primary/5 shadow-[inset_0_0_0_1px_rgba(108,99,255,0.22)] transition-all duration-300 ease-out"
@@ -306,20 +305,31 @@ export default function App() {
               <span aria-hidden className="pointer-events-none absolute left-0 w-1 rounded-r-full transition-all duration-300 ease-out"
                 style={{ top: ind.top + 8, height: Math.max(0, ind.height - 16), background: "linear-gradient(180deg,#6C63FF,#EC4899)" }} />
             )}
-            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["est", Gauge, "Оценка"], ["sle", Target, "Анализ SLE"], ["flow", Workflow, "Поток E2E"], ["osp", Truck, "ОСП"]] as const).map(([v, Icon, label]) => {
-              const active = section === v
-              return (
-                <SimpleTooltip key={v} side="right" label={NAV_HINT[v]}>
-                  <button data-section={v} onClick={() => setSection(v)}
-                    className={cn(
-                      "relative z-10 w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left mb-0.5",
-                      active ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                    )}>
-                    <Icon className="w-4 h-4 shrink-0" /> {label}
-                  </button>
-                </SimpleTooltip>
-              )
-            })}
+            {([
+              { items: [["home", Home, "Главная"]] },
+              { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["est", Gauge, "Оценка"], ["osp", Truck, "ОСП"]] },
+              { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["sle", Target, "Анализ SLE"]] },
+            ] as const).map((grp, gi) => (
+              <div key={gi} className={gi ? "mt-2" : ""}>
+                {"title" in grp && grp.title && (
+                  <p className="px-3 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">{grp.title}</p>
+                )}
+                {grp.items.map(([v, Icon, label]) => {
+                  const active = section === v
+                  return (
+                    <SimpleTooltip key={v} side="right" label={NAV_HINT[v]}>
+                      <button data-section={v} onClick={() => setSection(v)}
+                        className={cn(
+                          "relative z-10 w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left mb-0.5",
+                          active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                        )}>
+                        <Icon className="w-4 h-4 shrink-0" /> {label}
+                      </button>
+                    </SimpleTooltip>
+                  )
+                })}
+              </div>
+            ))}
           </nav>
         </aside>
 

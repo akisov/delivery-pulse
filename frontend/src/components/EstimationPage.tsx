@@ -80,8 +80,8 @@ export function EstimationPage() {
 
   // данные графиков
   const byTask = useMemo(() => tasks.map(t => ({
-    label: `${t.key.replace(/^UDOSTAVKA-/, "")} ${t.title}`.slice(0, 16),
-    full: t.title, key: t.key, plan: t.planTotal, fact: t.factTotal,
+    label: t.key.replace(/^[A-Z]+-/, ""),          // короткий ключ — читаемо на оси
+    full: `${t.key} — ${t.title}`, key: t.key, plan: t.planTotal, fact: t.factTotal,
   })), [tasks])
   const byRole = useMemo(() => roles.map(r => ({
     label: roleLabels[r] || r, plan: data?.byRole[r]?.plan ?? 0, fact: data?.byRole[r]?.fact ?? 0,
@@ -364,9 +364,10 @@ function PFChart({ title, data }: { title: string; data: { label: string; plan: 
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={data} margin={{ top: 16, right: 8, left: -10, bottom: 4 }} barGap={2}>
             <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-            <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} interval={0} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 600, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} interval={0} />
             <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit=" SP" width={48} />
             <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }} formatter={(v: any) => `${v} SP`}
+              labelFormatter={(label: any, p: any) => p?.[0]?.payload?.full || label}
               contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
             <Legend wrapperStyle={{ display: "none" }} />
             <Bar dataKey="plan" name="План" fill={PLAN_C} radius={[3, 3, 0, 0]}>
