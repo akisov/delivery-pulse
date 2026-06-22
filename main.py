@@ -303,6 +303,9 @@ async def init_db():
             role TEXT NOT NULL, planned_sp REAL DEFAULT 0,
             PRIMARY KEY(sprint_id, task_key, role))"""),
         stmt("CREATE INDEX IF NOT EXISTS idx_sprint_plan_sid ON sprint_plan(sprint_id)"),
+        stmt("""CREATE TABLE IF NOT EXISTS sprint_capacity (
+            sprint_id INTEGER NOT NULL, role TEXT NOT NULL, capacity_sp REAL DEFAULT 0,
+            PRIMARY KEY(sprint_id, role))"""),
     ])
     # Миграция: добавляем колонки если не существуют (игнорируем ошибку если уже есть)
     for col_sql in [
@@ -970,6 +973,11 @@ async def _sprint_fact(sprint: dict):
         except Exception as ex:
             print(f"[sprint fact] {ex}")
 
+    # капасити по ролям (редактируемая, по умолчанию 0)
+    cap_res = await turso_execute([stmt(
+        "SELECT role, capacity_sp FROM sprint_capacity WHERE sprint_id=?", [sid])])
+    cap = {r["role"]: float(r["capacity_sp"] or 0) for r in rows_to_dicts(cap_res[0])} if cap_res else {}
+
     out_tasks, by_role = [], {role: {"plan": 0.0, "fact": 0.0} for role in SPRINT_ROLES}
     for k, t in tasks.items():
         for role in SPRINT_ROLES:
@@ -983,6 +991,10 @@ async def _sprint_fact(sprint: dict):
     for role in SPRINT_ROLES:
         by_role[role]["plan"] = round(by_role[role]["plan"], 1)
         by_role[role]["fact"] = round(by_role[role]["fact"], 1)
+        c = round(cap.get(role, 0.0), 1)
+        by_role[role]["capacity"] = c
+        by_role[role]["remaining"] = round(c - by_role[role]["plan"], 1)
+        by_role[role]["load"] = round(by_role[role]["plan"] / c * 100) if c else 0
     total_plan = round(sum(t["planTotal"] for t in out_tasks), 1)
     total_fact = round(sum(t["factTotal"] for t in out_tasks), 1)
     return {
@@ -1004,6 +1016,62 @@ async def _sprint_get(sprint_id: int):
         [sprint_id])])
     rows = rows_to_dicts(res[0]) if res else []
     return rows[0] if rows else None
+
+_CLOSED_STATUS = {"closed", "resolved", "rejected", "cancelled", "done"}
+def _issue_closed(iss) -> bool:
+    if not isinstance(iss, dict):
+        return False
+    if iss.get("resolution"):
+        return True
+    return (iss.get("status") or {}).get("key", "") in _CLOSED_STATUS
+
+async def _carry_unclosed(src_id: int, dst_id: int):
+    """Переносит НЕзакрытые задачи (и их план + капасити) из спринта src в dst."""
+    res = await turso_execute([stmt(
+        "SELECT task_key, title, role, planned_sp FROM sprint_plan WHERE sprint_id=?", [src_id])])
+    rows = rows_to_dicts(res[0]) if res else []
+    if not rows:
+        return 0
+    tasks: dict = {}
+    for r in rows:
+        t = tasks.setdefault(r["task_key"], {"title": r.get("title") or r["task_key"], "roles": {}})
+        if r.get("title"):
+            t["title"] = r["title"]
+        try:
+            t["roles"][r["role"]] = float(r["planned_sp"] or 0)
+        except (ValueError, TypeError):
+            t["roles"][r["role"]] = 0.0
+    keys = list(tasks)
+    # статус из Трекера: закрытые не переносим (если токена нет — переносим все)
+    closed: dict = {}
+    if TRACKER_TOKEN:
+        try:
+            async with httpx.AsyncClient(timeout=40) as client:
+                issues = await asyncio.gather(*[fetch_issue(client, k) for k in keys], return_exceptions=True)
+            for k, iss in zip(keys, issues):
+                closed[k] = _issue_closed(iss) if not isinstance(iss, Exception) else False
+        except Exception:
+            closed = {}
+    stmts, moved = [], 0
+    for k, t in tasks.items():
+        if closed.get(k):
+            continue
+        moved += 1
+        for role in SPRINT_ROLES:
+            stmts.append(stmt(
+                "INSERT INTO sprint_plan(sprint_id,task_key,title,role,planned_sp) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(sprint_id,task_key,role) DO UPDATE SET planned_sp=excluded.planned_sp, title=excluded.title",
+                [dst_id, k, t["title"], role, t["roles"].get(role, 0.0)]))
+    # капасити переносим как стартовую
+    cap = await turso_execute([stmt("SELECT role, capacity_sp FROM sprint_capacity WHERE sprint_id=?", [src_id])])
+    for r in (rows_to_dicts(cap[0]) if cap else []):
+        stmts.append(stmt(
+            "INSERT INTO sprint_capacity(sprint_id,role,capacity_sp) VALUES(?,?,?) "
+            "ON CONFLICT(sprint_id,role) DO UPDATE SET capacity_sp=excluded.capacity_sp",
+            [dst_id, r["role"], r["capacity_sp"]]))
+    if stmts:
+        await turso_execute(stmts)
+    return moved
 
 # ── Background sync job ───────────────────────────────────────────────────────
 
@@ -1254,12 +1322,20 @@ async def sprints_create(request: Request):
          (datetime.utcnow() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")])])
     res = await turso_execute([stmt("SELECT last_insert_rowid() AS id")])
     sid = int(rows_to_dicts(res[0])[0]["id"]) if res else None
-    return JSONResponse({"ok": True, "id": sid})
+    moved = 0
+    carry_from = b.get("carry_from")
+    if sid and carry_from:
+        try:
+            moved = await _carry_unclosed(int(carry_from), sid)
+        except Exception as e:
+            print(f"[sprint carry] {e}")
+    return JSONResponse({"ok": True, "id": sid, "carried": moved})
 
 @app.delete("/sprints/{sprint_id}")
 async def sprints_delete(sprint_id: int):
     await turso_execute([
         stmt("DELETE FROM sprint_plan WHERE sprint_id=?", [sprint_id]),
+        stmt("DELETE FROM sprint_capacity WHERE sprint_id=?", [sprint_id]),
         stmt("DELETE FROM sprints WHERE id=?", [sprint_id]),
     ])
     return JSONResponse({"ok": True})
@@ -1307,6 +1383,22 @@ async def sprints_set_plan(sprint_id: int, request: Request):
         "INSERT INTO sprint_plan(sprint_id,task_key,title,role,planned_sp) VALUES(?,?,?,?,?) "
         "ON CONFLICT(sprint_id,task_key,role) DO UPDATE SET planned_sp=excluded.planned_sp",
         [sprint_id, key, key, role, sp])])
+    return JSONResponse({"ok": True})
+
+@app.post("/sprints/{sprint_id}/capacity")
+async def sprints_set_capacity(sprint_id: int, request: Request):
+    b = await request.json()
+    role = b.get("role")
+    if role not in SPRINT_ROLES:
+        return JSONResponse({"ok": False, "error": "Некорректная роль"})
+    try:
+        cap = float(b.get("capacity") or 0)
+    except (ValueError, TypeError):
+        cap = 0.0
+    await turso_execute([stmt(
+        "INSERT INTO sprint_capacity(sprint_id,role,capacity_sp) VALUES(?,?,?) "
+        "ON CONFLICT(sprint_id,role) DO UPDATE SET capacity_sp=excluded.capacity_sp",
+        [sprint_id, role, cap])])
     return JSONResponse({"ok": True})
 
 @app.get("/sprints/{sprint_id}/plan-fact")

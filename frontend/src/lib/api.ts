@@ -57,13 +57,15 @@ export async function fetchSprints(team = "U"): Promise<Sprint[]> {
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return (await r.json()).sprints
 }
-export const createSprint = (b: { team: string; name: string; date_from: string; date_to: string }) =>
-  jpost("/sprints", b).then(d => d.id as number)
+export const createSprint = (b: { team: string; name: string; date_from: string; date_to: string; carry_from?: number | null }) =>
+  jpost("/sprints", b).then(d => ({ id: d.id as number, carried: (d.carried as number) || 0 }))
 export const deleteSprint = (id: number) => fetch(`/sprints/${id}`, { method: "DELETE" })
 export const addSprintTask = (id: number, key: string) => jpost(`/sprints/${id}/task`, { key })
 export const removeSprintTask = (id: number, key: string) => fetch(`/sprints/${id}/task/${key}`, { method: "DELETE" })
 export const setSprintPlan = (id: number, task_key: string, role: string, sp: number) =>
   jpost(`/sprints/${id}/plan`, { task_key, role, sp })
+export const setSprintCapacity = (id: number, role: string, capacity: number) =>
+  jpost(`/sprints/${id}/capacity`, { role, capacity })
 export const finalizeSprint = (id: number) => jpost(`/sprints/${id}/finalize`)
 export const reopenSprint = (id: number) => jpost(`/sprints/${id}/reopen`)
 export async function fetchPlanFact(id: number): Promise<SprintPlanFact> {

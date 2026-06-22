@@ -11,7 +11,7 @@ import { ArchStatCard } from "@/components/ArchStatCard"
 import { SimpleTooltip } from "@/components/ui/tooltip"
 import {
   fetchSprints, createSprint, deleteSprint, addSprintTask, removeSprintTask,
-  setSprintPlan, finalizeSprint, reopenSprint, fetchPlanFact,
+  setSprintPlan, setSprintCapacity, finalizeSprint, reopenSprint, fetchPlanFact,
 } from "@/lib/api"
 import type { Sprint, SprintPlanFact } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -122,14 +122,14 @@ export function EstimationPage() {
   const empty = !loading && data && tasks.length === 0
 
   // ── действия ──
-  const onCreate = async (name: string, df: string, dt: string) => {
+  const onCreate = async (name: string, df: string, dt: string, carryFrom: number | null) => {
     setBusy(true)
     try {
-      const id = await createSprint({ team, name, date_from: df, date_to: dt })
+      const { id, carried } = await createSprint({ team, name, date_from: df, date_to: dt, carry_from: carryFrom })
       setShowNew(false)
       await loadSprints(id)
       setPlanMode(true)
-      toast.success("Спринт создан", { description: "Добавьте задачи и проставьте план" })
+      toast.success("Спринт создан", { description: carried ? `Перенесено незакрытых задач: ${carried}` : "Добавьте задачи и проставьте план" })
     } catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
   }
   const onAddTask = async () => {
@@ -139,13 +139,20 @@ export function EstimationPage() {
       const r = await addSprintTask(sel, newKey.trim())
       setNewKey("")
       toast.success(`Добавлена ${r.key}`, { description: r.title })
-      await loadPF(sel)
+      setPlanMode(true)            // остаёмся в режиме плана — можно добавлять ещё
+      await loadPF(sel, true)      // тихо, без скачка в итоги
     } catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
   }
   const onRemoveTask = async (key: string) => {
     if (!sel) return
+    setPlanMode(true)
     await removeSprintTask(sel, key)
-    await loadPF(sel)
+    await loadPF(sel, true)
+  }
+  const onCapacity = async (role: string, cap: number) => {
+    if (!sel) return
+    await setSprintCapacity(sel, role, cap).catch(() => {})
+    loadPF(sel, true)
   }
   const onPlan = async (key: string, role: string, sp: number) => {
     if (!sel) return
@@ -305,6 +312,37 @@ export function EstimationPage() {
                 </table>
               </div>
             )}
+
+            {/* Загрузка по стекам (капасити) */}
+            <div className="border-t border-border pt-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Загрузка по стекам · капасити</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 mb-2.5">Сколько SP стек тянет за спринт. Загрузка = план ÷ капасити; перегруз — красным. Капасити можно менять.</p>
+              <div className="space-y-2">
+                {roles.map(r => {
+                  const br = data.byRole[r]
+                  const over = br.capacity > 0 && br.plan > br.capacity
+                  const c = over ? OVER_C : OK_C
+                  const w = br.capacity > 0 ? Math.min(100, br.plan / br.capacity * 100) : 0
+                  return (
+                    <div key={r} className="flex items-center gap-3">
+                      <span className="w-10 shrink-0 text-sm font-bold">{roleLabels[r] || r}</span>
+                      <div className="flex-1 h-2.5 rounded-full bg-secondary overflow-hidden min-w-[80px]">
+                        <div className="h-full rounded-full transition-all duration-300" style={{ width: `${w}%`, background: c }} />
+                      </div>
+                      <span className="w-12 shrink-0 text-xs text-right tabular-nums font-semibold" style={{ color: over ? OVER_C : undefined }}>{br.plan}</span>
+                      <span className="text-[11px] text-muted-foreground shrink-0">из</span>
+                      <input type="number" min="0" step="0.5" defaultValue={br.capacity || 0}
+                        onBlur={e => onCapacity(r, parseFloat(e.target.value) || 0)}
+                        className="w-14 bg-secondary/60 border border-border rounded-md px-1.5 py-1 text-center text-sm outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                      <span className="text-[11px] text-muted-foreground shrink-0">SP</span>
+                      <span className="w-12 shrink-0 text-xs text-right tabular-nums font-bold" style={{ color: over ? OVER_C : "hsl(var(--muted-foreground))" }}>
+                        {br.capacity > 0 ? `${br.load}%` : "—"}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -440,10 +478,13 @@ function NewSprintModal({ open, busy, sprints, onClose, onCreate }: {
   const [df, setDf] = useState("")
   const [dt, setDt] = useState("")
   const [nameTouched, setNameTouched] = useState(false)
+  const [carry, setCarry] = useState(true)
+  const latest = sprints[0] ?? null   // список отсортирован: новый сверху
 
   // Подставляем следующий спринт: старт = на след. день после последнего, 2 недели
   useEffect(() => {
     if (!open) return
+    setCarry(true)
     const lastEnd = sprints.map(s => s.date_to).filter(Boolean).sort().slice(-1)[0]
     const start = lastEnd ? isoAdd(lastEnd, 1) : isoToday()
     const end = isoAdd(start, SPRINT_DAYS - 1)
@@ -483,9 +524,15 @@ function NewSprintModal({ open, busy, sprints, onClose, onCreate }: {
             <input type="date" value={dt} onChange={e => setDt(e.target.value)} className={cn(inp, "mt-1")} />
           </div>
         </div>
+        {latest && (
+          <label className="flex items-center gap-2 cursor-pointer select-none rounded-lg bg-secondary/40 border border-border px-3 py-2">
+            <input type="checkbox" checked={carry} onChange={e => setCarry(e.target.checked)} className="accent-[hsl(var(--primary))] w-4 h-4" />
+            <span className="text-xs text-foreground">Перенести <b>незакрытые</b> задачи из <b>{latest.name}</b> (закрытые в Трекере пропустим)</span>
+          </label>
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="rounded-lg border border-border bg-card px-4 h-10 text-sm font-semibold text-muted-foreground hover:text-foreground transition-all">Отмена</button>
-          <button onClick={() => onCreate(name.trim(), df, dt)} disabled={busy || !name.trim() || !df || !dt}
+          <button onClick={() => onCreate(name.trim(), df, dt, carry && latest ? latest.id : null)} disabled={busy || !name.trim() || !df || !dt}
             className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 h-10 text-sm font-semibold disabled:opacity-40 transition-all">
             {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Создать
           </button>

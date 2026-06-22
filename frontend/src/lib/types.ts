@@ -87,7 +87,7 @@ export interface SprintPlanFact {
   finalized: boolean
   sprint: { id: number; name: string; team: string; dateFrom: string; dateTo: string; finalized: boolean }
   tasks: SprintTask[]
-  byRole: Record<string, { plan: number; fact: number }>
+  byRole: Record<string, { plan: number; fact: number; capacity: number; remaining: number; load: number }>
   roles: string[]
   roleLabels: Record<string, string>
   totals: { tasks: number; plan: number; fact: number; pct: number; delta: number }
