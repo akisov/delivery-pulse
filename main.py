@@ -1062,16 +1062,20 @@ async def _carry_unclosed(src_id: int, dst_id: int):
                 "INSERT INTO sprint_plan(sprint_id,task_key,title,role,planned_sp) VALUES(?,?,?,?,?) "
                 "ON CONFLICT(sprint_id,task_key,role) DO UPDATE SET planned_sp=excluded.planned_sp, title=excluded.title",
                 [dst_id, k, t["title"], role, t["roles"].get(role, 0.0)]))
-    # капасити переносим как стартовую
-    cap = await turso_execute([stmt("SELECT role, capacity_sp FROM sprint_capacity WHERE sprint_id=?", [src_id])])
-    for r in (rows_to_dicts(cap[0]) if cap else []):
-        stmts.append(stmt(
-            "INSERT INTO sprint_capacity(sprint_id,role,capacity_sp) VALUES(?,?,?) "
-            "ON CONFLICT(sprint_id,role) DO UPDATE SET capacity_sp=excluded.capacity_sp",
-            [dst_id, r["role"], r["capacity_sp"]]))
     if stmts:
         await turso_execute(stmts)
     return moved
+
+async def _copy_capacity(src_id: int, dst_id: int):
+    """Переносит капасити (доступную загрузку) по ролям из спринта src в dst."""
+    cap = await turso_execute([stmt("SELECT role, capacity_sp FROM sprint_capacity WHERE sprint_id=?", [src_id])])
+    rows = rows_to_dicts(cap[0]) if cap else []
+    if not rows:
+        return
+    await turso_execute([stmt(
+        "INSERT INTO sprint_capacity(sprint_id,role,capacity_sp) VALUES(?,?,?) "
+        "ON CONFLICT(sprint_id,role) DO UPDATE SET capacity_sp=excluded.capacity_sp",
+        [dst_id, r["role"], r["capacity_sp"]]) for r in rows])
 
 # ── Background sync job ───────────────────────────────────────────────────────
 
@@ -1323,12 +1327,24 @@ async def sprints_create(request: Request):
     res = await turso_execute([stmt("SELECT last_insert_rowid() AS id")])
     sid = int(rows_to_dicts(res[0])[0]["id"]) if res else None
     moved = 0
-    carry_from = b.get("carry_from")
-    if sid and carry_from:
+    if sid:
+        # капасити (доступную загрузку) ВСЕГДА берём из последнего спринта команды
         try:
-            moved = await _carry_unclosed(int(carry_from), sid)
+            prev = await turso_execute([stmt(
+                "SELECT id FROM sprints WHERE team=? AND id<>? ORDER BY date_from DESC, id DESC LIMIT 1",
+                [b.get("team") or "U", sid])])
+            prow = rows_to_dicts(prev[0]) if prev else []
+            if prow:
+                await _copy_capacity(int(prow[0]["id"]), sid)
         except Exception as e:
-            print(f"[sprint carry] {e}")
+            print(f"[sprint capacity carry] {e}")
+        # перенос незакрытых задач — по флажку
+        carry_from = b.get("carry_from")
+        if carry_from:
+            try:
+                moved = await _carry_unclosed(int(carry_from), sid)
+            except Exception as e:
+                print(f"[sprint carry] {e}")
     return JSONResponse({"ok": True, "id": sid, "carried": moved})
 
 @app.delete("/sprints/{sprint_id}")
