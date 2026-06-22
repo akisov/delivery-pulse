@@ -62,7 +62,14 @@
 
 @layer base {
   * { @apply border-border; }
-  body { @apply bg-background text-foreground antialiased transition-colors duration-300; }
+  html { font-family: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  body {
+    @apply bg-background text-foreground antialiased transition-colors duration-300;
+    font-feature-settings: "cv11", "ss01";   /* красивые цифры/буквы Inter */
+    font-optical-sizing: auto;
+  }
+  /* плотные числа в метриках/таблицах не «пляшут» */
+  .tabular-nums { font-variant-numeric: tabular-nums; }
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }

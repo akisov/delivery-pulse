@@ -230,8 +230,8 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
       {/* Выбор команды и отчётного месяца — всё позже месяца обрезается */}
       {data && (
         <div className="flex items-center gap-4 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
             <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
               {queueTabs.map(([v, label]) => (
                 <button key={v} onClick={() => setQueue(v)}
@@ -242,8 +242,8 @@ export function OSPPage({ onGo }: { onGo?: (s: "blockings" | "sle" | "flow" | "o
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Месяц</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">Месяц</span>
             <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
               {(data.months ?? []).map(m => (
                 <button key={m} onClick={() => setMonth(m)}

@@ -161,8 +161,8 @@ export function ArchPage() {
 
       {/* Команда + период — один блок (как в ОСП/Инцидентах) */}
       <div className="flex items-center gap-4 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
           <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
             {QUEUES.map(q => {
               const all = q === "ALL" ? periodTasks : periodTasks.filter(t => t.queue === q)
@@ -179,8 +179,8 @@ export function ArchPage() {
             })}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Период</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">Период</span>
           <div className="flex gap-1 bg-secondary/60 rounded-lg p-1">
             {PRESETS.map(p => (
               <button key={p.label}
