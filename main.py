@@ -148,6 +148,26 @@ def arch_is_test_task(title: str) -> bool:
     """Тестовые задачи: слово «тест»/«test» или «тестовый/тестовая/тестовое»."""
     return bool(_ARCH_TEST_RE.search(title or ""))
 
+# ── Оценка (план-факт спринта): роли/сотрудники Курьеров U ───────────────────────
+SP_HOURS = 8  # 1 SP = 8 часов
+SPRINT_ROLES = ["SA", "GO", "Front", "QA", "1С", "AQA"]  # порядок в отчёте
+SPRINT_ROLE_LABEL = {"SA": "SA", "GO": "GO", "Front": "FE", "QA": "QA", "1С": "1C", "AQA": "AQA"}
+# роль → варианты имён в worklog Трекера (с отчеством и без — суммируем оба)
+SPRINT_ROLE_MEMBERS = {
+    "SA":    ["Полина Алексеевна Резенова"],
+    "GO":    ["Роман Олегович Источников", "Андрей Дмитриевич Ким"],
+    "Front": ["Евгений Сергеевич Копосов", "Светлана Асотикова", "Светлана Валерьевна Асотикова"],
+    "QA":    ["Олег Олегович Степин", "Олег Степин", "Владислав Игоревич Корякин"],
+    "1С":    ["Максим Валерьевич Яцушко", "Гусев Алексеевич Иван"],
+    "AQA":   ["Юлия Сергеевна Драгун"],
+}
+def _sprint_norm(s: str) -> str:
+    return str(s or "").replace("ё", "е").replace("Ё", "Е").strip().lower()
+_SPRINT_NAME_ROLE = {_sprint_norm(n): r for r, names in SPRINT_ROLE_MEMBERS.items() for n in names}
+def _person_role(display: str):
+    """Имя из worklog → роль (или None, если сотрудник не из команды U)."""
+    return _SPRINT_NAME_ROLE.get(_sprint_norm(display))
+
 # ── Turso HTTP client ─────────────────────────────────────────────────────────
 
 async def turso_execute(statements: list[dict]) -> list:
@@ -273,6 +293,16 @@ async def init_db():
         # Отдельный журнал синка арх.кома — НЕ мешаем с sync_log блокировок
         stmt("""CREATE TABLE IF NOT EXISTS arch_sync_log (
             queue TEXT PRIMARY KEY, last_synced TEXT)"""),
+        # ── Оценка: спринты и план по ролям ──────────────────────────────────────
+        stmt("""CREATE TABLE IF NOT EXISTS sprints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team TEXT, name TEXT, date_from TEXT, date_to TEXT,
+            finalized INTEGER DEFAULT 0, final_data TEXT, created_at TEXT)"""),
+        stmt("""CREATE TABLE IF NOT EXISTS sprint_plan (
+            sprint_id INTEGER NOT NULL, task_key TEXT NOT NULL, title TEXT,
+            role TEXT NOT NULL, planned_sp REAL DEFAULT 0,
+            PRIMARY KEY(sprint_id, task_key, role))"""),
+        stmt("CREATE INDEX IF NOT EXISTS idx_sprint_plan_sid ON sprint_plan(sprint_id)"),
     ])
     # Миграция: добавляем колонки если не существуют (игнорируем ошибку если уже есть)
     for col_sql in [
@@ -884,6 +914,97 @@ async def query_arch_current(queues: list[str]):
     out.sort(key=lambda t: t["daysInStatus"], reverse=True)
     return out
 
+# ── Оценка: план-факт спринта (live из worklog) ─────────────────────────────────
+
+async def _sprint_plan_rows(sprint_id: int):
+    res = await turso_execute([stmt(
+        "SELECT task_key, title, role, planned_sp FROM sprint_plan WHERE sprint_id=?", [sprint_id])])
+    return rows_to_dicts(res[0]) if res else []
+
+async def _sprint_fact(sprint: dict):
+    """Считает план-факт спринта. План — из sprint_plan (SP по ролям).
+    Факт — worklog Трекера, СПИСАННЫЙ В ПЕРИОД спринта, по ролям → SP (1 SP = 8ч)."""
+    sid = int(sprint["id"])
+    rows = await _sprint_plan_rows(sid)
+    # план: {task_key: {role: sp}} + заголовки
+    tasks: dict = {}
+    for r in rows:
+        k = r["task_key"]
+        t = tasks.setdefault(k, {"key": k, "title": r.get("title") or k,
+                                 "plan": {role: 0.0 for role in SPRINT_ROLES},
+                                 "fact": {role: 0.0 for role in SPRINT_ROLES}})
+        if r.get("title"):
+            t["title"] = r["title"]
+        try:
+            t["plan"][r["role"]] = float(r["planned_sp"] or 0)
+        except (ValueError, TypeError):
+            pass
+
+    date_from, date_to = sprint.get("date_from", ""), sprint.get("date_to", "")
+    keys = list(tasks)
+    # факт по worklog за период
+    if keys and TRACKER_TOKEN:
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                B = 4
+                for i in range(0, len(keys), B):
+                    chunk = keys[i:i + B]
+                    wls = await asyncio.gather(*[_wl_fetch(client, k) for k in chunk],
+                                               return_exceptions=True)
+                    for k, wl in zip(chunk, wls):
+                        if not isinstance(wl, list):
+                            continue
+                        for e in wl:
+                            d = (e.get("start") or e.get("createdAt") or "")[:10]
+                            if date_from and d < date_from:
+                                continue
+                            if date_to and d > date_to:
+                                continue
+                            hrs = _iso_dur_hours(e.get("duration"))
+                            if hrs <= 0:
+                                continue
+                            role = _person_role((e.get("createdBy") or {}).get("display"))
+                            if role and role in tasks[k]["fact"]:
+                                tasks[k]["fact"][role] += hrs / SP_HOURS
+                    await asyncio.sleep(0.2)
+        except Exception as ex:
+            print(f"[sprint fact] {ex}")
+
+    out_tasks, by_role = [], {role: {"plan": 0.0, "fact": 0.0} for role in SPRINT_ROLES}
+    for k, t in tasks.items():
+        for role in SPRINT_ROLES:
+            t["fact"][role] = round(t["fact"][role], 1)
+            by_role[role]["plan"] += t["plan"][role]
+            by_role[role]["fact"] += t["fact"][role]
+        plan_total = round(sum(t["plan"].values()), 1)
+        fact_total = round(sum(t["fact"].values()), 1)
+        out_tasks.append({**t, "planTotal": plan_total, "factTotal": fact_total,
+                          "pct": round(fact_total / plan_total * 100) if plan_total else 0})
+    for role in SPRINT_ROLES:
+        by_role[role]["plan"] = round(by_role[role]["plan"], 1)
+        by_role[role]["fact"] = round(by_role[role]["fact"], 1)
+    total_plan = round(sum(t["planTotal"] for t in out_tasks), 1)
+    total_fact = round(sum(t["factTotal"] for t in out_tasks), 1)
+    return {
+        "tasks": out_tasks,
+        "byRole": by_role,
+        "roles": SPRINT_ROLES,
+        "roleLabels": SPRINT_ROLE_LABEL,
+        "totals": {
+            "tasks": len(out_tasks),
+            "plan": total_plan, "fact": total_fact,
+            "pct": round(total_fact / total_plan * 100) if total_plan else 0,
+            "delta": round(total_fact - total_plan, 1),
+        },
+    }
+
+async def _sprint_get(sprint_id: int):
+    res = await turso_execute([stmt(
+        "SELECT id, team, name, date_from, date_to, finalized, final_data FROM sprints WHERE id=?",
+        [sprint_id])])
+    rows = rows_to_dicts(res[0]) if res else []
+    return rows[0] if rows else None
+
 # ── Background sync job ───────────────────────────────────────────────────────
 
 _sync_status: dict = {"running": False, "pct": 0, "msg": "", "error": ""}
@@ -1109,6 +1230,117 @@ async def arch_data(date_from: str = Query(None), date_to: str = Query(None),
 async def arch_current(queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
     selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
     return JSONResponse(await query_arch_current(selected))
+
+# ── Оценка: спринты (план-факт) ─────────────────────────────────────────────────
+@app.get("/sprints")
+async def sprints_list(team: str = Query("U")):
+    res = await turso_execute([stmt(
+        "SELECT id, team, name, date_from, date_to, finalized FROM sprints "
+        "WHERE team=? ORDER BY date_from DESC, id DESC", [team])])
+    rows = rows_to_dicts(res[0]) if res else []
+    for r in rows:
+        r["id"] = int(r["id"]); r["finalized"] = bool(int(r.get("finalized") or 0))
+    return JSONResponse({"ok": True, "sprints": rows})
+
+@app.post("/sprints")
+async def sprints_create(request: Request):
+    b = await request.json()
+    name = (b.get("name") or "").strip()
+    if not name:
+        return JSONResponse({"ok": False, "error": "Укажите название спринта"})
+    await turso_execute([stmt(
+        "INSERT INTO sprints(team,name,date_from,date_to,finalized,created_at) VALUES(?,?,?,?,0,?)",
+        [b.get("team") or "U", name, b.get("date_from") or "", b.get("date_to") or "",
+         (datetime.utcnow() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")])])
+    res = await turso_execute([stmt("SELECT last_insert_rowid() AS id")])
+    sid = int(rows_to_dicts(res[0])[0]["id"]) if res else None
+    return JSONResponse({"ok": True, "id": sid})
+
+@app.delete("/sprints/{sprint_id}")
+async def sprints_delete(sprint_id: int):
+    await turso_execute([
+        stmt("DELETE FROM sprint_plan WHERE sprint_id=?", [sprint_id]),
+        stmt("DELETE FROM sprints WHERE id=?", [sprint_id]),
+    ])
+    return JSONResponse({"ok": True})
+
+@app.post("/sprints/{sprint_id}/task")
+async def sprints_add_task(sprint_id: int, request: Request):
+    b = await request.json()
+    key = (b.get("key") or "").strip().upper()
+    if not key:
+        return JSONResponse({"ok": False, "error": "Укажите ключ задачи"})
+    title = key
+    if TRACKER_TOKEN:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                iss = await fetch_issue(client, key)
+            if isinstance(iss, dict) and iss.get("summary"):
+                title = iss["summary"]
+        except Exception:
+            pass
+    # строки плана по всем ролям с 0 (если задачи ещё нет)
+    await turso_execute([stmt(
+        "INSERT INTO sprint_plan(sprint_id,task_key,title,role,planned_sp) VALUES(?,?,?,?,0) "
+        "ON CONFLICT(sprint_id,task_key,role) DO UPDATE SET title=excluded.title",
+        [sprint_id, key, title, role]) for role in SPRINT_ROLES])
+    return JSONResponse({"ok": True, "key": key, "title": title})
+
+@app.delete("/sprints/{sprint_id}/task/{task_key}")
+async def sprints_remove_task(sprint_id: int, task_key: str):
+    await turso_execute([stmt(
+        "DELETE FROM sprint_plan WHERE sprint_id=? AND task_key=?", [sprint_id, task_key.upper()])])
+    return JSONResponse({"ok": True})
+
+@app.post("/sprints/{sprint_id}/plan")
+async def sprints_set_plan(sprint_id: int, request: Request):
+    b = await request.json()
+    key = (b.get("task_key") or "").strip().upper()
+    role = b.get("role")
+    if role not in SPRINT_ROLES or not key:
+        return JSONResponse({"ok": False, "error": "Некорректная роль/ключ"})
+    try:
+        sp = float(b.get("sp") or 0)
+    except (ValueError, TypeError):
+        sp = 0.0
+    await turso_execute([stmt(
+        "INSERT INTO sprint_plan(sprint_id,task_key,title,role,planned_sp) VALUES(?,?,?,?,?) "
+        "ON CONFLICT(sprint_id,task_key,role) DO UPDATE SET planned_sp=excluded.planned_sp",
+        [sprint_id, key, key, role, sp])])
+    return JSONResponse({"ok": True})
+
+@app.get("/sprints/{sprint_id}/plan-fact")
+async def sprints_plan_fact(sprint_id: int):
+    sp = await _sprint_get(sprint_id)
+    if not sp:
+        return JSONResponse({"ok": False, "error": "Спринт не найден"})
+    meta = {"id": int(sp["id"]), "name": sp.get("name"), "team": sp.get("team"),
+            "dateFrom": sp.get("date_from"), "dateTo": sp.get("date_to"),
+            "finalized": bool(int(sp.get("finalized") or 0))}
+    if meta["finalized"] and sp.get("final_data"):
+        try:
+            data = json.loads(sp["final_data"])
+            return JSONResponse({"ok": True, "sprint": meta, "finalized": True, **data})
+        except Exception:
+            pass
+    data = await _sprint_fact(sp)
+    return JSONResponse({"ok": True, "sprint": meta, "finalized": meta["finalized"], **data})
+
+@app.post("/sprints/{sprint_id}/finalize")
+async def sprints_finalize(sprint_id: int):
+    sp = await _sprint_get(sprint_id)
+    if not sp:
+        return JSONResponse({"ok": False, "error": "Спринт не найден"})
+    data = await _sprint_fact(sp)
+    await turso_execute([stmt(
+        "UPDATE sprints SET finalized=1, final_data=? WHERE id=?",
+        [json.dumps(data, ensure_ascii=False), sprint_id])])
+    return JSONResponse({"ok": True})
+
+@app.post("/sprints/{sprint_id}/reopen")
+async def sprints_reopen(sprint_id: int):
+    await turso_execute([stmt("UPDATE sprints SET finalized=0 WHERE id=?", [sprint_id])])
+    return JSONResponse({"ok": True})
 
 _backfill_status: dict = {"running": False, "done": 0, "total": 0, "updated": 0, "error": "", "msg": ""}
 

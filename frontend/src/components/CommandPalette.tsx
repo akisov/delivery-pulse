@@ -1,16 +1,17 @@
 import { useEffect } from "react"
 import { createPortal } from "react-dom"
 import { Command } from "cmdk"
-import { Home, Lock, AlertTriangle, Landmark, Target, Workflow, Truck, RefreshCw, Search } from "lucide-react"
+import { Home, Lock, AlertTriangle, Landmark, Gauge, Target, Workflow, Truck, RefreshCw, Search } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
-export type Section = "home" | "blockings" | "incidents" | "arch" | "sle" | "flow" | "osp"
+export type Section = "home" | "blockings" | "incidents" | "arch" | "est" | "sle" | "flow" | "osp"
 
 const ITEMS: { section: Section; label: string; icon: LucideIcon; hint: string }[] = [
   { section: "home",      label: "Главная",     icon: Home,          hint: "обзор · релиз-ноты" },
   { section: "blockings", label: "Блокировки",  icon: Lock,          hint: "время разрешения · причины" },
   { section: "incidents", label: "Инциденты",   icon: AlertTriangle, hint: "по месяцам · причины · топы" },
   { section: "arch",      label: "Арх. комитет", icon: Landmark,      hint: "возвраты · воронка · цикл" },
+  { section: "est",       label: "Оценка",      icon: Gauge,         hint: "план-факт спринта · SP" },
   { section: "sle",       label: "Анализ SLE",  icon: Target,        hint: "риски · кластеры причин" },
   { section: "flow",      label: "Поток E2E",   icon: Workflow,      hint: "WIP Age · лимиты" },
   { section: "osp",       label: "ОСП",         icon: Truck,         hint: "обзор сервиса поставки" },

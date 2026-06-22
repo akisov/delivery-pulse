@@ -62,6 +62,37 @@ export interface ArchDashboardData {
   dateTo: string
 }
 
+// ── Оценка (план-факт спринта) ─────────────────────────────────────────────────
+export interface Sprint {
+  id: number
+  team: string
+  name: string
+  date_from: string
+  date_to: string
+  finalized: boolean
+}
+
+export interface SprintTask {
+  key: string
+  title: string
+  plan: Record<string, number>   // role → SP
+  fact: Record<string, number>   // role → SP
+  planTotal: number
+  factTotal: number
+  pct: number
+}
+
+export interface SprintPlanFact {
+  ok: boolean
+  finalized: boolean
+  sprint: { id: number; name: string; team: string; dateFrom: string; dateTo: string; finalized: boolean }
+  tasks: SprintTask[]
+  byRole: Record<string, { plan: number; fact: number }>
+  roles: string[]
+  roleLabels: Record<string, string>
+  totals: { tasks: number; plan: number; fact: number; pct: number; delta: number }
+}
+
 // Задача, которая сейчас находится в одном из статусов Арх. комитета
 export interface ArchTask {
   key: string

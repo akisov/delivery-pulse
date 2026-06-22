@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
-import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Command as CommandIcon } from "lucide-react"
+import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Command as CommandIcon } from "lucide-react"
 import { Toaster, toast } from "sonner"
 import { CommandPalette } from "@/components/CommandPalette"
 import { SimpleTooltip } from "@/components/ui/tooltip"
@@ -13,6 +13,7 @@ const NAV_HINT: Record<string, string> = {
   sle: "Риски и кластеры причин",
   flow: "WIP Age · WIP-лимиты",
   osp: "Обзор сервиса поставки",
+  est: "План-факт спринта · SP",
 }
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
@@ -28,6 +29,7 @@ import { FlowPage } from "@/components/FlowPage"
 import { OSPPage } from "@/components/OSPPage"
 import { IncidentsPage } from "@/components/IncidentsPage"
 import { ArchPage } from "@/components/ArchPage"
+import { EstimationPage } from "@/components/EstimationPage"
 import { PageHeader } from "@/components/PageHeader"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
@@ -68,7 +70,7 @@ export default function App() {
   const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
-  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch">("home")
+  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est">("home")
   const [sleReloadKey, setSleReloadKey] = useState(0)  // пересбор SLE после синка
 
   const [data, setData] = useState<DashboardData | null>(null)
@@ -304,7 +306,7 @@ export default function App() {
               <span aria-hidden className="pointer-events-none absolute left-0 w-1 rounded-r-full transition-all duration-300 ease-out"
                 style={{ top: ind.top + 8, height: Math.max(0, ind.height - 16), background: "linear-gradient(180deg,#6C63FF,#EC4899)" }} />
             )}
-            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["sle", Target, "Анализ SLE"], ["flow", Workflow, "Поток E2E"], ["osp", Truck, "ОСП"]] as const).map(([v, Icon, label]) => {
+            {([["home", Home, "Главная"], ["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["est", Gauge, "Оценка"], ["sle", Target, "Анализ SLE"], ["flow", Workflow, "Поток E2E"], ["osp", Truck, "ОСП"]] as const).map(([v, Icon, label]) => {
               const active = section === v
               return (
                 <SimpleTooltip key={v} side="right" label={NAV_HINT[v]}>
@@ -326,6 +328,7 @@ export default function App() {
          section === "osp" ? <OSPPage onGo={setSection} /> :
          section === "incidents" ? <IncidentsPage /> :
          section === "arch" ? <ArchPage /> :
+         section === "est" ? <EstimationPage /> :
          section === "flow" ? <FlowPage /> :
          section === "sle" ? <SLEPage reloadKey={sleReloadKey} /> : (
         <>

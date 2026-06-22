@@ -1,0 +1,421 @@
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Cell, Legend,
+} from "recharts"
+import { Gauge, Plus, Trash2, Lock, Unlock, RefreshCw, Pencil, Check, ExternalLink } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Modal } from "@/components/ui/modal"
+import { PageHeader } from "@/components/PageHeader"
+import { ArchStatCard } from "@/components/ArchStatCard"
+import { SimpleTooltip } from "@/components/ui/tooltip"
+import {
+  fetchSprints, createSprint, deleteSprint, addSprintTask, removeSprintTask,
+  setSprintPlan, finalizeSprint, reopenSprint, fetchPlanFact,
+} from "@/lib/api"
+import type { Sprint, SprintPlanFact } from "@/lib/types"
+import { cn } from "@/lib/utils"
+import { toast } from "sonner"
+
+const PLAN_C = "#3B82F6"   // план — синий
+const OK_C = "#22C55E"     // факт ≤ плана — зелёный
+const OVER_C = "#EF4444"   // факт > плана — красный
+
+const TEAMS = [
+  { key: "U", label: "Курьеры U", active: true },
+  { key: "X", label: "Курьеры X", active: false },
+  { key: "R", label: "Курьеры R", active: false },
+]
+
+function fmtD(iso: string) {
+  if (!iso) return ""
+  const p = iso.slice(0, 10).split("-")
+  return p.length === 3 ? `${p[2]}.${p[1]}` : iso
+}
+const factColor = (plan: number, fact: number) => (plan > 0 && fact > plan ? OVER_C : OK_C)
+
+export function EstimationPage() {
+  const [team] = useState("U")
+  const [sprints, setSprints] = useState<Sprint[]>([])
+  const [sel, setSel] = useState<number | null>(null)
+  const [data, setData] = useState<SprintPlanFact | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [planMode, setPlanMode] = useState(false)
+  const [showNew, setShowNew] = useState(false)
+  const [newKey, setNewKey] = useState("")
+  const [busy, setBusy] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const loadSprints = async (pick?: number) => {
+    const list = await fetchSprints(team).catch(() => [])
+    setSprints(list)
+    setSel(prev => pick ?? (prev && list.some(s => s.id === prev) ? prev : (list[0]?.id ?? null)))
+  }
+  useEffect(() => { loadSprints() }, [])
+
+  const loadPF = async (id: number, silent = false) => {
+    if (!silent) setLoading(true)
+    try { setData(await fetchPlanFact(id)) }
+    catch (e: any) { if (!silent) toast.error("Не удалось загрузить спринт", { description: e.message }) }
+    finally { if (!silent) setLoading(false) }
+  }
+  useEffect(() => {
+    if (sel == null) { setData(null); return }
+    setPlanMode(false)
+    loadPF(sel)
+  }, [sel])
+
+  // Live: тихо обновляем факт раз в 60с, пока спринт не зафиксирован и не в режиме плана
+  useEffect(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    if (sel == null || planMode || data?.finalized) return
+    pollRef.current = setInterval(() => { if (sel != null) loadPF(sel, true) }, 60_000)
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [sel, planMode, data?.finalized])
+
+  const roles = data?.roles ?? []
+  const roleLabels = data?.roleLabels ?? {}
+  const tasks = data?.tasks ?? []
+  const totals = data?.totals
+
+  // данные графиков
+  const byTask = useMemo(() => tasks.map(t => ({
+    label: `${t.key.replace(/^UDOSTAVKA-/, "")} ${t.title}`.slice(0, 16),
+    full: t.title, key: t.key, plan: t.planTotal, fact: t.factTotal,
+  })), [tasks])
+  const byRole = useMemo(() => roles.map(r => ({
+    label: roleLabels[r] || r, plan: data?.byRole[r]?.plan ?? 0, fact: data?.byRole[r]?.fact ?? 0,
+  })), [data, roles, roleLabels])
+
+  // хайлайты
+  const highlights = useMemo(() => {
+    const withPlan = tasks.filter(t => t.planTotal > 0)
+    const over = [...withPlan].filter(t => t.factTotal > t.planTotal).sort((a, b) => (b.factTotal / b.planTotal) - (a.factTotal / a.planTotal))[0]
+    const notStarted = tasks.find(t => t.factTotal === 0 && t.planTotal > 0)
+    const behind = [...withPlan].filter(t => t.factTotal <= t.planTotal).sort((a, b) => a.pct - b.pct)[0]
+    return { over, notStarted, behind }
+  }, [tasks])
+
+  const empty = !loading && data && tasks.length === 0
+
+  // ── действия ──
+  const onCreate = async (name: string, df: string, dt: string) => {
+    setBusy(true)
+    try {
+      const id = await createSprint({ team, name, date_from: df, date_to: dt })
+      setShowNew(false)
+      await loadSprints(id)
+      setPlanMode(true)
+      toast.success("Спринт создан", { description: "Добавьте задачи и проставьте план" })
+    } catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
+  }
+  const onAddTask = async () => {
+    if (!sel || !newKey.trim()) return
+    setBusy(true)
+    try {
+      const r = await addSprintTask(sel, newKey.trim())
+      setNewKey("")
+      toast.success(`Добавлена ${r.key}`, { description: r.title })
+      await loadPF(sel)
+    } catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
+  }
+  const onRemoveTask = async (key: string) => {
+    if (!sel) return
+    await removeSprintTask(sel, key)
+    await loadPF(sel)
+  }
+  const onPlan = async (key: string, role: string, sp: number) => {
+    if (!sel) return
+    await setSprintPlan(sel, key, role, sp).catch(() => {})
+    loadPF(sel, true)
+  }
+  const onFinalize = async () => {
+    if (!sel) return
+    setBusy(true)
+    try { await finalizeSprint(sel); await loadPF(sel); await loadSprints(sel); toast.success("Итог зафиксирован") }
+    catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
+  }
+  const onReopen = async () => {
+    if (!sel) return
+    setBusy(true)
+    try { await reopenSprint(sel); await loadPF(sel); await loadSprints(sel); toast("Спринт открыт заново — факт снова в реальном времени") }
+    catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
+  }
+  const onDeleteSprint = async () => {
+    if (!sel) return
+    if (!confirm("Удалить спринт со всем планом?")) return
+    await deleteSprint(sel)
+    setSel(null)
+    await loadSprints()
+    toast("Спринт удалён")
+  }
+
+  return (
+    <>
+      <PageHeader icon={Gauge} title="Оценка — план-факт спринта" info="est"
+        subtitle={<>Планируем SP по ролям, факт — из worklog в реальном времени · 1 SP = 8 ч{data?.sprint && <span className="ml-1">· {data.sprint.dateFrom && `${fmtD(data.sprint.dateFrom)}–${fmtD(data.sprint.dateTo)}`}</span>}</>}>
+        {sel != null && data && (
+          data.finalized
+            ? <button onClick={onReopen} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all"><Unlock className="w-4 h-4" /> Открыть заново</button>
+            : <button onClick={onFinalize} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 h-9 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15 transition-all"><Lock className="w-4 h-4" /> Зафиксировать итог</button>
+        )}
+        {sel != null && !data?.finalized && (
+          <button onClick={() => setPlanMode(m => !m)} className={cn("inline-flex items-center gap-1.5 rounded-lg border px-3 h-9 text-xs font-semibold transition-all", planMode ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50")}>
+            {planMode ? <Check className="w-4 h-4" /> : <Pencil className="w-4 h-4" />} {planMode ? "Готово" : "План"}
+          </button>
+        )}
+      </PageHeader>
+
+      {/* Команда */}
+      <div className="flex items-center gap-3 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
+        <span className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">Команда</span>
+        <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
+          {TEAMS.map(t => t.active ? (
+            <button key={t.key} className="px-3.5 py-1.5 rounded-md text-sm font-semibold bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]">{t.label}</button>
+          ) : (
+            <SimpleTooltip key={t.key} label="Скоро — пока только Курьеры U">
+              <button disabled className="px-3.5 py-1.5 rounded-md text-sm font-semibold text-muted-foreground/40 cursor-not-allowed">{t.label}</button>
+            </SimpleTooltip>
+          ))}
+        </div>
+      </div>
+
+      {/* Спринты */}
+      <div className="flex items-center gap-2 flex-wrap rounded-xl border border-primary/20 bg-card px-4 py-3 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
+        <span className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">Спринт</span>
+        <div className="flex gap-1 bg-secondary/60 rounded-lg p-1 flex-wrap">
+          {sprints.map(s => (
+            <button key={s.id} onClick={() => setSel(s.id)}
+              className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap",
+                sel === s.id ? "bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(108,99,255,0.4)]" : "text-muted-foreground hover:text-foreground hover:bg-card")}>
+              {s.name}{s.finalized && <Lock className="w-3 h-3 opacity-70" />}
+            </button>
+          ))}
+          {sprints.length === 0 && <span className="px-2 text-xs text-muted-foreground">спринтов пока нет</span>}
+        </div>
+        <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-8 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
+          <Plus className="w-3.5 h-3.5" /> Новый спринт
+        </button>
+        {sel != null && (
+          <button onClick={onDeleteSprint} title="Удалить спринт" className="inline-flex items-center justify-center rounded-lg border border-border bg-card w-8 h-8 text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-all">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      {sel == null && (
+        <div className="rounded-xl border border-border bg-card p-16 text-center">
+          <div className="text-5xl mb-5">📋</div>
+          <h2 className="text-2xl font-black tracking-tight mb-3">Нет спринтов</h2>
+          <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto leading-relaxed">
+            Создайте спринт (период), добавьте задачи по ключу и проставьте план в SP по ролям —
+            факт подтянется из worklog Трекера в реальном времени.
+          </p>
+          <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-5 h-11 text-sm font-semibold hover:opacity-90 transition-all"><Plus className="w-4 h-4" /> Новый спринт</button>
+        </div>
+      )}
+
+      {loading && sel != null && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}</div>
+      )}
+
+      {/* Режим планирования */}
+      {!loading && sel != null && (planMode || empty) && data && (
+        <Card className="transition-all duration-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2"><Pencil className="w-4 h-4" /> План спринта — SP по ролям</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">Добавьте задачи по ключу и проставьте оценку в SP для нужных ролей (стеков). Факт считается из worklog за период спринта.</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input value={newKey} onChange={e => setNewKey(e.target.value)} onKeyDown={e => e.key === "Enter" && onAddTask()}
+                placeholder="Ключ задачи, напр. UDOSTAVKA-1460"
+                className="flex-1 min-w-[220px] bg-secondary/60 border border-border rounded-lg px-3 h-9 text-sm text-foreground outline-none focus:border-primary/50" />
+              <button onClick={onAddTask} disabled={busy || !newKey.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 h-9 text-sm font-semibold disabled:opacity-40 transition-all"><Plus className="w-4 h-4" /> Добавить</button>
+            </div>
+            {tasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Пока нет задач — добавьте первую по ключу</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-separate border-spacing-0">
+                  <thead>
+                    <tr className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                      <th className="text-left px-2 py-2 sticky left-0 bg-card min-w-[200px]">Задача</th>
+                      {roles.map(r => <th key={r} className="px-2 py-2 text-center w-16">{roleLabels[r] || r}</th>)}
+                      <th className="px-2 py-2 text-center w-16">Σ план</th>
+                      <th className="w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tasks.map(t => (
+                      <tr key={t.key} className="border-t border-border">
+                        <td className="px-2 py-1.5 sticky left-0 bg-card">
+                          <div className="font-mono text-xs font-bold text-primary">{t.key}</div>
+                          <div className="text-xs text-muted-foreground truncate max-w-[220px]">{t.title}</div>
+                        </td>
+                        {roles.map(r => (
+                          <td key={r} className="px-1 py-1.5 text-center">
+                            <input type="number" min="0" step="0.5" defaultValue={t.plan[r] || 0}
+                              onBlur={e => onPlan(t.key, r, parseFloat(e.target.value) || 0)}
+                              className="w-14 bg-secondary/60 border border-border rounded-md px-1.5 py-1 text-center text-sm outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                          </td>
+                        ))}
+                        <td className="px-2 py-1.5 text-center font-black tabular-nums">{t.planTotal}</td>
+                        <td className="px-1 py-1.5 text-center">
+                          <button onClick={() => onRemoveTask(t.key)} className="text-muted-foreground/50 hover:text-destructive transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Дашборд план-факт */}
+      {!loading && sel != null && !planMode && !empty && data && totals && (
+        <>
+          {/* карточки */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="animate-fade-in-up stagger-1 h-full"><ArchStatCard label="Задач в спринте" value={totals.tasks} sub="в плане" icon="📋" color="purple" /></div>
+            <div className="animate-fade-in-up stagger-2 h-full"><ArchStatCard label="План" value={`${totals.plan} SP`} sub="суммарно по ролям" icon="🎯" color="sky" /></div>
+            <div className="animate-fade-in-up stagger-3 h-full"><ArchStatCard label="Факт" value={`${totals.fact} SP`} sub={`Δ ${totals.delta > 0 ? "+" : ""}${totals.delta} SP`} icon="⏱" color={totals.fact > totals.plan ? "rose" : "teal"} /></div>
+            <div className="animate-fade-in-up stagger-4 h-full"><ArchStatCard label="Выполнение" value={`${totals.pct}%`} sub={data.finalized ? "зафиксировано" : "в реальном времени"} icon="📊" color={totals.pct > 100 ? "rose" : "amber"} /></div>
+          </div>
+
+          {/* хайлайты */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 animate-fade-in-up" style={{ animationDelay: "0.1s" }}>
+            <HL label="↑ Перевыполнено" color="rose" task={highlights.over} note={highlights.over ? `план ${highlights.over.planTotal} → факт ${highlights.over.factTotal} SP` : "—"} />
+            <HL label="○ Не начато" color="sky" task={highlights.notStarted} note={highlights.notStarted ? `план ${highlights.notStarted.planTotal} SP (факт 0)` : "—"} />
+            <HL label="↓ Меньше всех готово" color="teal" task={highlights.behind} note={highlights.behind ? `факт ${highlights.behind.factTotal}/${highlights.behind.planTotal} SP (${highlights.behind.pct}%)` : "—"} />
+          </div>
+
+          {/* графики */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
+            <PFChart title="📋 По задачам" data={byTask} />
+            <PFChart title="🧑‍💻 По ролям" data={byRole} />
+          </div>
+
+          {/* прогресс по задачам */}
+          <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)] animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
+            <CardHeader className="pb-2"><CardTitle>Прогресс по задачам</CardTitle></CardHeader>
+            <CardContent className="space-y-3.5">
+              {tasks.map(t => {
+                const over = t.planTotal > 0 && t.factTotal > t.planTotal
+                const c = t.planTotal === 0 ? "#94A3B8" : over ? OVER_C : OK_C
+                const w = t.planTotal > 0 ? Math.min(100, t.factTotal / t.planTotal * 100) : 0
+                return (
+                  <div key={t.key}>
+                    <div className="flex items-center justify-between gap-3 text-sm mb-1">
+                      <a href={`https://tracker.yandex.ru/${t.key}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono text-xs font-bold text-primary shrink-0">{t.key.replace(/^UDOSTAVKA-/, "")}</span>
+                        <span className="text-foreground truncate">{t.title}</span>
+                        <ExternalLink className="w-3 h-3 opacity-30 shrink-0" />
+                      </a>
+                      <span className="font-semibold tabular-nums shrink-0" style={{ color: c }}>
+                        {t.planTotal === 0 ? "0 / 0 SP —" : `${t.factTotal} / ${t.planTotal} SP (${t.pct}%)`}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${w}%`, background: c }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* Модалка нового спринта */}
+      <NewSprintModal open={showNew} busy={busy} onClose={() => setShowNew(false)} onCreate={onCreate} />
+    </>
+  )
+}
+
+const HL_COLOR: Record<string, string> = { rose: "#EF4444", sky: "#38BDF8", teal: "#22C55E" }
+function HL({ label, color, task, note }: { label: string; color: string; task?: { key: string; title: string }; note: string }) {
+  const c = HL_COLOR[color]
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(108,99,255,0.1)]">
+      <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: c }}>{label}</p>
+      {task ? (
+        <>
+          <p className="text-sm font-black text-foreground mt-1 truncate">{task.key.replace(/^UDOSTAVKA-/, "")} — {task.title}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{note}</p>
+        </>
+      ) : <p className="text-sm text-muted-foreground mt-1">—</p>}
+    </div>
+  )
+}
+
+function PFChart({ title, data }: { title: string; data: { label: string; plan: number; fact: number }[] }) {
+  return (
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
+      <CardHeader className="pb-1"><CardTitle>{title}</CardTitle></CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-center gap-4 text-[11px] text-muted-foreground mb-2">
+          <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: PLAN_C }} /> План</span>
+          <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: OK_C }} /> Факт ≤ плана</span>
+          <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: OVER_C }} /> Факт &gt; плана</span>
+        </div>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={data} margin={{ top: 16, right: 8, left: -10, bottom: 4 }} barGap={2}>
+            <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} interval={0} />
+            <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit=" SP" width={48} />
+            <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }} formatter={(v: any) => `${v} SP`}
+              contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
+            <Legend wrapperStyle={{ display: "none" }} />
+            <Bar dataKey="plan" name="План" fill={PLAN_C} radius={[3, 3, 0, 0]}>
+              <LabelList dataKey="plan" position="top" style={{ fontSize: 9, fontWeight: 700, fill: PLAN_C }} />
+            </Bar>
+            <Bar dataKey="fact" name="Факт" radius={[3, 3, 0, 0]}>
+              {data.map((d, i) => <Cell key={i} fill={factColor(d.plan, d.fact)} />)}
+              <LabelList dataKey="fact" position="top" style={{ fontSize: 9, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  )
+}
+
+function NewSprintModal({ open, busy, onClose, onCreate }: {
+  open: boolean; busy: boolean; onClose: () => void; onCreate: (name: string, df: string, dt: string) => void
+}) {
+  const [name, setName] = useState("")
+  const [df, setDf] = useState("")
+  const [dt, setDt] = useState("")
+  useEffect(() => { if (open) { setName(""); setDf(""); setDt("") } }, [open])
+  const inp = "w-full bg-secondary/60 border border-border rounded-lg px-3 h-10 text-sm text-foreground outline-none focus:border-primary/50 [color-scheme:light] dark:[color-scheme:dark]"
+  return (
+    <Modal open={open} onClose={onClose} title="Новый спринт" subtitle="Период определяет окно, за которое считается факт (worklog)">
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Название</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Sprint 29 (11.05-24.05)" className={cn(inp, "mt-1")} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Начало</label>
+            <input type="date" value={df} onChange={e => setDf(e.target.value)} className={cn(inp, "mt-1")} />
+          </div>
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Конец</label>
+            <input type="date" value={dt} onChange={e => setDt(e.target.value)} className={cn(inp, "mt-1")} />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="rounded-lg border border-border bg-card px-4 h-10 text-sm font-semibold text-muted-foreground hover:text-foreground transition-all">Отмена</button>
+          <button onClick={() => onCreate(name.trim(), df, dt)} disabled={busy || !name.trim() || !df || !dt}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 h-10 text-sm font-semibold disabled:opacity-40 transition-all">
+            {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Создать
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}

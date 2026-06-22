@@ -1,11 +1,21 @@
-import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Props {
-  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch") => void
+  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est") => void
 }
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  {
+    date: "Июнь 2026",
+    title: "Раздел «Оценка» — план-факт спринта (Курьеры U)",
+    items: [
+      "Планируем задачи спринта в SP по ролям-стекам (SA / GO / FE / QA / 1C / AQA): добавляем задачу по ключу и проставляем оценку.",
+      "Killer-фича: факт в реальном времени — сколько часов списано на задачи в окне спринта (worklog Трекера), переведено в SP (1 SP = 8 ч).",
+      "Карточки план/факт/выполнение, графики «по задачам» и «по ролям» (план vs факт, перерасход — красным), прогресс-бары по задачам.",
+      "Хайлайты: что перевыполнено, что не начато, что меньше всех готово. Кнопка «Зафиксировать итог» замораживает результат спринта.",
+    ],
+  },
   {
     date: "Июнь 2026",
     title: "Раздел «Арх. комитет» (возвраты)",
@@ -97,6 +107,8 @@ const NAV_CARDS = [
     title: "Инциденты", desc: "Все инциденты курьеров по месяцам: доля времени, AI-кластеры причин, стек, приоритет и топы." },
   { section: "arch" as const, icon: Landmark, color: "#6366F1",
     title: "Арх. комитет", desc: "Прохождение арх. комитета и возвраты (АрхКом · ТА) по трём очередям: воронка, время цикла и «сейчас в комитете»." },
+  { section: "est" as const, icon: Gauge, color: "#EC4899",
+    title: "Оценка", desc: "План-факт спринта (Курьеры U): план в SP по ролям + факт из worklog в реальном времени, фиксация итога." },
   { section: "sle" as const, icon: Target, color: "#10B981",
     title: "Анализ SLE", desc: "Кластеризация причин нарушения SLE по PUTKURERA, скрытые блокировки." },
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",
