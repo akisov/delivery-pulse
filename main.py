@@ -4441,6 +4441,11 @@ EST_STACK_MEMBERS = {
     "АрхКом": ["Спиридонов", "Селезнев"],   # архитекторы/техлиды (ё→е норм.)
 }
 EST_QUEUE_PREFIXES = ("POOLING", "UDOSTAVKA", "DOSTAVKAPIKO")  # очереди курьеров (X/U/R)
+def _tracker_key(s: str) -> str:
+    """Ключ задачи из строки/ссылки (https://tracker.yandex.ru/PUTKURERA-1218 → PUTKURERA-1218)."""
+    m = re.search(r"([A-Z][A-Z0-9]*-\d+)", (s or "").strip(), re.IGNORECASE)
+    return m.group(1).upper() if m else ""
+
 def _est_stack(display: str):
     toks = set(_sprint_norm(display).split())
     for stack, names in EST_STACK_MEMBERS.items():
@@ -4580,7 +4585,7 @@ async def est_settings_set(request: Request):
 @app.post("/est/comment")
 async def est_comment(request: Request):
     b = await request.json()
-    key = (b.get("key") or "").strip().upper()
+    key = _tracker_key(b.get("key"))
     text = (b.get("text") or "").strip()
     if not key or not text:
         return JSONResponse({"ok": False, "error": "Нужны ключ задачи и текст"})
@@ -4675,7 +4680,7 @@ async def est_worklog_stacks(refresh: bool = Query(False)):
 async def est_analyze(request: Request):
     b = await request.json()
     text = (b.get("text") or "").strip()
-    key = (b.get("key") or "").strip().upper()
+    key = _tracker_key(b.get("key"))
     if key and TRACKER_TOKEN:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -4707,20 +4712,26 @@ async def est_analyze(request: Request):
         f"1) КАТЕГОРИЯ сложности по оценке EFFORT (человеко-дни): {thr}. "
         f"SLE (ожидаемый срок, дни): {sle_txt}. Дай категорию, оценку effort в днях (число), "
         "короткое обоснование и 1–3 похожих эталона из списка.\n"
-        "2) ПРОВЕРКА MMF (Minimum Marketable Feature) по 5 критериям, по каждому ✅/❌ и 1 фраза:\n"
+        "2) ПРОВЕРКА MMF (Minimum Marketable Feature) — ОБЯЗАТЕЛЬНА, заполни всегда. По 5 критериям, "
+        "по каждому ok (true/false) и заметка 1–2 предложения:\n"
         "   1. Одна проблема — фокус на одной проблеме/ценности.\n"
         "   2. Можно выпустить отдельно — самостоятельный релиз с пользой.\n"
         "   3. Есть метрика успеха — измеримый результат.\n"
         "   4. Один ключевой сценарий — основной happy-path понятен.\n"
         "   5. Проверка за разумное время — результат виден быстро.\n"
-        "Дай по каждому критерию ok (true/false) и краткую заметку, общий счёт и 1–3 рекомендации.\n"
-        "Верни СТРОГО валидный JSON без пояснений: {\"category\":\"S|M|L\",\"effortDays\":<число>,"
-        "\"rationale\":\"…\",\"similar\":[\"PUTKURERA-…\"],"
-        "\"mmf\":{\"criteria\":[{\"name\":\"Одна проблема\",\"ok\":true,\"note\":\"…\"},…5 шт],"
+        "Плюс общий счёт (сколько ✅ из 5) и 1–3 конкретные рекомендации.\n"
+        "Краткое rationale (1–3 предложения). Верни СТРОГО валидный JSON без пояснений и без markdown, "
+        "ВСЕ поля обязательны:\n"
+        "{\"category\":\"S|M|L\",\"effortDays\":<число>,\"rationale\":\"…\",\"similar\":[\"PUTKURERA-…\"],"
+        "\"mmf\":{\"criteria\":[{\"name\":\"Одна проблема\",\"ok\":true,\"note\":\"…\"},"
+        "{\"name\":\"Можно выпустить отдельно\",\"ok\":true,\"note\":\"…\"},"
+        "{\"name\":\"Есть метрика успеха\",\"ok\":false,\"note\":\"…\"},"
+        "{\"name\":\"Один ключевой сценарий\",\"ok\":true,\"note\":\"…\"},"
+        "{\"name\":\"Проверка за разумное время\",\"ok\":true,\"note\":\"…\"}],"
         "\"score\":<0-5>,\"recommendations\":[\"…\"]}}"
     )
     user = f"Задача:\n{text[:2000]}\n\nЭталоны по категориям:\n{examples}"
-    raw = await ai_cached("featest", system, user, max_tokens=900, temperature=0.2)
+    raw = await ai_cached("featest2", system, user, max_tokens=1600, temperature=0.2)
     out = {"category": None, "effortDays": None, "rationale": "", "similar": [], "mmf": None}
     try:
         s = raw[raw.index("{"): raw.rindex("}") + 1]

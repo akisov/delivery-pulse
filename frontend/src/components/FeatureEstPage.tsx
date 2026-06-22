@@ -65,6 +65,8 @@ export function FeatureEstPage() {
   const stacksByKey = useMemo(
     () => Object.fromEntries((stacks?.perTask ?? []).map(t => [t.key, t.byStack] as [string, StackBreakdown])),
     [stacks])
+  // ключ из поля (принимаем и ссылку https://tracker.yandex.ru/PUTKURERA-1218)
+  const taskKey = useMemo(() => { const m = keyInput.match(/[A-Z][A-Z0-9]*-\d+/i); return m ? m[0].toUpperCase() : "" }, [keyInput])
 
   const teamLabels = refs?.teamLabels ?? { R: "Курьеры R", X: "Курьеры X", U: "Курьеры U" }
   const cats = refs?.categories ?? [{ key: "S", sle: 55 }, { key: "M", sle: 88 }, { key: "L", sle: 108 }]
@@ -84,7 +86,7 @@ export function FeatureEstPage() {
     if (!text.trim() && !keyInput.trim()) { toast("Введите описание или ключ задачи"); return }
     setAnalyzing(true); setResult(null)
     try {
-      setResult(await analyzeFeature({ text: text.trim() || undefined, key: keyInput.trim() || undefined }))
+      setResult(await analyzeFeature({ text: text.trim() || undefined, key: taskKey || undefined }))
     } catch (e: any) { toast.error(e.message) }
     finally { setAnalyzing(false) }
   }
@@ -101,10 +103,10 @@ export function FeatureEstPage() {
     return lines.join("\n")
   }
   const onComment = async () => {
-    if (!result || !keyInput.trim()) return
+    if (!result || !taskKey) return
     setCommenting(true)
     try {
-      const url = await addFeatureComment(keyInput.trim().toUpperCase(), buildComment(result))
+      const url = await addFeatureComment(taskKey, buildComment(result))
       toast.success("Комментарий добавлен в задачу", { description: url })
     } catch (e: any) { toast.error(e.message) }
     finally { setCommenting(false) }
@@ -137,7 +139,7 @@ export function FeatureEstPage() {
           placeholder="Опишите новую задачу/возможность…"
           className="w-full bg-secondary/60 border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 resize-y" />
         <div className="flex items-center gap-2 mt-2 flex-wrap">
-          <input value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder="…или ключ: PUTKURERA-1234"
+          <input value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder="…или ключ/ссылка: PUTKURERA-1234 или https://tracker.yandex.ru/PUTKURERA-1234"
             className="flex-1 min-w-[200px] bg-secondary/60 border border-border rounded-lg px-3 h-9 text-sm text-foreground outline-none focus:border-primary/50" />
           <button onClick={onAnalyze} disabled={analyzing}
             className="inline-flex items-center gap-2 rounded-lg px-4 h-9 text-sm font-bold text-white disabled:opacity-50 transition-all"
@@ -191,11 +193,11 @@ export function FeatureEstPage() {
             )}
 
             {/* Добавить коммент к задаче (если введён ключ) */}
-            {keyInput.trim() && (
+            {taskKey && (
               <div className="mt-3 pt-3 border-t border-border">
                 <button onClick={onComment} disabled={commenting}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 text-primary px-3 h-9 text-xs font-semibold hover:bg-primary/15 disabled:opacity-50 transition-all">
-                  {commenting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить коммент в {keyInput.trim().toUpperCase()}
+                  {commenting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить коммент в {taskKey}
                 </button>
               </div>
             )}
