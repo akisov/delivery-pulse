@@ -317,7 +317,8 @@ export function EstimationPage() {
 
           {/* графики */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
-            <PFChart title="📋 По задачам" data={byTask} />
+            <PFChart title="📋 По задачам" data={byTask}
+              linkBy={Object.fromEntries(byTask.map(d => [d.label, `https://tracker.yandex.ru/${d.key}`]))} />
             <PFChart title="🧑‍💻 По ролям" data={byRole} />
           </div>
 
@@ -374,7 +375,20 @@ function HL({ label, color, task, note }: { label: string; color: string; task?:
   )
 }
 
-function PFChart({ title, data }: { title: string; data: { label: string; plan: number; fact: number }[] }) {
+function TaskTick(props: any) {
+  const { x, y, payload, linkBy } = props
+  const url = linkBy?.[payload?.value]
+  return (
+    <text x={x} y={y} dy="0.71em" textAnchor="middle" fontSize={11} fontWeight={600}
+      fill={url ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))"}
+      style={url ? { cursor: "pointer", textDecoration: "underline" } : undefined}
+      onClick={url ? () => window.open(url, "_blank", "noopener") : undefined}>
+      {payload?.value}
+    </text>
+  )
+}
+
+function PFChart({ title, data, linkBy }: { title: string; data: { label: string; plan: number; fact: number }[]; linkBy?: Record<string, string> }) {
   return (
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardHeader className="pb-1"><CardTitle>{title}</CardTitle></CardHeader>
@@ -387,7 +401,7 @@ function PFChart({ title, data }: { title: string; data: { label: string; plan: 
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={data} margin={{ top: 16, right: 8, left: -10, bottom: 4 }} barGap={2}>
             <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 600, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} interval={0} />
+            <XAxis dataKey="label" tick={(p: any) => <TaskTick {...p} linkBy={linkBy} />} axisLine={false} tickLine={false} interval={0} />
             <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit=" SP" width={48} />
             <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }} formatter={(v: any) => `${v} SP`}
               labelFormatter={(label: any, p: any) => p?.[0]?.payload?.full || label}
