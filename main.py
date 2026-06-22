@@ -4430,6 +4430,23 @@ async def osp_worklog_status():
 # ── Оценка новых возможностей (PUTKURERA): эталоны + AI-категоризация ────────────
 EST_TEAM_MEMBERS = {"R": ["Светляков", "Иванов"], "X": ["Бескова", "Беляев"], "U": ["Петровская"]}
 EST_TEAM_LABEL = {"R": "Курьеры R", "X": "Курьеры X", "U": "Курьеры U"}
+# Разработчик → стек (для разбивки worklog эталонов; по фамилиям, токен-матч).
+EST_STACK_MEMBERS = {
+    "SA":    ["Резенова", "Махмутова", "Борискин", "Разумова", "Егоров"],
+    "GO":    ["Ким", "Источников", "Подлинов", "Доронин", "Мартынов", "Киреев"],
+    "Front": ["Копосов", "Асотикова", "Шестопалов", "Памшев"],
+    "QA":    ["Мартова", "Рогова", "Ву", "Степин", "Корякин", "Туралиева"],
+    "1С":    ["Яцушко", "Гусев"],
+    "AQA":   ["Исабаев", "Драгун"],
+}
+EST_QUEUE_PREFIXES = ("POOLING", "UDOSTAVKA", "DOSTAVKAPIKO")  # очереди курьеров (X/U/R)
+def _est_stack(display: str):
+    toks = set(_sprint_norm(display).split())
+    for stack, names in EST_STACK_MEMBERS.items():
+        if any(_sprint_norm(n) in toks for n in names):
+            return stack
+    return None
+
 # Категории: maxEff — верхняя граница Effort факт (None = без верха, L); sle — ожидаемый срок, дн.
 EST_CATEGORIES_DEFAULT = [
     {"key": "S", "maxEff": 14, "sle": 55},
@@ -4586,48 +4603,65 @@ async def est_worklog_stacks(refresh: bool = Query(False)):
             return JSONResponse({"ok": True, **snap})
     refs = await _est_references()
     keys = [it["key"] for it in refs["items"]]
-    people: dict = {}
+    title_by_key = {it["key"]: it["title"] for it in refs["items"]}
+    people: dict = {}                    # автор → часы (все, кто логировал в курьерских подзадачах)
+    per_task: dict = {k: {} for k in keys}   # родитель → {стек: часы}  (только нужные люди)
     if TRACKER_TOKEN and keys:
         async with httpx.AsyncClient(timeout=90) as client:
-            # 1) родитель → подзадачи (subtask, outward)
+            # 1) родитель → подзадачи (subtask, outward), оставляем только очереди курьеров
             link_pairs = []
             for i in range(0, len(keys), 5):
                 chunk = keys[i:i + 5]
                 lls = await asyncio.gather(*[fetch_issue_links(client, k) for k in chunk], return_exceptions=True)
                 link_pairs.extend(zip(chunk, lls))
                 await asyncio.sleep(0.3)
-            targets = []
+            sub_to_parent = {}
             for pk, links in link_pairs:
                 if isinstance(links, Exception) or not isinstance(links, list):
-                    targets.append(pk)
                     continue
-                subs = [l.get("object", {}).get("key") for l in links
-                        if (l.get("type", {}) or {}).get("id") == "subtask" and l.get("direction") == "outward"]
-                subs = [s for s in subs if s]
-                targets.extend(subs if subs else [pk])
-            # 2) worklog по каждой подзадаче → часы по автору
-            for i in range(0, len(targets), 5):
-                chunk = targets[i:i + 5]
+                for l in links:
+                    if (l.get("type", {}) or {}).get("id") != "subtask" or l.get("direction") != "outward":
+                        continue
+                    sk = (l.get("object", {}) or {}).get("key") or ""
+                    if sk.split("-")[0] in EST_QUEUE_PREFIXES:   # только X/U/R
+                        sub_to_parent[sk] = pk
+            subs = list(sub_to_parent)
+            # 2) worklog по каждой курьерской подзадаче → часы по автору и по родителю
+            for i in range(0, len(subs), 5):
+                chunk = subs[i:i + 5]
                 wls = await asyncio.gather(*[_wl_fetch(client, k) for k in chunk], return_exceptions=True)
-                for wl in wls:
+                for sk, wl in zip(chunk, wls):
                     if not isinstance(wl, list):
                         continue
+                    pk = sub_to_parent.get(sk)
                     for e in wl:
                         h = _iso_dur_hours(e.get("duration"))
                         if h <= 0:
                             continue
                         who = (e.get("createdBy") or {}).get("display") or "—"
                         people[who] = people.get(who, 0) + h
+                        stack = _est_stack(who)
+                        if stack and pk in per_task:       # только нужные люди
+                            per_task[pk][stack] = per_task[pk].get(stack, 0) + h
                 await asyncio.sleep(0.4)
     by_stack: dict = {}
-    out_people = []
+    out_people, unknown = [], []
     for name, h in sorted(people.items(), key=lambda x: -x[1]):
-        role = _person_role(name)              # SA/GO/Front/QA/1С/AQA или None
-        bucket = role or "не определён"
-        by_stack[bucket] = round(by_stack.get(bucket, 0) + h / SP_HOURS, 1)
-        out_people.append({"name": name, "hours": round(h, 1), "sp": round(h / SP_HOURS, 1), "stack": role})
-    data = {"byStack": by_stack, "people": out_people,
-            "unknown": [p["name"] for p in out_people if not p["stack"]], "tasks": len(keys)}
+        stack = _est_stack(name)
+        out_people.append({"name": name, "hours": round(h, 1), "sp": round(h / SP_HOURS, 1), "stack": stack})
+        if stack:
+            by_stack[stack] = round(by_stack.get(stack, 0) + h / SP_HOURS, 1)
+        else:
+            unknown.append({"name": name, "hours": round(h, 1)})
+    tasks_out = []
+    for k in keys:
+        bs = {s: round(v / SP_HOURS, 1) for s, v in per_task[k].items() if v}
+        if bs:
+            tasks_out.append({"key": k, "title": title_by_key.get(k, k),
+                              "url": f"https://tracker.yandex.ru/{k}", "byStack": bs,
+                              "total": round(sum(bs.values()), 1)})
+    data = {"byStack": by_stack, "people": out_people, "unknown": unknown,
+            "perTask": tasks_out, "tasks": len(keys)}
     try:
         await turso_execute([stmt(
             "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
