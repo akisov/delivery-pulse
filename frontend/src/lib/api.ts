@@ -1,4 +1,4 @@
-import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis, FeatureCategory } from "./types"
+import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks } from "./types"
 
 export async function fetchDashboard(dateFrom?: string, dateTo?: string): Promise<DashboardData> {
   const params = new URLSearchParams()
@@ -80,6 +80,11 @@ export async function analyzeFeature(body: { text?: string; key?: string }): Pro
   const d = await r.json()
   if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`)
   return d
+}
+export async function fetchWorklogStacks(refresh = false): Promise<WorklogStacks> {
+  const r = await fetch(`/est/worklog-stacks${refresh ? "?refresh=true" : ""}`)
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.json()
 }
 export async function fetchFeatureSettings(): Promise<FeatureCategory[]> {
   const r = await fetch("/est/settings")

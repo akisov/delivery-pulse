@@ -4,13 +4,32 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { PageHeader } from "@/components/PageHeader"
-import { fetchFeatureRefs, analyzeFeature, fetchFeatureSettings, saveFeatureSettings, addFeatureComment } from "@/lib/api"
-import type { FeatureRefs, FeatureAnalysis, FeatureCategory } from "@/lib/types"
+import { fetchFeatureRefs, analyzeFeature, fetchFeatureSettings, saveFeatureSettings, addFeatureComment, fetchWorklogStacks } from "@/lib/api"
+import type { FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks, StackBreakdown } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
 const CAT_COLOR: Record<string, string> = { S: "#22C55E", M: "#F59E0B", L: "#EF4444" }
 const CAT_DESC: Record<string, string> = { S: "≤ 14 дн effort", M: "15–40 дн effort", L: "> 40 дн effort" }
+const STACK_COLOR: Record<string, string> = {
+  SA: "#06B6D4", GO: "#3B82F6", Front: "#A855F7", QA: "#F59E0B", "1С": "#10B981", AQA: "#EC4899", "АрхКом": "#6366F1", "Другие": "#94A3B8",
+}
+const STACK_ORDER = ["SA", "GO", "Front", "QA", "1С", "AQA", "АрхКом", "Другие"]
+function StackChips({ bs, sub }: { bs: StackBreakdown; sub?: boolean }) {
+  const entries = STACK_ORDER.filter(s => (bs[s] || 0) > 0).map(s => [s, bs[s]] as [string, number])
+  if (!entries.length) return sub ? <span className="text-[10px] text-muted-foreground/50">нет логов по стекам</span> : null
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      {entries.map(([s, v]) => (
+        <span key={s} className={cn("inline-flex items-center gap-1 rounded font-bold", sub ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]")}
+          style={{ background: `${STACK_COLOR[s] || "#94A3B8"}1A`, color: STACK_COLOR[s] || "#94A3B8" }}
+          title={`${s}: ${v} SP по эталону`}>
+          {s} {v}
+        </span>
+      ))}
+    </span>
+  )
+}
 
 function CatBadge({ c, sle }: { c: string; sle?: number }) {
   const col = CAT_COLOR[c] || "#94A3B8"
@@ -34,12 +53,18 @@ export function FeatureEstPage() {
   const [result, setResult] = useState<FeatureAnalysis | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [commenting, setCommenting] = useState(false)
+  const [stacks, setStacks] = useState<WorklogStacks | null>(null)
 
   const load = (refresh = false) => {
     setLoading(true)
     fetchFeatureRefs(refresh).then(setRefs).catch(() => toast.error("Не удалось загрузить эталоны")).finally(() => setLoading(false))
+    fetchWorklogStacks(refresh).then(setStacks).catch(() => {})   // разбивка по стекам (кэш)
   }
   useEffect(() => { load() }, [])
+
+  const stacksByKey = useMemo(
+    () => Object.fromEntries((stacks?.perTask ?? []).map(t => [t.key, t.byStack] as [string, StackBreakdown])),
+    [stacks])
 
   const teamLabels = refs?.teamLabels ?? { R: "Курьеры R", X: "Курьеры X", U: "Курьеры U" }
   const cats = refs?.categories ?? [{ key: "S", sle: 55 }, { key: "M", sle: 88 }, { key: "L", sle: 108 }]
@@ -213,6 +238,12 @@ export function FeatureEstPage() {
                 </tbody>
               </table>
             </div>
+            {stacks && Object.keys(stacks.byStack).length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 mb-1.5">Суммарный effort эталонов по стекам (SP)</p>
+                <StackChips bs={stacks.byStack} />
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -250,18 +281,27 @@ export function FeatureEstPage() {
         <Skeleton className="h-72 rounded-xl" />
       ) : (
         <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
-          <CardHeader className="pb-2"><CardTitle>Эталонные задачи <span className="text-xs font-normal text-muted-foreground">· {view.length}</span></CardTitle></CardHeader>
+          <CardHeader className="pb-2">
+            <CardTitle>Эталонные задачи <span className="text-xs font-normal text-muted-foreground">· {view.length}</span></CardTitle>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Под каждой задачей — распределение её effort по стекам (из worklog подзадач в очередях курьеров). Помогает прикинуть, сколько SP на какой стек заложить.</p>
+          </CardHeader>
           <CardContent className="space-y-1.5">
             {view.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">Нет эталонов под фильтры. Нужны завершённые задачи PUTKURERA с заполненным Effort факт у Светлякова/Иванова/Бесковой/Беляева/Петровской.</p>
             ) : view.map(it => (
-              <div key={it.key} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border hover:bg-accent/30 transition-colors flex-wrap">
-                <a href={it.url} target="_blank" rel="noreferrer" className="font-mono text-xs font-bold text-primary hover:underline inline-flex items-center gap-1 shrink-0">{it.key}<ExternalLink className="w-3 h-3 opacity-40" /></a>
-                <CatBadge c={it.category} sle={sleByCat[it.category]} />
-                <span className="flex-1 min-w-[160px] text-sm text-foreground truncate">{it.title}</span>
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground shrink-0"><User className="w-3 h-3" />{it.assignee}</span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-0.5 text-[11px] font-black text-primary shrink-0 tabular-nums" title="effort (человеко-дни)"><Hourglass className="w-3 h-3" />{it.effort}</span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-black text-amber-600 dark:text-amber-400 shrink-0 tabular-nums" title="дней в работе"><Clock className="w-3 h-3" />{it.days}д</span>
+              <div key={it.key} className="px-3 py-2 rounded-lg border border-border hover:bg-accent/30 transition-colors">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <a href={it.url} target="_blank" rel="noreferrer" className="font-mono text-xs font-bold text-primary hover:underline inline-flex items-center gap-1 shrink-0">{it.key}<ExternalLink className="w-3 h-3 opacity-40" /></a>
+                  <CatBadge c={it.category} sle={sleByCat[it.category]} />
+                  <span className="flex-1 min-w-[160px] text-sm text-foreground truncate">{it.title}</span>
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground shrink-0"><User className="w-3 h-3" />{it.assignee}</span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-0.5 text-[11px] font-black text-primary shrink-0 tabular-nums" title="effort (человеко-дни)"><Hourglass className="w-3 h-3" />{it.effort}</span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-black text-amber-600 dark:text-amber-400 shrink-0 tabular-nums" title="дней в работе"><Clock className="w-3 h-3" />{it.days}д</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 shrink-0">по стекам:</span>
+                  <StackChips bs={stacksByKey[it.key] || {}} sub />
+                </div>
               </div>
             ))}
           </CardContent>

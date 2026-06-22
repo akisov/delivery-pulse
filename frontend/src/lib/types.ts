@@ -107,6 +107,14 @@ export interface FeatureRefs {
   categories: FeatureCategory[]
   items: FeatureRef[]
 }
+export type StackBreakdown = Record<string, number>
+export interface WorklogStacks {
+  ok: boolean
+  byStack: StackBreakdown
+  perTask: { key: string; title: string; url: string; byStack: StackBreakdown; total: number }[]
+  other: { name: string; hours: number }[]
+  tasks: number
+}
 export interface MmfCriterion { name: string; ok: boolean; note: string }
 export interface MmfCheck { criteria: MmfCriterion[]; score: number; total: number; recommendations: string[] }
 export interface FeatureAnalysis {
