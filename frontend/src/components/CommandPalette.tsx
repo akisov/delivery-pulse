@@ -14,7 +14,7 @@ const ITEMS: { section: Section; label: string; icon: LucideIcon; hint: string }
   { section: "est",       label: "Оценка",      icon: Gauge,         hint: "план-факт спринта · SP" },
   { section: "sle",       label: "Анализ SLE",  icon: Target,        hint: "риски · кластеры причин" },
   { section: "flow",      label: "Поток E2E",   icon: Workflow,      hint: "WIP Age · лимиты" },
-  { section: "feat",      label: "Оценка возможностей", icon: Lightbulb, hint: "категория S/M/L · эталоны · AI" },
+  { section: "feat",      label: "Оценка НВ", icon: Lightbulb, hint: "новые возможности · S/M/L · MMF · эталоны" },
   { section: "osp",       label: "ОСП",         icon: Truck,         hint: "обзор сервиса поставки" },
 ]
 

@@ -99,13 +99,16 @@ export interface FeatureRef {
   team: string; category: string; assignee: string
   effort: number; days: number
 }
+export interface FeatureCategory { key: string; maxEff: number | null; sle: number }
 export interface FeatureRefs {
   ok: boolean
   teams: string[]
   teamLabels: Record<string, string>
-  categories: { key: string; sle: number }[]
+  categories: FeatureCategory[]
   items: FeatureRef[]
 }
+export interface MmfCriterion { name: string; ok: boolean; note: string }
+export interface MmfCheck { criteria: MmfCriterion[]; score: number; total: number; recommendations: string[] }
 export interface FeatureAnalysis {
   ok: boolean
   error?: string
@@ -114,6 +117,7 @@ export interface FeatureAnalysis {
   rationale: string
   similar: string[]
   sle: number | null
+  mmf: MmfCheck | null
 }
 
 // Задача, которая сейчас находится в одном из статусов Арх. комитета

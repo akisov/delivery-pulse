@@ -4430,18 +4430,33 @@ async def osp_worklog_status():
 # ── Оценка новых возможностей (PUTKURERA): эталоны + AI-категоризация ────────────
 EST_TEAM_MEMBERS = {"R": ["Светляков", "Иванов"], "X": ["Бескова", "Беляев"], "U": ["Петровская"]}
 EST_TEAM_LABEL = {"R": "Курьеры R", "X": "Курьеры X", "U": "Курьеры U"}
-EST_CATEGORIES = [{"key": "S", "sle": 55}, {"key": "M", "sle": 88}, {"key": "L", "sle": 108}]
-_EST_SLE = {c["key"]: c["sle"] for c in EST_CATEGORIES}
+# Категории: maxEff — верхняя граница Effort факт (None = без верха, L); sle — ожидаемый срок, дн.
+EST_CATEGORIES_DEFAULT = [
+    {"key": "S", "maxEff": 14, "sle": 55},
+    {"key": "M", "maxEff": 40, "sle": 88},
+    {"key": "L", "maxEff": None, "sle": 108},
+]
 
-def _eff_category(eff):
-    """Категория по Effort факт (человеко-дни): S ≤ 14, M ≤ 40, L > 40."""
+async def _est_settings():
+    """Редактируемые категории/SLE (snapshot est-settings-v1), иначе дефолт из исследования."""
+    snap = await _osp_snap("est-settings-v1")
+    if isinstance(snap, dict) and isinstance(snap.get("categories"), list) and snap["categories"]:
+        return snap["categories"]
+    return [dict(c) for c in EST_CATEGORIES_DEFAULT]
+
+def _eff_cat(eff, cats):
+    """Категория по Effort факт и текущим порогам (cats отсортированы S→M→L)."""
     try:
         e = float(eff)
     except (TypeError, ValueError):
         return None
     if e <= 0:
         return None
-    return "S" if e <= 14 else "M" if e <= 40 else "L"
+    for c in cats:
+        mx = c.get("maxEff")
+        if mx is None or e <= mx:
+            return c["key"]
+    return cats[-1]["key"] if cats else None
 
 def _est_team(assignee: str):
     n = _sprint_norm(assignee)
@@ -4452,8 +4467,9 @@ def _est_team(assignee: str):
 
 async def _est_references():
     """Эталонные завершённые задачи PUTKURERA (чистые, с янв 2026), команда×категория."""
+    cats = await _est_settings()
     base = {"teams": list(EST_TEAM_LABEL.keys()), "teamLabels": EST_TEAM_LABEL,
-            "categories": EST_CATEGORIES, "items": []}
+            "categories": cats, "items": []}
     if not TRACKER_TOKEN:
         return base
     try:
@@ -4469,7 +4485,7 @@ async def _est_references():
         if not team:
             continue
         eff = _field(iss, "--anEffortFact")
-        cat = _eff_category(eff)
+        cat = _eff_cat(eff, cats)
         if not cat:
             continue
         start = (iss.get("start") or iss.get("createdAt") or "")[:10]
@@ -4514,6 +4530,51 @@ async def est_references(refresh: bool = Query(False)):
         print(f"[est refs save] {e}")
     return JSONResponse({"ok": True, **data})
 
+@app.get("/est/settings")
+async def est_settings_get():
+    return JSONResponse({"ok": True, "categories": await _est_settings()})
+
+@app.post("/est/settings")
+async def est_settings_set(request: Request):
+    b = await request.json()
+    cats = b.get("categories")
+    if not isinstance(cats, list) or not cats:
+        return JSONResponse({"ok": False, "error": "Нужны категории"})
+    clean = []
+    for c in cats:
+        try:
+            mx = c.get("maxEff")
+            clean.append({"key": str(c.get("key")), "maxEff": (None if mx in (None, "", 0) else float(mx)),
+                          "sle": float(c.get("sle") or 0)})
+        except (TypeError, ValueError):
+            continue
+    await turso_execute([stmt(
+        "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+        "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+        ["est-settings-v1", json.dumps({"categories": clean}, ensure_ascii=False)])])
+    # сбрасываем кэш эталонов — категории могли поменяться
+    try:
+        await turso_execute([stmt("DELETE FROM osp_snapshot WHERE which=?", ["est-refs-v1"])])
+    except Exception:
+        pass
+    return JSONResponse({"ok": True})
+
+@app.post("/est/comment")
+async def est_comment(request: Request):
+    b = await request.json()
+    key = (b.get("key") or "").strip().upper()
+    text = (b.get("text") or "").strip()
+    if not key or not text:
+        return JSONResponse({"ok": False, "error": "Нужны ключ задачи и текст"})
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан"})
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            await tracker_request(client, "POST", f"/v2/issues/{key}/comments", {"text": text})
+        return JSONResponse({"ok": True, "url": f"https://tracker.yandex.ru/{key}"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
 @app.post("/est/analyze")
 async def est_analyze(request: Request):
     b = await request.json()
@@ -4532,6 +4593,12 @@ async def est_analyze(request: Request):
         return JSONResponse({"ok": False, "error": "Введите описание задачи или ключ"})
     if not AI_ENABLED:
         return JSONResponse({"ok": False, "error": "AI недоступен (нет ключа в секретах)"})
+    cats = await _est_settings()
+    sle_map = {c["key"]: c.get("sle") for c in cats}
+    thr = "; ".join(
+        (f"{c['key']} ≤ {int(c['maxEff'])} дн effort" if c.get("maxEff") else f"{c['key']} > предыдущей")
+        for c in cats)
+    sle_txt = ", ".join(f"{c['key']}={c.get('sle')}" for c in cats)
     refs = await _est_references()
     by_cat: dict = {}
     for it in refs["items"]:
@@ -4540,16 +4607,25 @@ async def est_analyze(request: Request):
             by_cat[it["category"]].append(f"{it['key']} «{it['title']}» — effort {it['effort']}, {it['days']}д")
     examples = "\n".join(f"{c}: " + ("; ".join(by_cat.get(c, [])) or "—") for c in ("S", "M", "L"))
     system = (
-        "Ты оцениваешь задачу команды Курьеры (очередь PUTKURERA) по категориям сложности S / M / L. "
-        "Категория определяется по оценке EFFORT (человеко-дни): S ≤ 14, M 15–40, L > 40. "
-        "SLE (ожидаемый срок выполнения, дни): S=55, M=88, L=108.\n"
-        "Дай: категорию, оценку effort в днях (число), короткое обоснование и 1–3 похожих эталона из списка.\n"
-        "Верни СТРОГО валидный JSON без пояснений: "
-        "{\"category\":\"S|M|L\",\"effortDays\":<число>,\"rationale\":\"…\",\"similar\":[\"PUTKURERA-…\"]}"
+        "Ты оцениваешь новую задачу команды Курьеры (очередь PUTKURERA). Делаешь ДВЕ вещи.\n"
+        f"1) КАТЕГОРИЯ сложности по оценке EFFORT (человеко-дни): {thr}. "
+        f"SLE (ожидаемый срок, дни): {sle_txt}. Дай категорию, оценку effort в днях (число), "
+        "короткое обоснование и 1–3 похожих эталона из списка.\n"
+        "2) ПРОВЕРКА MMF (Minimum Marketable Feature) по 5 критериям, по каждому ✅/❌ и 1 фраза:\n"
+        "   1. Одна проблема — фокус на одной проблеме/ценности.\n"
+        "   2. Можно выпустить отдельно — самостоятельный релиз с пользой.\n"
+        "   3. Есть метрика успеха — измеримый результат.\n"
+        "   4. Один ключевой сценарий — основной happy-path понятен.\n"
+        "   5. Проверка за разумное время — результат виден быстро.\n"
+        "Дай по каждому критерию ok (true/false) и краткую заметку, общий счёт и 1–3 рекомендации.\n"
+        "Верни СТРОГО валидный JSON без пояснений: {\"category\":\"S|M|L\",\"effortDays\":<число>,"
+        "\"rationale\":\"…\",\"similar\":[\"PUTKURERA-…\"],"
+        "\"mmf\":{\"criteria\":[{\"name\":\"Одна проблема\",\"ok\":true,\"note\":\"…\"},…5 шт],"
+        "\"score\":<0-5>,\"recommendations\":[\"…\"]}}"
     )
     user = f"Задача:\n{text[:2000]}\n\nЭталоны по категориям:\n{examples}"
-    raw = await ai_cached("featest", system, user, max_tokens=500, temperature=0.2)
-    out = {"category": None, "effortDays": None, "rationale": "", "similar": []}
+    raw = await ai_cached("featest", system, user, max_tokens=900, temperature=0.2)
+    out = {"category": None, "effortDays": None, "rationale": "", "similar": [], "mmf": None}
     try:
         s = raw[raw.index("{"): raw.rindex("}") + 1]
         j = json.loads(s)
@@ -4560,10 +4636,21 @@ async def est_analyze(request: Request):
         out["rationale"] = str(j.get("rationale") or "")
         sim = j.get("similar") or []
         out["similar"] = [str(x) for x in sim][:3] if isinstance(sim, list) else []
+        mmf = j.get("mmf")
+        if isinstance(mmf, dict):
+            crit = mmf.get("criteria") or []
+            crit = [{"name": str(c.get("name") or ""), "ok": bool(c.get("ok")), "note": str(c.get("note") or "")}
+                    for c in crit if isinstance(c, dict)]
+            score = mmf.get("score")
+            if not isinstance(score, (int, float)):
+                score = sum(1 for c in crit if c["ok"])
+            recs = mmf.get("recommendations") or []
+            out["mmf"] = {"criteria": crit, "score": int(score), "total": len(crit) or 5,
+                          "recommendations": [str(x) for x in recs][:3] if isinstance(recs, list) else []}
     except Exception as e:
         print(f"[est analyze parse] {e}")
         out["rationale"] = raw or ""
-    out["sle"] = _EST_SLE.get(out["category"]) if out["category"] else None
+    out["sle"] = sle_map.get(out["category"]) if out["category"] else None
     return JSONResponse({"ok": True, **out})
 
 # ── Static (React build) ──────────────────────────────────────────────────────

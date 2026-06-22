@@ -1,4 +1,4 @@
-import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis } from "./types"
+import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis, FeatureCategory } from "./types"
 
 export async function fetchDashboard(dateFrom?: string, dateTo?: string): Promise<DashboardData> {
   const params = new URLSearchParams()
@@ -80,6 +80,22 @@ export async function analyzeFeature(body: { text?: string; key?: string }): Pro
   const d = await r.json()
   if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`)
   return d
+}
+export async function fetchFeatureSettings(): Promise<FeatureCategory[]> {
+  const r = await fetch("/est/settings")
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return (await r.json()).categories
+}
+export async function saveFeatureSettings(categories: FeatureCategory[]): Promise<void> {
+  const r = await fetch("/est/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ categories }) })
+  const d = await r.json()
+  if (!d.ok) throw new Error(d.error || "Ошибка")
+}
+export async function addFeatureComment(key: string, text: string): Promise<string> {
+  const r = await fetch("/est/comment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, text }) })
+  const d = await r.json()
+  if (!d.ok) throw new Error(d.error || "Ошибка")
+  return d.url
 }
 export const finalizeSprint = (id: number) => jpost(`/sprints/${id}/finalize`)
 export const reopenSprint = (id: number) => jpost(`/sprints/${id}/reopen`)

@@ -123,7 +123,7 @@ const NAV_CARDS = [
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",
     title: "Поток E2E", desc: "Возраст работы в Discovery/Delivery (WIP Age P90), WIP-лимиты и недельный тренд." },
   { section: "feat" as const, icon: Lightbulb, color: "#FBBF24",
-    title: "Оценка возможностей", desc: "AI-категория (S/M/L) и effort для новой задачи + эталонные задачи по командам и категориям." },
+    title: "Оценка НВ", desc: "Новые возможности: AI-категория (S/M/L), effort и MMF-проверка + эталоны по командам и категориям." },
   { section: "osp" as const, icon: Truck, color: "#F59E0B",
     title: "ОСП", desc: "Обзор сервиса поставки: сколько сделали по месяцам (Story, тех. долг, инциденты) по командам курьеров." },
 ]
