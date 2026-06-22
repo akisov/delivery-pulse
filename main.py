@@ -4427,6 +4427,145 @@ async def osp_worklog_set(request: Request):
 async def osp_worklog_status():
     return JSONResponse(_wl_status)
 
+# ── Оценка новых возможностей (PUTKURERA): эталоны + AI-категоризация ────────────
+EST_TEAM_MEMBERS = {"R": ["Светляков", "Иванов"], "X": ["Бескова", "Беляев"], "U": ["Петровская"]}
+EST_TEAM_LABEL = {"R": "Курьеры R", "X": "Курьеры X", "U": "Курьеры U"}
+EST_CATEGORIES = [{"key": "S", "sle": 55}, {"key": "M", "sle": 88}, {"key": "L", "sle": 108}]
+_EST_SLE = {c["key"]: c["sle"] for c in EST_CATEGORIES}
+
+def _eff_category(eff):
+    """Категория по Effort факт (человеко-дни): S ≤ 14, M ≤ 40, L > 40."""
+    try:
+        e = float(eff)
+    except (TypeError, ValueError):
+        return None
+    if e <= 0:
+        return None
+    return "S" if e <= 14 else "M" if e <= 40 else "L"
+
+def _est_team(assignee: str):
+    n = _sprint_norm(assignee)
+    for team, names in EST_TEAM_MEMBERS.items():
+        if any(_sprint_norm(x) in n for x in names):
+            return team
+    return None
+
+async def _est_references():
+    """Эталонные завершённые задачи PUTKURERA (чистые, с янв 2026), команда×категория."""
+    base = {"teams": list(EST_TEAM_LABEL.keys()), "teamLabels": EST_TEAM_LABEL,
+            "categories": EST_CATEGORIES, "items": []}
+    if not TRACKER_TOKEN:
+        return base
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            issues = await tracker_query(client,
+                "Type: newFeature Queue: PUTKURERA Status: zaverseno, analizRezults, closed")
+    except Exception as e:
+        print(f"[est refs] {e}")
+        return base
+    items = []
+    for iss in issues:
+        team = _est_team((iss.get("assignee") or {}).get("display", ""))
+        if not team:
+            continue
+        eff = _field(iss, "--anEffortFact")
+        cat = _eff_category(eff)
+        if not cat:
+            continue
+        start = (iss.get("start") or iss.get("createdAt") or "")[:10]
+        if start and start < "2026-01-01":   # legacy — отбрасываем
+            continue
+        try:
+            dv = float(iss.get("daysInTheWork") or 0)
+        except (TypeError, ValueError):
+            dv = 0
+        if dv <= 0:
+            continue
+        try:
+            if float(eff) and dv / float(eff) > 8:   # аномалия: зависла не по сложности
+                continue
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+        items.append({
+            "key": iss.get("key"), "title": iss.get("summary", "—"),
+            "url": f"https://tracker.yandex.ru/{iss.get('key')}",
+            "team": team, "category": cat,
+            "assignee": (iss.get("assignee") or {}).get("display", "—"),
+            "effort": round(float(eff), 1), "days": round(dv),
+        })
+    items.sort(key=lambda x: (x["team"], x["category"], x["days"]))
+    base["items"] = items
+    return base
+
+@app.get("/est/references")
+async def est_references(refresh: bool = Query(False)):
+    ck = "est-refs-v1"
+    if not refresh:
+        snap = await _osp_snap(ck)
+        if snap:
+            return JSONResponse({"ok": True, **snap})
+    data = await _est_references()
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ck, json.dumps(data, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[est refs save] {e}")
+    return JSONResponse({"ok": True, **data})
+
+@app.post("/est/analyze")
+async def est_analyze(request: Request):
+    b = await request.json()
+    text = (b.get("text") or "").strip()
+    key = (b.get("key") or "").strip().upper()
+    if key and TRACKER_TOKEN:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                iss = await fetch_issue(client, key)
+            if isinstance(iss, dict):
+                t = f"{iss.get('summary', '')}\n{(iss.get('description') or '')[:2000]}".strip()
+                text = t or text
+        except Exception:
+            pass
+    if not text:
+        return JSONResponse({"ok": False, "error": "Введите описание задачи или ключ"})
+    if not AI_ENABLED:
+        return JSONResponse({"ok": False, "error": "AI недоступен (нет ключа в секретах)"})
+    refs = await _est_references()
+    by_cat: dict = {}
+    for it in refs["items"]:
+        by_cat.setdefault(it["category"], [])
+        if len(by_cat[it["category"]]) < 3:
+            by_cat[it["category"]].append(f"{it['key']} «{it['title']}» — effort {it['effort']}, {it['days']}д")
+    examples = "\n".join(f"{c}: " + ("; ".join(by_cat.get(c, [])) or "—") for c in ("S", "M", "L"))
+    system = (
+        "Ты оцениваешь задачу команды Курьеры (очередь PUTKURERA) по категориям сложности S / M / L. "
+        "Категория определяется по оценке EFFORT (человеко-дни): S ≤ 14, M 15–40, L > 40. "
+        "SLE (ожидаемый срок выполнения, дни): S=55, M=88, L=108.\n"
+        "Дай: категорию, оценку effort в днях (число), короткое обоснование и 1–3 похожих эталона из списка.\n"
+        "Верни СТРОГО валидный JSON без пояснений: "
+        "{\"category\":\"S|M|L\",\"effortDays\":<число>,\"rationale\":\"…\",\"similar\":[\"PUTKURERA-…\"]}"
+    )
+    user = f"Задача:\n{text[:2000]}\n\nЭталоны по категориям:\n{examples}"
+    raw = await ai_cached("featest", system, user, max_tokens=500, temperature=0.2)
+    out = {"category": None, "effortDays": None, "rationale": "", "similar": []}
+    try:
+        s = raw[raw.index("{"): raw.rindex("}") + 1]
+        j = json.loads(s)
+        cat = str(j.get("category", "")).strip().upper()
+        if cat in ("S", "M", "L"):
+            out["category"] = cat
+        out["effortDays"] = j.get("effortDays")
+        out["rationale"] = str(j.get("rationale") or "")
+        sim = j.get("similar") or []
+        out["similar"] = [str(x) for x in sim][:3] if isinstance(sim, list) else []
+    except Exception as e:
+        print(f"[est analyze parse] {e}")
+        out["rationale"] = raw or ""
+    out["sle"] = _EST_SLE.get(out["category"]) if out["category"] else None
+    return JSONResponse({"ok": True, **out})
+
 # ── Static (React build) ──────────────────────────────────────────────────────
 
 import os as _os

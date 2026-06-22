@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
-import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Command as CommandIcon } from "lucide-react"
+import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Command as CommandIcon } from "lucide-react"
 import { Toaster, toast } from "sonner"
 import { CommandPalette } from "@/components/CommandPalette"
 import { SimpleTooltip } from "@/components/ui/tooltip"
@@ -14,6 +14,7 @@ const NAV_HINT: Record<string, string> = {
   flow: "WIP Age · WIP-лимиты",
   osp: "Обзор сервиса поставки",
   est: "План-факт спринта · SP",
+  feat: "Оценка возможностей · S/M/L · эталоны",
 }
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
@@ -30,6 +31,7 @@ import { OSPPage } from "@/components/OSPPage"
 import { IncidentsPage } from "@/components/IncidentsPage"
 import { ArchPage } from "@/components/ArchPage"
 import { EstimationPage } from "@/components/EstimationPage"
+import { FeatureEstPage } from "@/components/FeatureEstPage"
 import { PageHeader } from "@/components/PageHeader"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
@@ -70,7 +72,7 @@ export default function App() {
   const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
-  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est">("home")
+  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat">("home")
   const [sleReloadKey, setSleReloadKey] = useState(0)  // пересбор SLE после синка
 
   const [data, setData] = useState<DashboardData | null>(null)
@@ -308,7 +310,7 @@ export default function App() {
             {([
               { items: [["home", Home, "Главная"]] },
               { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["est", Gauge, "Оценка"], ["osp", Truck, "ОСП"]] },
-              { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["sle", Target, "Анализ SLE"]] },
+              { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["sle", Target, "Анализ SLE"], ["feat", Lightbulb, "Оценка возможностей"]] },
             ] as const).map((grp, gi) => (
               <div key={gi} className={gi ? "mt-2" : ""}>
                 {"title" in grp && grp.title && (
@@ -339,6 +341,7 @@ export default function App() {
          section === "incidents" ? <IncidentsPage /> :
          section === "arch" ? <ArchPage /> :
          section === "est" ? <EstimationPage /> :
+         section === "feat" ? <FeatureEstPage /> :
          section === "flow" ? <FlowPage /> :
          section === "sle" ? <SLEPage reloadKey={sleReloadKey} /> : (
         <>

@@ -1,4 +1,4 @@
-import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact } from "./types"
+import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis } from "./types"
 
 export async function fetchDashboard(dateFrom?: string, dateTo?: string): Promise<DashboardData> {
   const params = new URLSearchParams()
@@ -68,6 +68,19 @@ export const setSprintCapacity = (id: number, role: string, capacity: number) =>
   jpost(`/sprints/${id}/capacity`, { role, capacity })
 export const setSprintOrder = (id: number, keys: string[]) =>
   jpost(`/sprints/${id}/order`, { keys })
+
+// ── Оценка новых возможностей ──────────────────────────────────────────────────
+export async function fetchFeatureRefs(refresh = false): Promise<FeatureRefs> {
+  const r = await fetch(`/est/references${refresh ? "?refresh=true" : ""}`)
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.json()
+}
+export async function analyzeFeature(body: { text?: string; key?: string }): Promise<FeatureAnalysis> {
+  const r = await fetch("/est/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  const d = await r.json()
+  if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`)
+  return d
+}
 export const finalizeSprint = (id: number) => jpost(`/sprints/${id}/finalize`)
 export const reopenSprint = (id: number) => jpost(`/sprints/${id}/reopen`)
 export async function fetchPlanFact(id: number): Promise<SprintPlanFact> {

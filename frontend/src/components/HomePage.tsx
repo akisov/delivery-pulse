@@ -1,11 +1,20 @@
-import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Props {
-  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est") => void
+  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat") => void
 }
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  {
+    date: "Июнь 2026",
+    title: "Раздел «Оценка новых возможностей» (E2E)",
+    items: [
+      "AI по описанию задачи или её ключу предлагает категорию (S / M / L) и оценку effort, опираясь на SLE и похожие эталоны.",
+      "Эталонные задачи — реальные завершённые задачи PUTKURERA с разбивкой по командам (R / X / U) и категориям, чтобы откалибровать effort-план.",
+      "Категория — по Effort факт (S ≤ 14, M ≤ 40, L > 40 дней); SLE: S=55, M=88, L=108.",
+    ],
+  },
   {
     date: "Июнь 2026",
     title: "Раздел «Оценка» — план-факт спринта (Курьеры U)",
@@ -113,6 +122,8 @@ const NAV_CARDS = [
     title: "Анализ SLE", desc: "Кластеризация причин нарушения SLE по PUTKURERA, скрытые блокировки." },
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",
     title: "Поток E2E", desc: "Возраст работы в Discovery/Delivery (WIP Age P90), WIP-лимиты и недельный тренд." },
+  { section: "feat" as const, icon: Lightbulb, color: "#FBBF24",
+    title: "Оценка возможностей", desc: "AI-категория (S/M/L) и effort для новой задачи + эталонные задачи по командам и категориям." },
   { section: "osp" as const, icon: Truck, color: "#F59E0B",
     title: "ОСП", desc: "Обзор сервиса поставки: сколько сделали по месяцам (Story, тех. долг, инциденты) по командам курьеров." },
 ]

@@ -93,6 +93,29 @@ export interface SprintPlanFact {
   totals: { tasks: number; plan: number; fact: number; pct: number; delta: number }
 }
 
+// ── Оценка новых возможностей ──────────────────────────────────────────────────
+export interface FeatureRef {
+  key: string; title: string; url: string
+  team: string; category: string; assignee: string
+  effort: number; days: number
+}
+export interface FeatureRefs {
+  ok: boolean
+  teams: string[]
+  teamLabels: Record<string, string>
+  categories: { key: string; sle: number }[]
+  items: FeatureRef[]
+}
+export interface FeatureAnalysis {
+  ok: boolean
+  error?: string
+  category: string | null
+  effortDays: number | null
+  rationale: string
+  similar: string[]
+  sle: number | null
+}
+
 // Задача, которая сейчас находится в одном из статусов Арх. комитета
 export interface ArchTask {
   key: string
