@@ -45,6 +45,29 @@ function isoToday() {
   return `${d.getFullYear()}-${m}-${day}`
 }
 function dmLabel(iso: string) { const p = iso.split("-"); return p.length === 3 ? `${+p[2]}.${p[1]}` : "" }
+const r1 = (n: number) => Math.round(n * 10) / 10
+const numSp = (v: string) => parseFloat(String(v).replace(",", ".")) || 0  // запятая тоже ок
+
+// Клиентский пересчёт план-зависимых полей (мгновенно, без ожидания сервера). Факт не трогаем.
+function recalc(d: SprintPlanFact): SprintPlanFact {
+  const roles = d.roles
+  const byRole: Record<string, { plan: number; fact: number; capacity: number; remaining: number; load: number }> = {}
+  roles.forEach(r => { byRole[r] = { ...d.byRole[r], plan: 0 } })
+  const tasks = d.tasks.map(t => {
+    let pt = 0
+    roles.forEach(r => { const p = t.plan[r] || 0; pt += p; byRole[r].plan += p })
+    pt = r1(pt)
+    return { ...t, planTotal: pt, pct: pt ? Math.round(t.factTotal / pt * 100) : 0 }
+  })
+  roles.forEach(r => {
+    const b = byRole[r]; b.plan = r1(b.plan)
+    b.remaining = r1(b.capacity - b.plan)
+    b.load = b.capacity ? Math.round(b.plan / b.capacity * 100) : 0
+  })
+  const plan = r1(tasks.reduce((s, t) => s + t.planTotal, 0))
+  const fact = d.totals.fact
+  return { ...d, tasks, byRole, totals: { ...d.totals, plan, pct: plan ? Math.round(fact / plan * 100) : 0, delta: r1(fact - plan) } }
+}
 
 export function EstimationPage() {
   const [team] = useState("U")
@@ -133,26 +156,36 @@ export function EstimationPage() {
     } catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
   }
   const onAddTask = async () => {
-    if (!sel || !newKey.trim()) return
+    if (!sel || !newKey.trim() || !data) return
+    const key = newKey.trim().toUpperCase()
+    if (data.tasks.some(t => t.key === key)) { toast("Такая задача уже есть"); setNewKey(""); return }
+    setPlanMode(true)
+    // оптимистично добавляем строку сразу
+    const blank = { key, title: key, plan: Object.fromEntries(roles.map(r => [r, 0])),
+                    fact: Object.fromEntries(roles.map(r => [r, 0])), planTotal: 0, factTotal: 0, pct: 0 }
+    setData(recalc({ ...data, tasks: [...data.tasks, blank] }))
+    setNewKey("")
     setBusy(true)
     try {
-      const r = await addSprintTask(sel, newKey.trim())
-      setNewKey("")
+      const r = await addSprintTask(sel, key)
+      setData(d => d ? { ...d, tasks: d.tasks.map(t => t.key === key ? { ...t, title: r.title || key } : t) } : d)
       toast.success(`Добавлена ${r.key}`, { description: r.title })
-      setPlanMode(true)            // остаёмся в режиме плана — можно добавлять ещё
-      await loadPF(sel, true)      // тихо, без скачка в итоги
-    } catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
+      loadPF(sel, true)   // тихо подтянуть факт из worklog
+    } catch (e: any) {
+      toast.error(e.message)
+      setData(d => d ? recalc({ ...d, tasks: d.tasks.filter(t => t.key !== key) }) : d)  // откат
+    } finally { setBusy(false) }
   }
-  const onRemoveTask = async (key: string) => {
-    if (!sel) return
+  const onRemoveTask = (key: string) => {
+    if (!sel || !data) return
     setPlanMode(true)
-    await removeSprintTask(sel, key)
-    await loadPF(sel, true)
+    setData(recalc({ ...data, tasks: data.tasks.filter(t => t.key !== key) }))   // сразу убираем
+    removeSprintTask(sel, key).catch(() => {})
   }
-  const onCapacity = async (role: string, cap: number) => {
-    if (!sel) return
-    await setSprintCapacity(sel, role, cap).catch(() => {})
-    loadPF(sel, true)
+  const onCapacity = (role: string, cap: number) => {
+    if (!sel || !data) return
+    setData(recalc({ ...data, byRole: { ...data.byRole, [role]: { ...data.byRole[role], capacity: cap } } }))
+    setSprintCapacity(sel, role, cap).catch(() => {})
   }
   // drag-and-drop порядка задач
   const dragKey = useRef<string | null>(null)
@@ -164,12 +197,12 @@ export function EstimationPage() {
     if (fi < 0 || ti < 0) return
     const [m] = arr.splice(fi, 1); arr.splice(ti, 0, m)
     setData({ ...data, tasks: arr })                       // оптимистично
-    setSprintOrder(sel, arr.map(x => x.key)).then(() => loadPF(sel, true)).catch(() => {})
+    setSprintOrder(sel, arr.map(x => x.key)).catch(() => {})
   }
-  const onPlan = async (key: string, role: string, sp: number) => {
-    if (!sel) return
-    await setSprintPlan(sel, key, role, sp).catch(() => {})
-    loadPF(sel, true)
+  const onPlan = (key: string, role: string, sp: number) => {
+    if (!sel || !data) return
+    setData(recalc({ ...data, tasks: data.tasks.map(t => t.key === key ? { ...t, plan: { ...t.plan, [role]: sp } } : t) }))
+    setSprintPlan(sel, key, role, sp).catch(() => {})
   }
   const onFinalize = async () => {
     if (!sel) return
@@ -285,7 +318,7 @@ export function EstimationPage() {
               <input value={newKey} onChange={e => setNewKey(e.target.value)} onKeyDown={e => e.key === "Enter" && onAddTask()}
                 placeholder="Ключ задачи, напр. UDOSTAVKA-1460"
                 className="flex-1 min-w-[220px] bg-secondary/60 border border-border rounded-lg px-3 h-9 text-sm text-foreground outline-none focus:border-primary/50" />
-              <button onClick={onAddTask} disabled={busy || !newKey.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 h-9 text-sm font-semibold disabled:opacity-40 transition-all"><Plus className="w-4 h-4" /> Добавить</button>
+              <button onClick={onAddTask} disabled={busy || !newKey.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 h-9 text-sm font-semibold disabled:opacity-40 transition-all">{busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Добавить</button>
             </div>
             {tasks.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-6">Пока нет задач — добавьте первую по ключу</p>
@@ -317,7 +350,7 @@ export function EstimationPage() {
                         {roles.map(r => (
                           <td key={r} className="px-1 py-1.5 text-center">
                             <input type="number" min="0" step="0.5" defaultValue={t.plan[r] || 0}
-                              onBlur={e => onPlan(t.key, r, parseFloat(e.target.value) || 0)}
+                              onBlur={e => onPlan(t.key, r, numSp(e.target.value))}
                               className="w-14 bg-secondary/60 border border-border rounded-md px-1.5 py-1 text-center text-sm outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
                           </td>
                         ))}
@@ -351,7 +384,7 @@ export function EstimationPage() {
                       <span className="w-12 shrink-0 text-xs text-right tabular-nums font-semibold" style={{ color: over ? OVER_C : undefined }}>{br.plan}</span>
                       <span className="text-[11px] text-muted-foreground shrink-0">из</span>
                       <input type="number" min="0" step="0.5" defaultValue={br.capacity || 0}
-                        onBlur={e => onCapacity(r, parseFloat(e.target.value) || 0)}
+                        onBlur={e => onCapacity(r, numSp(e.target.value))}
                         className="w-14 bg-secondary/60 border border-border rounded-md px-1.5 py-1 text-center text-sm outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
                       <span className="text-[11px] text-muted-foreground shrink-0">SP</span>
                       <span className="w-12 shrink-0 text-xs text-right tabular-nums font-bold" style={{ color: over ? OVER_C : "hsl(var(--muted-foreground))" }}>
