@@ -4575,6 +4575,68 @@ async def est_comment(request: Request):
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
+@app.get("/est/worklog-stacks")
+async def est_worklog_stacks(refresh: bool = Query(False)):
+    """Логи времени по эталонным задачам (worklog их подзадач) → разбивка по стекам.
+    Стек определяется по автору записи (маппинг dev→стек). Неопознанные — в список unknown."""
+    ck = "est-wl-stacks-v1"
+    if not refresh:
+        snap = await _osp_snap(ck)
+        if snap:
+            return JSONResponse({"ok": True, **snap})
+    refs = await _est_references()
+    keys = [it["key"] for it in refs["items"]]
+    people: dict = {}
+    if TRACKER_TOKEN and keys:
+        async with httpx.AsyncClient(timeout=90) as client:
+            # 1) родитель → подзадачи (subtask, outward)
+            link_pairs = []
+            for i in range(0, len(keys), 5):
+                chunk = keys[i:i + 5]
+                lls = await asyncio.gather(*[fetch_issue_links(client, k) for k in chunk], return_exceptions=True)
+                link_pairs.extend(zip(chunk, lls))
+                await asyncio.sleep(0.3)
+            targets = []
+            for pk, links in link_pairs:
+                if isinstance(links, Exception) or not isinstance(links, list):
+                    targets.append(pk)
+                    continue
+                subs = [l.get("object", {}).get("key") for l in links
+                        if (l.get("type", {}) or {}).get("id") == "subtask" and l.get("direction") == "outward"]
+                subs = [s for s in subs if s]
+                targets.extend(subs if subs else [pk])
+            # 2) worklog по каждой подзадаче → часы по автору
+            for i in range(0, len(targets), 5):
+                chunk = targets[i:i + 5]
+                wls = await asyncio.gather(*[_wl_fetch(client, k) for k in chunk], return_exceptions=True)
+                for wl in wls:
+                    if not isinstance(wl, list):
+                        continue
+                    for e in wl:
+                        h = _iso_dur_hours(e.get("duration"))
+                        if h <= 0:
+                            continue
+                        who = (e.get("createdBy") or {}).get("display") or "—"
+                        people[who] = people.get(who, 0) + h
+                await asyncio.sleep(0.4)
+    by_stack: dict = {}
+    out_people = []
+    for name, h in sorted(people.items(), key=lambda x: -x[1]):
+        role = _person_role(name)              # SA/GO/Front/QA/1С/AQA или None
+        bucket = role or "не определён"
+        by_stack[bucket] = round(by_stack.get(bucket, 0) + h / SP_HOURS, 1)
+        out_people.append({"name": name, "hours": round(h, 1), "sp": round(h / SP_HOURS, 1), "stack": role})
+    data = {"byStack": by_stack, "people": out_people,
+            "unknown": [p["name"] for p in out_people if not p["stack"]], "tasks": len(keys)}
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ck, json.dumps(data, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[est wl-stacks save] {e}")
+    return JSONResponse({"ok": True, **data})
+
 @app.post("/est/analyze")
 async def est_analyze(request: Request):
     b = await request.json()
