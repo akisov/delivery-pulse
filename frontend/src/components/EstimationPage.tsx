@@ -351,10 +351,11 @@ export function EstimationPage() {
                           <td key={r} className="px-1 py-1.5 text-center">
                             <input type="number" min="0" step="0.5" defaultValue={t.plan[r] || 0}
                               onBlur={e => onPlan(t.key, r, numSp(e.target.value))}
-                              className="w-14 bg-secondary/60 border border-border rounded-md px-1.5 py-1 text-center text-sm outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                              className={cn("w-14 bg-secondary/60 border border-border rounded-md px-1.5 py-1 text-center text-sm outline-none focus:border-primary/50 focus:text-foreground [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none",
+                                t.plan[r] ? "text-foreground font-semibold" : "text-muted-foreground/40")} />
                           </td>
                         ))}
-                        <td className="px-2 py-1.5 text-center font-black tabular-nums">{t.planTotal}</td>
+                        <td className={cn("px-2 py-1.5 text-center font-black tabular-nums", t.planTotal ? "text-foreground" : "text-muted-foreground/40")}>{t.planTotal}</td>
                         <td className="px-1 py-1.5 text-center">
                           <button onClick={() => onRemoveTask(t.key)} className="text-muted-foreground/50 hover:text-destructive transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                         </td>
@@ -381,11 +382,12 @@ export function EstimationPage() {
                       <div className="flex-1 h-2.5 rounded-full bg-secondary overflow-hidden min-w-[80px]">
                         <div className="h-full rounded-full transition-all duration-300" style={{ width: `${w}%`, background: c }} />
                       </div>
-                      <span className="w-12 shrink-0 text-xs text-right tabular-nums font-semibold" style={{ color: over ? OVER_C : undefined }}>{br.plan}</span>
+                      <span className="w-12 shrink-0 text-xs text-right tabular-nums font-semibold" style={{ color: over ? OVER_C : (br.plan ? undefined : "hsl(var(--muted-foreground) / 0.4)") }}>{br.plan}</span>
                       <span className="text-[11px] text-muted-foreground shrink-0">из</span>
                       <input type="number" min="0" step="0.5" defaultValue={br.capacity || 0}
                         onBlur={e => onCapacity(r, numSp(e.target.value))}
-                        className="w-14 bg-secondary/60 border border-border rounded-md px-1.5 py-1 text-center text-sm outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                        className={cn("w-14 bg-secondary/60 border border-border rounded-md px-1.5 py-1 text-center text-sm outline-none focus:border-primary/50 focus:text-foreground [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none",
+                          br.capacity ? "text-foreground font-semibold" : "text-muted-foreground/40")} />
                       <span className="text-[11px] text-muted-foreground shrink-0">SP</span>
                       <span className="w-12 shrink-0 text-xs text-right tabular-nums font-bold" style={{ color: over ? OVER_C : "hsl(var(--muted-foreground))" }}>
                         {br.capacity > 0 ? `${br.load}%` : "—"}
@@ -510,11 +512,11 @@ function PFChart({ title, data, linkBy }: { title: string; data: { label: string
               contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
             <Legend wrapperStyle={{ display: "none" }} />
             <Bar dataKey="plan" name="План" fill={PLAN_C} radius={[3, 3, 0, 0]}>
-              <LabelList dataKey="plan" position="top" style={{ fontSize: 9, fontWeight: 700, fill: PLAN_C }} />
+              <LabelList dataKey="plan" position="top" formatter={(v: any) => v ? v : ""} style={{ fontSize: 9, fontWeight: 700, fill: PLAN_C }} />
             </Bar>
             <Bar dataKey="fact" name="Факт" radius={[3, 3, 0, 0]}>
               {data.map((d, i) => <Cell key={i} fill={factColor(d.plan, d.fact)} />)}
-              <LabelList dataKey="fact" position="top" style={{ fontSize: 9, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
+              <LabelList dataKey="fact" position="top" formatter={(v: any) => v ? v : ""} style={{ fontSize: 9, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
