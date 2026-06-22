@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Cell, Legend,
 } from "recharts"
-import { Gauge, Plus, Trash2, Lock, Unlock, RefreshCw, Pencil, Check, ChevronDown, ExternalLink } from "lucide-react"
+import { Gauge, Plus, Trash2, Lock, Unlock, RefreshCw, Pencil, Check, ChevronDown, ExternalLink, GripVertical } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
@@ -11,7 +11,7 @@ import { ArchStatCard } from "@/components/ArchStatCard"
 import { SimpleTooltip } from "@/components/ui/tooltip"
 import {
   fetchSprints, createSprint, deleteSprint, addSprintTask, removeSprintTask,
-  setSprintPlan, setSprintCapacity, finalizeSprint, reopenSprint, fetchPlanFact,
+  setSprintPlan, setSprintCapacity, setSprintOrder, finalizeSprint, reopenSprint, fetchPlanFact,
 } from "@/lib/api"
 import type { Sprint, SprintPlanFact } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -154,6 +154,18 @@ export function EstimationPage() {
     await setSprintCapacity(sel, role, cap).catch(() => {})
     loadPF(sel, true)
   }
+  // drag-and-drop порядка задач
+  const dragKey = useRef<string | null>(null)
+  const reorder = (to: string) => {
+    const from = dragKey.current
+    if (!from || from === to || !sel || !data) return
+    const arr = [...data.tasks]
+    const fi = arr.findIndex(x => x.key === from), ti = arr.findIndex(x => x.key === to)
+    if (fi < 0 || ti < 0) return
+    const [m] = arr.splice(fi, 1); arr.splice(ti, 0, m)
+    setData({ ...data, tasks: arr })                       // оптимистично
+    setSprintOrder(sel, arr.map(x => x.key)).then(() => loadPF(sel, true)).catch(() => {})
+  }
   const onPlan = async (key: string, role: string, sp: number) => {
     if (!sel) return
     await setSprintPlan(sel, key, role, sp).catch(() => {})
@@ -282,7 +294,8 @@ export function EstimationPage() {
                 <table className="w-full text-sm border-separate border-spacing-0">
                   <thead>
                     <tr className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-                      <th className="text-left px-2 py-2 sticky left-0 bg-card min-w-[200px]">Задача</th>
+                      <th className="w-6"></th>
+                      <th className="text-left px-2 py-2 min-w-[200px]">Задача</th>
                       {roles.map(r => <th key={r} className="px-2 py-2 text-center w-16">{roleLabels[r] || r}</th>)}
                       <th className="px-2 py-2 text-center w-16">Σ план</th>
                       <th className="w-8"></th>
@@ -290,8 +303,14 @@ export function EstimationPage() {
                   </thead>
                   <tbody>
                     {tasks.map(t => (
-                      <tr key={t.key} className="border-t border-border">
-                        <td className="px-2 py-1.5 sticky left-0 bg-card">
+                      <tr key={t.key} className="border-t border-border"
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={e => { e.preventDefault(); reorder(t.key) }}>
+                        <td draggable onDragStart={() => { dragKey.current = t.key }} onDragEnd={() => { dragKey.current = null }}
+                          className="px-1 text-center text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing" title="Перетащить">
+                          <GripVertical className="w-3.5 h-3.5 mx-auto" />
+                        </td>
+                        <td className="px-2 py-1.5">
                           <div className="font-mono text-xs font-bold text-primary">{t.key}</div>
                           <div className="text-xs text-muted-foreground truncate max-w-[220px]">{t.title}</div>
                         </td>

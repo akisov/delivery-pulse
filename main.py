@@ -311,6 +311,7 @@ async def init_db():
     for col_sql in [
         "ALTER TABLE parent_tasks ADD COLUMN issue_type TEXT",
         "ALTER TABLE parent_tasks ADD COLUMN issue_type_display TEXT",
+        "ALTER TABLE sprint_plan ADD COLUMN position INTEGER DEFAULT 0",
     ]:
         try:
             await turso_execute([stmt(col_sql)])
@@ -921,7 +922,8 @@ async def query_arch_current(queues: list[str]):
 
 async def _sprint_plan_rows(sprint_id: int):
     res = await turso_execute([stmt(
-        "SELECT task_key, title, role, planned_sp FROM sprint_plan WHERE sprint_id=?", [sprint_id])])
+        "SELECT task_key, title, role, planned_sp, position FROM sprint_plan WHERE sprint_id=? "
+        "ORDER BY position ASC, task_key ASC", [sprint_id])])
     return rows_to_dicts(res[0]) if res else []
 
 async def _sprint_fact(sprint: dict):
@@ -1371,11 +1373,15 @@ async def sprints_add_task(sprint_id: int, request: Request):
                 title = iss["summary"]
         except Exception:
             pass
+    # позиция новой задачи — в конец списка
+    pres = await turso_execute([stmt(
+        "SELECT COALESCE(MAX(position),-1)+1 AS p FROM sprint_plan WHERE sprint_id=?", [sprint_id])])
+    pos = int(rows_to_dicts(pres[0])[0]["p"]) if pres else 0
     # строки плана по всем ролям с 0 (если задачи ещё нет)
     await turso_execute([stmt(
-        "INSERT INTO sprint_plan(sprint_id,task_key,title,role,planned_sp) VALUES(?,?,?,?,0) "
+        "INSERT INTO sprint_plan(sprint_id,task_key,title,role,planned_sp,position) VALUES(?,?,?,?,0,?) "
         "ON CONFLICT(sprint_id,task_key,role) DO UPDATE SET title=excluded.title",
-        [sprint_id, key, title, role]) for role in SPRINT_ROLES])
+        [sprint_id, key, title, role, pos]) for role in SPRINT_ROLES])
     return JSONResponse({"ok": True, "key": key, "title": title})
 
 @app.delete("/sprints/{sprint_id}/task/{task_key}")
@@ -1415,6 +1421,18 @@ async def sprints_set_capacity(sprint_id: int, request: Request):
         "INSERT INTO sprint_capacity(sprint_id,role,capacity_sp) VALUES(?,?,?) "
         "ON CONFLICT(sprint_id,role) DO UPDATE SET capacity_sp=excluded.capacity_sp",
         [sprint_id, role, cap])])
+    return JSONResponse({"ok": True})
+
+@app.post("/sprints/{sprint_id}/order")
+async def sprints_set_order(sprint_id: int, request: Request):
+    """Порядок задач: keys в нужной последовательности → проставляем position."""
+    b = await request.json()
+    keys = b.get("keys") or []
+    if not isinstance(keys, list) or not keys:
+        return JSONResponse({"ok": False, "error": "Нужен список ключей"})
+    await turso_execute([stmt(
+        "UPDATE sprint_plan SET position=? WHERE sprint_id=? AND task_key=?",
+        [i, sprint_id, str(k).upper()]) for i, k in enumerate(keys)])
     return JSONResponse({"ok": True})
 
 @app.get("/sprints/{sprint_id}/plan-fact")

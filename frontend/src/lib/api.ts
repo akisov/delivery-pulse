@@ -66,6 +66,8 @@ export const setSprintPlan = (id: number, task_key: string, role: string, sp: nu
   jpost(`/sprints/${id}/plan`, { task_key, role, sp })
 export const setSprintCapacity = (id: number, role: string, capacity: number) =>
   jpost(`/sprints/${id}/capacity`, { role, capacity })
+export const setSprintOrder = (id: number, keys: string[]) =>
+  jpost(`/sprints/${id}/order`, { keys })
 export const finalizeSprint = (id: number) => jpost(`/sprints/${id}/finalize`)
 export const reopenSprint = (id: number) => jpost(`/sprints/${id}/reopen`)
 export async function fetchPlanFact(id: number): Promise<SprintPlanFact> {
