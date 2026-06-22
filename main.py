@@ -4432,12 +4432,13 @@ EST_TEAM_MEMBERS = {"R": ["Светляков", "Иванов"], "X": ["Беск
 EST_TEAM_LABEL = {"R": "Курьеры R", "X": "Курьеры X", "U": "Курьеры U"}
 # Разработчик → стек (для разбивки worklog эталонов; по фамилиям, токен-матч).
 EST_STACK_MEMBERS = {
-    "SA":    ["Резенова", "Махмутова", "Борискин", "Разумова", "Егоров"],
-    "GO":    ["Ким", "Источников", "Подлинов", "Доронин", "Мартынов", "Киреев"],
-    "Front": ["Копосов", "Асотикова", "Шестопалов", "Памшев"],
-    "QA":    ["Мартова", "Рогова", "Ву", "Степин", "Корякин", "Туралиева"],
-    "1С":    ["Яцушко", "Гусев"],
-    "AQA":   ["Исабаев", "Драгун"],
+    "SA":     ["Резенова", "Махмутова", "Борискин", "Разумова", "Егоров", "Перевезенцева"],
+    "GO":     ["Ким", "Источников", "Подлинов", "Доронин", "Мартынов", "Киреев"],
+    "Front":  ["Копосов", "Асотикова", "Шестопалов", "Памшев"],
+    "QA":     ["Мартова", "Рогова", "Ву", "Степин", "Корякин", "Туралиева"],
+    "1С":     ["Яцушко", "Гусев"],
+    "AQA":    ["Исабаев", "Драгун"],
+    "АрхКом": ["Спиридонов", "Селезнев"],   # архитекторы/техлиды (ё→е норм.)
 }
 EST_QUEUE_PREFIXES = ("POOLING", "UDOSTAVKA", "DOSTAVKAPIKO")  # очереди курьеров (X/U/R)
 def _est_stack(display: str):
@@ -4640,19 +4641,18 @@ async def est_worklog_stacks(refresh: bool = Query(False)):
                             continue
                         who = (e.get("createdBy") or {}).get("display") or "—"
                         people[who] = people.get(who, 0) + h
-                        stack = _est_stack(who)
-                        if stack and pk in per_task:       # только нужные люди
-                            per_task[pk][stack] = per_task[pk].get(stack, 0) + h
+                        bucket = _est_stack(who) or "Другие"
+                        if pk in per_task:
+                            per_task[pk][bucket] = per_task[pk].get(bucket, 0) + h
                 await asyncio.sleep(0.4)
     by_stack: dict = {}
-    out_people, unknown = [], []
+    out_people, other = [], []
     for name, h in sorted(people.items(), key=lambda x: -x[1]):
-        stack = _est_stack(name)
+        stack = _est_stack(name) or "Другие"
         out_people.append({"name": name, "hours": round(h, 1), "sp": round(h / SP_HOURS, 1), "stack": stack})
-        if stack:
-            by_stack[stack] = round(by_stack.get(stack, 0) + h / SP_HOURS, 1)
-        else:
-            unknown.append({"name": name, "hours": round(h, 1)})
+        by_stack[stack] = round(by_stack.get(stack, 0) + h / SP_HOURS, 1)
+        if stack == "Другие":
+            other.append({"name": name, "hours": round(h, 1)})
     tasks_out = []
     for k in keys:
         bs = {s: round(v / SP_HOURS, 1) for s, v in per_task[k].items() if v}
@@ -4660,7 +4660,7 @@ async def est_worklog_stacks(refresh: bool = Query(False)):
             tasks_out.append({"key": k, "title": title_by_key.get(k, k),
                               "url": f"https://tracker.yandex.ru/{k}", "byStack": bs,
                               "total": round(sum(bs.values()), 1)})
-    data = {"byStack": by_stack, "people": out_people, "unknown": unknown,
+    data = {"byStack": by_stack, "people": out_people, "other": other,
             "perTask": tasks_out, "tasks": len(keys)}
     try:
         await turso_execute([stmt(
