@@ -122,11 +122,17 @@ export interface FeatureIssue {
   key: string; url: string; summary: string; status: string | null
   effort: number | null; effortFact: number | null; jobCategory: string | null
 }
+export interface EffortBasis {
+  source: "similar" | "category"
+  n: number; median: number; min: number; max: number; values: number[]
+}
 export interface FeatureAnalysis {
   ok: boolean
   error?: string
   category: string | null
-  effortDays: number | null
+  effortDays: number | null       // оценка = медиана эталонов (effortBasis)
+  aiEffortDays?: number | null     // свободная прикидка ИИ по сложности (справочно)
+  effortBasis?: EffortBasis | null
   rationale: string
   similar: string[]
   sle: number | null

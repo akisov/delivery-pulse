@@ -121,6 +121,7 @@ export function FeatureEstPage() {
   // Собираем стартовый markdown-текст комментария из анализа (его можно дописать/править)
   const buildComment = (r: FeatureAnalysis) => {
     const lines = [`**Оценка НВ (AI):** категория **${r.category}**` + (r.sle ? ` · SLE ${r.sle}д` : "") + (r.effortDays != null ? ` · ~${r.effortDays} дн effort` : "")]
+    if (r.effortBasis) lines.push(`_Оценка — медиана ${r.effortBasis.median} по ${r.effortBasis.n} ${r.effortBasis.source === "similar" ? "похожим эталонам" : "эталонам категории"}: ${r.effortBasis.values.join(", ")} дн._`)
     if (r.rationale) lines.push("", r.rationale)
     if (r.mmf) {
       lines.push("", `**Проверка MMF: ${r.mmf.score}/${r.mmf.total}**`)
@@ -210,6 +211,17 @@ export function FeatureEstPage() {
               )}
               <span className="text-[11px] text-muted-foreground">{CAT_DESC[result.category]}</span>
             </div>
+            {/* откуда оценка: медиана реальных эталонов, а не выдуманное число */}
+            {result.effortBasis && (
+              <p className="text-[11px] text-muted-foreground/80 mt-1.5">
+                Оценка — <b className="text-foreground/80">медиана {result.effortBasis.median}</b> по {result.effortBasis.n}{" "}
+                {result.effortBasis.source === "similar" ? "похожим эталонам" : `эталонам категории ${result.category}`}
+                {" "}(<span className="tabular-nums">{result.effortBasis.values.join(" · ")}</span>; от {result.effortBasis.min} до {result.effortBasis.max} дн effort факт)
+                {result.aiEffortDays != null && Math.abs(result.aiEffortDays - (result.effortDays ?? 0)) >= 3 && (
+                  <span className="text-muted-foreground/50"> · AI по сложности прикидывал ~{result.aiEffortDays}</span>
+                )}
+              </p>
+            )}
             {result.rationale && <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{result.rationale}</p>}
             {result.similar?.length > 0 && (
               <div className="mt-3">

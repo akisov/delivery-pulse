@@ -4472,6 +4472,15 @@ async def _est_settings():
         return snap["categories"]
     return [dict(c) for c in EST_CATEGORIES_DEFAULT]
 
+def _median(xs):
+    """Медиана числового списка (None если пусто)."""
+    ys = sorted(x for x in xs if isinstance(x, (int, float)))
+    n = len(ys)
+    if not n:
+        return None
+    m = n // 2
+    return ys[m] if n % 2 else (ys[m - 1] + ys[m]) / 2
+
 def _eff_cat(eff, cats):
     """Категория по Effort факт и текущим порогам (cats отсортированы S→M→L)."""
     try:
@@ -4726,17 +4735,22 @@ async def est_analyze(request: Request):
         for c in cats)
     sle_txt = ", ".join(f"{c['key']}={c.get('sle')}" for c in cats)
     refs = await _est_references()
+    eff_by = {it["key"]: it["effort"] for it in refs["items"]}      # key → effort факт эталона
+    cat_efforts: dict = {}                                          # категория → [effort факт]
     by_cat: dict = {}
     for it in refs["items"]:
+        cat_efforts.setdefault(it["category"], []).append(it["effort"])
         by_cat.setdefault(it["category"], [])
-        if len(by_cat[it["category"]]) < 3:
-            by_cat[it["category"]].append(f"{it['key']} «{it['title']}» — effort {it['effort']}, {it['days']}д")
+        if len(by_cat[it["category"]]) < 6:
+            by_cat[it["category"]].append(f"{it['key']} «{it['title']}» — effort {it['effort']}")
     examples = "\n".join(f"{c}: " + ("; ".join(by_cat.get(c, [])) or "—") for c in ("S", "M", "L"))
     system = (
         "Ты оцениваешь новую задачу команды Курьеры (очередь PUTKURERA). Делаешь ДВЕ вещи.\n"
         f"1) КАТЕГОРИЯ сложности по оценке EFFORT (человеко-дни): {thr}. "
-        f"SLE (ожидаемый срок, дни): {sle_txt}. Дай категорию, оценку effort в днях (число), "
-        "короткое обоснование и 1–3 похожих эталона из списка.\n"
+        f"SLE (ожидаемый срок, дни): {sle_txt}. Дай категорию, выбери 2–3 НАИБОЛЕЕ похожих эталона "
+        "из списка и дай оценку effort в днях. ВАЖНО: оценку effort бери из диапазона EFFORT ФАКТ "
+        "выбранных похожих эталонов (ориентир — их реальные числа), НЕ из середины категории и НЕ завышай. "
+        "Если задача похожа на эталоны с effort 15–19 — твоя оценка тоже ~15–19, а не 30+. Плюс короткое обоснование.\n"
         "2) ПРОВЕРКА MMF (Minimum Marketable Feature) — ОБЯЗАТЕЛЬНА, заполни всегда. По 5 критериям, "
         "по каждому ok (true/false) и заметка 1–2 предложения:\n"
         "   1. Одна проблема — фокус на одной проблеме/ценности.\n"
@@ -4755,8 +4769,8 @@ async def est_analyze(request: Request):
         "{\"name\":\"Проверка за разумное время\",\"ok\":true,\"note\":\"…\"}],"
         "\"score\":<0-5>,\"recommendations\":[\"…\"]}}"
     )
-    user = f"Задача:\n{text[:2000]}\n\nЭталоны по категориям:\n{examples}"
-    raw = await ai_cached("featest2", system, user, max_tokens=1600, temperature=0.2)
+    user = f"Задача:\n{text[:2000]}\n\nЭталоны по категориям (с их Effort факт):\n{examples}"
+    raw = await ai_cached("featest3", system, user, max_tokens=1600, temperature=0.2)
     out = {"category": None, "effortDays": None, "rationale": "", "similar": [], "mmf": None}
     try:
         s = raw[raw.index("{"): raw.rindex("}") + 1]
@@ -4782,6 +4796,26 @@ async def est_analyze(request: Request):
     except Exception as e:
         print(f"[est analyze parse] {e}")
         out["rationale"] = raw or ""
+    # Оценка effort — НЕ свободное число ИИ, а медиана реальных эталонов:
+    # приоритет — названные похожие (если ≥2 есть в наборе), иначе вся категория.
+    out["aiEffortDays"] = out.get("effortDays")
+    sim_eff = [eff_by[k] for k in out["similar"] if k in eff_by]
+    if len(sim_eff) >= 2:
+        basis_vals, basis_src = sim_eff, "similar"
+    elif out["category"] and cat_efforts.get(out["category"]):
+        basis_vals, basis_src = cat_efforts[out["category"]], "category"
+    else:
+        basis_vals, basis_src = [], None
+    med = _median(basis_vals)
+    if med is not None:
+        out["effortDays"] = int(round(med))
+        out["effortBasis"] = {
+            "source": basis_src, "n": len(basis_vals), "median": round(med, 1),
+            "min": round(min(basis_vals), 1), "max": round(max(basis_vals), 1),
+            "values": sorted(round(v, 1) for v in basis_vals),
+        }
+    else:
+        out["effortBasis"] = None
     out["sle"] = sle_map.get(out["category"]) if out["category"] else None
     out["issue"] = issue_info
     return JSONResponse({"ok": True, **out})
