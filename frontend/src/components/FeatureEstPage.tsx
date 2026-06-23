@@ -348,7 +348,6 @@ export function FeatureEstPage() {
                       className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 text-primary px-3 h-9 text-xs font-semibold hover:bg-primary/15 disabled:opacity-50 transition-all">
                       {commenting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить анализ (MMF)
                     </button>
-                    <span className="text-[11px] text-muted-foreground/50 ml-auto hidden sm:block">анализ — оценка, MMF и рекомендации одним комментом</span>
                   </div>
                 </div>
               </div>
