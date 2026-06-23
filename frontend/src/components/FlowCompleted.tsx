@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from "recharts"
+import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from "recharts"
 import { RefreshCw, CheckCircle, ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -9,16 +9,17 @@ import { cn } from "@/lib/utils"
 interface DoneItem { month: string; key: string; summary: string; url: string; end: string; status: string; assignee: string }
 interface Resp { ok: boolean; error?: string; months: string[]; data: { month: string; label: string; count: number }[]; items: DoneItem[]; total?: number; updatedAt?: string }
 
-// больше завершено — лучше (рост зелёный)
-function Trend({ cur, prev }: { cur: number; prev: number | undefined }) {
+// больше завершено — лучше (рост зелёный). Сравниваем два последних ЗАВЕРШЁННЫХ месяца
+// (текущий месяц ещё идёт — его в тренд не берём, иначе всегда «падение»).
+function Trend({ cur, prev, label }: { cur: number; prev: number | undefined; label: string }) {
   if (prev == null) return null
   const d = cur - prev
-  if (d === 0) return <span className="text-[11px] text-muted-foreground">= как в прошлом месяце</span>
+  if (d === 0) return <span className="text-[11px] text-muted-foreground">{label}: как в предыдущем месяце</span>
   const up = d > 0
   const pct = prev > 0 ? Math.round((d / prev) * 100) : null
   return (
     <span className={cn("inline-flex items-center gap-1 text-xs font-bold", up ? "text-emerald-500" : "text-rose-500")}>
-      {up ? "▲" : "▼"} {up ? "+" : ""}{d} задач{pct != null ? ` (${up ? "+" : ""}${pct}%)` : ""} к прошлому месяцу
+      {up ? "▲" : "▼"} {label}: {up ? "+" : ""}{d} задач{pct != null ? ` (${up ? "+" : ""}${pct}%)` : ""} к пред. месяцу
     </span>
   )
 }
@@ -38,8 +39,12 @@ export function FlowCompleted() {
   useEffect(() => { load() }, [])
 
   const data = resp?.data ?? []
-  const cur = data.length ? data[data.length - 1].count : 0
-  const prev = data.length > 1 ? data[data.length - 2].count : undefined
+  // последний столбец — текущий (незавершённый) месяц; тренд по двум последним ЗАВЕРШЁННЫМ
+  const curMonth = resp?.months?.[resp.months.length - 1]
+  const lastFullIdx = data.length - 2
+  const trendCur = lastFullIdx >= 0 ? data[lastFullIdx].count : 0
+  const trendPrev = lastFullIdx - 1 >= 0 ? data[lastFullIdx - 1].count : undefined
+  const trendLabel = lastFullIdx >= 0 ? data[lastFullIdx].label : ""
   const monthLabel = data.find(d => d.month === selMonth)?.label || selMonth || ""
   const list = (resp?.items ?? []).filter(it => it.month === selMonth)
 
@@ -49,7 +54,7 @@ export function FlowCompleted() {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-500" /> Завершено задач по месяцам</CardTitle>
           <div className="flex items-center gap-2">
-            {!loading && data.length > 1 && <Trend cur={cur} prev={prev} />}
+            {!loading && data.length > 2 && <Trend cur={trendCur} prev={trendPrev} label={trendLabel} />}
             <button onClick={() => load(true)} disabled={loading} title="Пересчитать"
               className="flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
               <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
@@ -71,12 +76,18 @@ export function FlowCompleted() {
               <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
               <Tooltip cursor={{ fill: "hsl(var(--accent))", opacity: 0.3 }}
                 contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-              <Bar dataKey="count" name="Завершено" fill="#10B981" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }}
+              <Bar dataKey="count" name="Завершено" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }}
                 onClick={(d: any) => d?.payload?.month && setSelMonth(d.payload.month)}>
+                {data.map((d) => (
+                  <Cell key={d.month} fill={d.month === curMonth ? "#10B98166" : "#10B981"} />
+                ))}
                 <LabelList dataKey="count" position="top" style={{ fontSize: 11, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+        )}
+        {!loading && resp && (
+          <p className="text-[11px] text-muted-foreground/70 mt-1">Последний столбец — текущий месяц, он ещё не завершён.</p>
         )}
       </CardContent>
 

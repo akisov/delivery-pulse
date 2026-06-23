@@ -1247,6 +1247,11 @@ async def _daily_scheduler():
                     await turso_execute([stmt("DELETE FROM sle_snapshot")])
                 except Exception as e:
                     print(f"[scheduler] sle invalidate: {e}")
+                # сбрасываем кэш «Завершено по месяцам» (Поток E2E), иначе график замораживается
+                try:
+                    await turso_execute([stmt("DELETE FROM osp_snapshot WHERE which LIKE 'flowdone-%'")])
+                except Exception as e:
+                    print(f"[scheduler] flowdone invalidate: {e}")
                 # догружаем worklog текущего месяца из API
                 try:
                     if not _wl_status["running"]:
