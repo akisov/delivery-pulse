@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
-import { Lightbulb, Sparkles, RefreshCw, ExternalLink, User, Settings, MessageSquarePlus, Clock, Hourglass } from "lucide-react"
+import { Lightbulb, Sparkles, RefreshCw, ExternalLink, User, Settings, MessageSquarePlus, Clock, Hourglass, Save } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Modal } from "@/components/ui/modal"
 import { PageHeader } from "@/components/PageHeader"
-import { fetchFeatureRefs, analyzeFeature, fetchFeatureSettings, saveFeatureSettings, addFeatureComment, fetchWorklogStacks } from "@/lib/api"
-import type { FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks, StackBreakdown } from "@/lib/types"
+import { fetchFeatureRefs, analyzeFeature, fetchFeatureSettings, saveFeatureSettings, addFeatureComment, fetchWorklogStacks, setFeatureEffort, fetchRefInfo } from "@/lib/api"
+import type { FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks, StackBreakdown, FeatureRefInfo } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -42,6 +42,15 @@ function StackChips({ bs, sub }: { bs: StackBreakdown; sub?: boolean }) {
   )
 }
 
+function FieldChip({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2 py-0.5 text-[11px]">
+      <span className="text-muted-foreground/70">{label}</span>
+      <span className="font-bold text-foreground tabular-nums">{value}</span>
+    </span>
+  )
+}
+
 function CatBadge({ c, sle }: { c: string; sle?: number }) {
   const col = CAT_COLOR[c] || "#94A3B8"
   return (
@@ -65,6 +74,13 @@ export function FeatureEstPage() {
   const [showSettings, setShowSettings] = useState(false)
   const [commenting, setCommenting] = useState(false)
   const [stacks, setStacks] = useState<WorklogStacks | null>(null)
+  // PBR: запись планового effort + редактируемый коммент + детали похожих эталонов
+  const [effortInput, setEffortInput] = useState("")
+  const [settingEff, setSettingEff] = useState(false)
+  const [curEffort, setCurEffort] = useState<number | null>(null)   // план в задаче (локально после записи)
+  const [comment, setComment] = useState("")
+  const [simInfo, setSimInfo] = useState<FeatureRefInfo[] | null>(null)
+  const [simLoading, setSimLoading] = useState(false)
 
   const load = (refresh = false) => {
     setLoading(true)
@@ -95,33 +111,59 @@ export function FeatureEstPage() {
 
   const onAnalyze = async () => {
     if (!text.trim() && !keyInput.trim()) { toast("Введите описание или ключ задачи"); return }
-    setAnalyzing(true); setResult(null)
+    setAnalyzing(true); setResult(null); setSimInfo(null)
     try {
       setResult(await analyzeFeature({ text: text.trim() || undefined, key: taskKey || undefined }))
     } catch (e: any) { toast.error(e.message) }
     finally { setAnalyzing(false) }
   }
 
-  // Собираем текст анализа для комментария в задачу
+  // Собираем стартовый markdown-текст комментария из анализа (его можно дописать/править)
   const buildComment = (r: FeatureAnalysis) => {
-    const lines = [`Оценка НВ (AI): категория ${r.category}` + (r.sle ? ` · SLE ${r.sle}д` : "") + (r.effortDays != null ? ` · ~${r.effortDays} дн effort` : "")]
+    const lines = [`**Оценка НВ (AI):** категория **${r.category}**` + (r.sle ? ` · SLE ${r.sle}д` : "") + (r.effortDays != null ? ` · ~${r.effortDays} дн effort` : "")]
     if (r.rationale) lines.push("", r.rationale)
     if (r.mmf) {
-      lines.push("", `Проверка MMF: ${r.mmf.score}/${r.mmf.total}`)
-      r.mmf.criteria.forEach((c, i) => lines.push(`${c.ok ? "✅" : "❌"} ${i + 1}. ${c.name}: ${c.note}`))
-      if (r.mmf.recommendations?.length) { lines.push("", "Рекомендации:"); r.mmf.recommendations.forEach(x => lines.push(`— ${x}`)) }
+      lines.push("", `**Проверка MMF: ${r.mmf.score}/${r.mmf.total}**`)
+      r.mmf.criteria.forEach((c, i) => lines.push(`${c.ok ? "✅" : "❌"} ${i + 1}. **${c.name}** — ${c.note}`))
+      if (r.mmf.recommendations?.length) { lines.push("", "**Рекомендации:**"); r.mmf.recommendations.forEach(x => lines.push(`- ${x}`)) }
     }
     return lines.join("\n")
   }
+
+  // Пришёл новый результат → префилл планового effort, комментария и подгрузка деталей эталонов
+  useEffect(() => {
+    if (!result || !result.category) return
+    const sug = result.effortDays ?? result.issue?.effort ?? null
+    setEffortInput(sug != null ? String(Math.round(sug)) : "")
+    setCurEffort(result.issue?.effort ?? null)
+    setComment(buildComment(result))
+    if (result.similar?.length) {
+      setSimLoading(true)
+      fetchRefInfo(result.similar).then(setSimInfo).catch(() => setSimInfo([])).finally(() => setSimLoading(false))
+    } else setSimInfo([])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result])
+
+  const onSetEffort = async () => {
+    if (!taskKey || effortInput === "") return
+    setSettingEff(true)
+    try {
+      const eff = await setFeatureEffort(taskKey, parseFloat(effortInput.replace(",", ".")))
+      setCurEffort(eff)
+      toast.success(`Effort ${eff} записан в ${taskKey}`, { description: `https://tracker.yandex.ru/${taskKey}` })
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSettingEff(false) }
+  }
   const onComment = async () => {
-    if (!result || !taskKey) return
+    if (!taskKey || !comment.trim()) return
     setCommenting(true)
     try {
-      const url = await addFeatureComment(taskKey, buildComment(result))
+      const url = await addFeatureComment(taskKey, comment.trim())
       toast.success("Комментарий добавлен в задачу", { description: url })
     } catch (e: any) { toast.error(e.message) }
     finally { setCommenting(false) }
   }
+  const simByKey = useMemo(() => Object.fromEntries((simInfo ?? []).map(i => [i.key, i] as [string, FeatureRefInfo])), [simInfo])
 
   return (
     <>
@@ -170,12 +212,34 @@ export function FeatureEstPage() {
             </div>
             {result.rationale && <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{result.rationale}</p>}
             {result.similar?.length > 0 && (
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <span className="text-[11px] text-muted-foreground">Похожие эталоны:</span>
-                {result.similar.map(k => (
-                  <a key={k} href={`https://tracker.yandex.ru/${k}`} target="_blank" rel="noreferrer"
-                    className="font-mono text-xs font-bold text-primary hover:underline inline-flex items-center gap-1">{k}<ExternalLink className="w-3 h-3 opacity-40" /></a>
-                ))}
+              <div className="mt-3">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground/70 mb-1.5">Похожие эталоны</p>
+                <div className="space-y-1.5">
+                  {result.similar.map(k => {
+                    const it = simByKey[k]
+                    const bs = it?.byStack || {}
+                    return (
+                      <div key={k} className="px-3 py-2 rounded-lg border border-border bg-secondary/30">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <a href={`https://tracker.yandex.ru/${k}`} target="_blank" rel="noreferrer" className="font-mono text-xs font-bold text-primary hover:underline inline-flex items-center gap-1 shrink-0">{k}<ExternalLink className="w-3 h-3 opacity-40" /></a>
+                          {it?.category && <CatBadge c={it.category} sle={sleByCat[it.category]} />}
+                          {it?.title && <span className="flex-1 min-w-[140px] text-sm text-foreground truncate">{it.title}</span>}
+                          {it?.effort != null && <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2.5 py-1 text-xs font-black text-primary shrink-0 tabular-nums" title="Effort факт (человеко-дни)"><Hourglass className="w-3.5 h-3.5" />{it.effort} <span className="font-semibold opacity-70">effort</span></span>}
+                          {it?.days != null && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 shrink-0 tabular-nums" title="дней в работе"><Clock className="w-3 h-3 opacity-60" />{it.days}д</span>}
+                        </div>
+                        {it && (Object.keys(bs).length > 0 ? (
+                          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 shrink-0">effort по стекам:</span>
+                            <StackChips bs={bs} />
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground/40 mt-1">{it.inRefs ? "нет логов по стекам" : "не из набора эталонов — деталей по стекам нет"}</p>
+                        ))}
+                      </div>
+                    )
+                  })}
+                  {simLoading && <p className="text-[11px] text-muted-foreground/60">загружаем детали эталонов…</p>}
+                </div>
               </div>
             )}
 
@@ -203,13 +267,51 @@ export function FeatureEstPage() {
               </div>
             )}
 
-            {/* Добавить коммент к задаче (если введён ключ) */}
+            {/* PBR: работа с реальной задачей (введён ключ) */}
             {taskKey && (
-              <div className="mt-3 pt-3 border-t border-border">
-                <button onClick={onComment} disabled={commenting}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 text-primary px-3 h-9 text-xs font-semibold hover:bg-primary/15 disabled:opacity-50 transition-all">
-                  {commenting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить коммент в {taskKey}
-                </button>
+              <div className="mt-3 pt-3 border-t border-border space-y-3">
+                {/* что сейчас в задаче */}
+                {result.issue && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] uppercase tracking-wide text-muted-foreground/70 mr-1">В задаче сейчас:</span>
+                    <FieldChip label="Effort (план)" value={curEffort != null ? `${curEffort}` : "—"} />
+                    <FieldChip label="Effort факт" value={result.issue.effortFact != null ? `${result.issue.effortFact}` : "—"} />
+                    {result.issue.jobCategory && <FieldChip label="Категория" value={result.issue.jobCategory} />}
+                    {result.issue.status && <FieldChip label="Статус" value={result.issue.status} />}
+                  </div>
+                )}
+
+                {/* записать плановый effort */}
+                <div className="flex items-end gap-2 flex-wrap">
+                  <label className="text-xs">
+                    <span className="block text-[11px] text-muted-foreground mb-1">
+                      Плановый effort, дн{result.effortDays != null && <span className="text-muted-foreground/60"> · AI предлагает ~{result.effortDays}</span>}
+                    </span>
+                    <input type="number" min="0" step="1" value={effortInput} onChange={e => setEffortInput(e.target.value)}
+                      className="w-32 bg-secondary/60 border border-border rounded-lg px-3 h-9 text-sm text-foreground outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                  </label>
+                  <button onClick={onSetEffort} disabled={settingEff || effortInput === ""}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 h-9 text-xs font-bold disabled:opacity-40 transition-all">
+                    {settingEff ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Записать effort в {taskKey}
+                  </button>
+                </div>
+
+                {/* комментарий в задачу (markdown, редактируемый) */}
+                <div>
+                  <div className="flex items-baseline justify-between mb-1 gap-2 flex-wrap">
+                    <span className="text-[11px] text-muted-foreground">Комментарий в задачу <span className="text-muted-foreground/50">· поддерживается Markdown · можно дописать обсуждение</span></span>
+                    <button onClick={() => setComment(buildComment(result))} className="text-[11px] text-muted-foreground/70 hover:text-primary transition-colors">↺ из анализа</button>
+                  </div>
+                  <textarea value={comment} onChange={e => setComment(e.target.value)} rows={7}
+                    placeholder="Обсуждение, уточнения, договорённости… (Markdown)"
+                    className="w-full bg-secondary/60 border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary/50 resize-y leading-relaxed" />
+                  <div className="flex justify-end mt-2">
+                    <button onClick={onComment} disabled={commenting || !comment.trim()}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 text-primary px-3 h-9 text-xs font-semibold hover:bg-primary/15 disabled:opacity-50 transition-all">
+                      {commenting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить коммент в {taskKey}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

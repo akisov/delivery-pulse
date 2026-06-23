@@ -4696,6 +4696,7 @@ async def est_analyze(request: Request):
     b = await request.json()
     text = (b.get("text") or "").strip()
     key = _tracker_key(b.get("key"))
+    issue_info = None
     if key and TRACKER_TOKEN:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -4703,6 +4704,15 @@ async def est_analyze(request: Request):
             if isinstance(iss, dict):
                 t = f"{iss.get('summary', '')}\n{(iss.get('description') or '')[:2000]}".strip()
                 text = t or text
+                ef, eff_fact = iss.get("effort"), _field(iss, "--anEffortFact")
+                issue_info = {
+                    "key": key, "url": f"https://tracker.yandex.ru/{key}",
+                    "summary": iss.get("summary") or "",
+                    "status": (iss.get("status") or {}).get("display") if isinstance(iss.get("status"), dict) else None,
+                    "effort": (float(ef) if isinstance(ef, (int, float)) else None),
+                    "effortFact": (float(eff_fact) if isinstance(eff_fact, (int, float)) else None),
+                    "jobCategory": _field(iss, "--jobCategory"),
+                }
         except Exception:
             pass
     if not text:
@@ -4773,7 +4783,75 @@ async def est_analyze(request: Request):
         print(f"[est analyze parse] {e}")
         out["rationale"] = raw or ""
     out["sle"] = sle_map.get(out["category"]) if out["category"] else None
+    out["issue"] = issue_info
     return JSONResponse({"ok": True, **out})
+
+@app.post("/est/set-effort")
+async def est_set_effort(request: Request):
+    """PBR: записываем плановый effort (дни) в поле «Effort» задачи."""
+    b = await request.json()
+    key = _tracker_key(b.get("key"))
+    if not key:
+        return JSONResponse({"ok": False, "error": "Нужен ключ задачи"})
+    try:
+        val = float(str(b.get("effort")).replace(",", "."))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "Effort должен быть числом"})
+    if val < 0 or val > 1000:
+        return JSONResponse({"ok": False, "error": "Effort вне диапазона (0–1000)"})
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан"})
+    out_val = int(val) if val == int(val) else round(val, 1)   # числовое поле — без хвостов
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.patch(f"https://api.tracker.yandex.net/v2/issues/{key}",
+                                   headers=tracker_headers(), json={"effort": out_val})
+        if r.status_code >= 300:
+            return JSONResponse({"ok": False, "error": f"Трекер вернул {r.status_code}: {r.text[:300]}"})
+        eff = (r.json() or {}).get("effort")
+        return JSONResponse({"ok": True, "effort": eff if eff is not None else out_val,
+                             "url": f"https://tracker.yandex.ru/{key}"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+@app.get("/est/ref-info")
+async def est_ref_info(keys: str = Query("")):
+    """Детали по конкретным эталонам (блок «похожие»): effort факт, дни, категория,
+    команда и разбивка по стекам. Берём из кэшей refs + wl-stacks, недостающее — живьём."""
+    want, seen = [], set()
+    for raw in keys.split(","):
+        k = _tracker_key(raw)
+        if k and k not in seen:
+            seen.add(k); want.append(k)
+    want = want[:6]
+    if not want:
+        return JSONResponse({"ok": True, "items": []})
+    refs = await _est_references()
+    ref_by = {it["key"]: it for it in refs["items"]}
+    wl = await _osp_snap("est-wl-stacks-v3") or {}
+    stacks_by = {t["key"]: t.get("byStack", {}) for t in (wl.get("perTask") or [])}
+    missing = [k for k in want if k not in ref_by]
+    live = {}
+    if missing and TRACKER_TOKEN:
+        async with httpx.AsyncClient(timeout=30) as client:
+            isss = await asyncio.gather(*[fetch_issue(client, k) for k in missing], return_exceptions=True)
+        for k, iss in zip(missing, isss):
+            if isinstance(iss, dict):
+                ef, dv = _field(iss, "--anEffortFact"), _osp_days_field(iss)
+                live[k] = {"title": iss.get("summary") or k,
+                           "effort": (round(float(ef), 1) if isinstance(ef, (int, float)) else None),
+                           "days": (int(dv) if isinstance(dv, (int, float)) else None)}
+    out = []
+    for k in want:
+        base = ref_by.get(k) or live.get(k) or {}
+        out.append({
+            "key": k, "url": f"https://tracker.yandex.ru/{k}",
+            "title": base.get("title") or k,
+            "team": base.get("team"), "category": base.get("category"),
+            "effort": base.get("effort"), "days": base.get("days"),
+            "byStack": stacks_by.get(k, {}), "inRefs": k in ref_by,
+        })
+    return JSONResponse({"ok": True, "items": out})
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks } from "./types"
+import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks, FeatureRefInfo } from "./types"
 
 export async function fetchDashboard(dateFrom?: string, dateTo?: string): Promise<DashboardData> {
   const params = new URLSearchParams()
@@ -101,6 +101,18 @@ export async function addFeatureComment(key: string, text: string): Promise<stri
   const d = await r.json()
   if (!d.ok) throw new Error(d.error || "Ошибка")
   return d.url
+}
+export async function setFeatureEffort(key: string, effort: number): Promise<number> {
+  const r = await fetch("/est/set-effort", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, effort }) })
+  const d = await r.json()
+  if (!d.ok) throw new Error(d.error || "Ошибка")
+  return d.effort
+}
+export async function fetchRefInfo(keys: string[]): Promise<FeatureRefInfo[]> {
+  const r = await fetch(`/est/ref-info?keys=${encodeURIComponent(keys.join(","))}`)
+  const d = await r.json()
+  if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`)
+  return d.items
 }
 export const finalizeSprint = (id: number) => jpost(`/sprints/${id}/finalize`)
 export const reopenSprint = (id: number) => jpost(`/sprints/${id}/reopen`)

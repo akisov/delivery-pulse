@@ -118,6 +118,10 @@ export interface WorklogStacks {
 }
 export interface MmfCriterion { name: string; ok: boolean; note: string }
 export interface MmfCheck { criteria: MmfCriterion[]; score: number; total: number; recommendations: string[] }
+export interface FeatureIssue {
+  key: string; url: string; summary: string; status: string | null
+  effort: number | null; effortFact: number | null; jobCategory: string | null
+}
 export interface FeatureAnalysis {
   ok: boolean
   error?: string
@@ -127,6 +131,13 @@ export interface FeatureAnalysis {
   similar: string[]
   sle: number | null
   mmf: MmfCheck | null
+  issue?: FeatureIssue | null
+}
+export interface FeatureRefInfo {
+  key: string; url: string; title: string
+  team: string | null; category: string | null
+  effort: number | null; days: number | null
+  byStack: StackBreakdown; inRefs: boolean
 }
 
 // Задача, которая сейчас находится в одном из статусов Арх. комитета
