@@ -137,8 +137,9 @@ export function HomePage({ onGo }: Props) {
         </span>
         <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-[1.1] pb-1 text-gradient">Пульс доставки</h1>
         <p className="text-base text-muted-foreground max-w-2xl">
-          Блокировки, нарушения SLE, поток и обзор сервиса поставки (ОСП) по командам курьеров
-          POOLING · DOSTAVKAPIKO · UDOSTAVKA · PUTKURERA — с автоматическим разбором причин от ИИ.
+          Блокировки, инциденты, арх. комитет, оценка спринтов и новых возможностей, нарушения SLE,
+          поток и ОСП по командам курьеров (X · U · R · PUTKURERA) — с автоматическим разбором
+          и AI-оценкой.
         </p>
       </div>
 

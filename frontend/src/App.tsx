@@ -257,7 +257,7 @@ export default function App() {
             <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base shadow-[0_2px_12px_rgba(108,99,255,0.4)]" style={{ background: "linear-gradient(135deg,#6C63FF,#A855F7,#EC4899)" }}>📊</div>
             <div>
               <p className="text-sm font-black leading-none text-gradient">Пульс доставки</p>
-              <p className="text-[11px] text-muted-foreground leading-none mt-0.5">Блокировки · SLE · Поток</p>
+              <p className="text-[11px] text-muted-foreground leading-none mt-0.5">Команды · E2E · AI-оценка</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
