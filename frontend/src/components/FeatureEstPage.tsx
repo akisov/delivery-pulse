@@ -304,41 +304,39 @@ export function FeatureEstPage() {
                   </div>
                 )}
 
-                {/* записать плановый effort */}
-                <div className="flex items-end gap-2 flex-wrap">
-                  <label className="text-xs">
-                    <span className="block text-[11px] text-muted-foreground mb-1">
-                      Плановый effort, дн{result.effortDays != null && <span className="text-muted-foreground/60"> · AI предлагает ~{result.effortDays}</span>}
-                    </span>
-                    <input type="number" min="0" step="1" value={effortInput} onChange={e => setEffortInput(e.target.value)}
-                      className="w-32 bg-secondary/60 border border-border rounded-lg px-3 h-9 text-sm text-foreground outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
-                  </label>
-                  <button onClick={onSetEffort} disabled={settingEff || effortInput === ""}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 h-9 text-xs font-bold disabled:opacity-40 transition-all">
-                    {settingEff ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Записать effort в {taskKey}
-                  </button>
-                </div>
-
-                {/* 1) анализ + MMF одной кнопкой (как было) */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button onClick={onAddAnalysis} disabled={commenting}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 text-primary px-3 h-9 text-xs font-semibold hover:bg-primary/15 disabled:opacity-50 transition-all">
-                    {commenting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить анализ (MMF) в {taskKey}
-                  </button>
-                  <span className="text-[11px] text-muted-foreground/60">пишет оценку, MMF и рекомендации одним комментарием</span>
-                </div>
-
-                {/* 2) свободное обсуждение (markdown) — если требуется */}
-                <div>
-                  <span className="text-[11px] text-muted-foreground">Комментарий-обсуждение <span className="text-muted-foreground/50">· поддерживается Markdown · по желанию</span></span>
-                  <textarea value={discuss} onChange={e => setDiscuss(e.target.value)} rows={5}
-                    placeholder="Обсуждение, уточнения, договорённости… (Markdown)"
-                    className="mt-1 w-full bg-secondary/60 border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary/50 resize-y leading-relaxed" />
-                  <div className="flex justify-end mt-2">
-                    <button onClick={onAddDiscuss} disabled={discussing || !discuss.trim()}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card text-foreground px-3 h-9 text-xs font-semibold hover:border-primary/50 hover:text-primary disabled:opacity-40 transition-all">
-                      {discussing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить обсуждение в {taskKey}
+                {/* Блок 1 — плановый effort */}
+                <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <label className="text-xs">
+                      <span className="block text-[11px] text-muted-foreground mb-1">
+                        Плановый effort, дн{result.effortDays != null && <span className="text-muted-foreground/60"> · AI предлагает ~{result.effortDays}</span>}
+                      </span>
+                      <input type="number" min="0" step="1" value={effortInput} onChange={e => setEffortInput(e.target.value)}
+                        className="w-28 bg-card border border-border rounded-lg px-3 h-9 text-sm text-foreground outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                    </label>
+                    <button onClick={onSetEffort} disabled={settingEff || effortInput === ""}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 h-9 text-xs font-bold disabled:opacity-40 transition-all">
+                      {settingEff ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Записать в {taskKey}
                     </button>
+                  </div>
+                </div>
+
+                {/* Блок 2 — комментарий в задачу: текстовое обсуждение + обе кнопки в одном ряду */}
+                <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                  <span className="block text-[11px] text-muted-foreground mb-1.5">Комментарий в задачу <span className="text-muted-foreground/50">· Markdown</span></span>
+                  <textarea value={discuss} onChange={e => setDiscuss(e.target.value)} rows={4}
+                    placeholder="Обсуждение, уточнения, договорённости… (по желанию)"
+                    className="w-full bg-card border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary/50 resize-y leading-relaxed" />
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <button onClick={onAddDiscuss} disabled={discussing || !discuss.trim()}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 h-9 text-xs font-bold disabled:opacity-40 transition-all">
+                      {discussing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить обсуждение
+                    </button>
+                    <button onClick={onAddAnalysis} disabled={commenting}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 text-primary px-3 h-9 text-xs font-semibold hover:bg-primary/15 disabled:opacity-50 transition-all">
+                      {commenting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить анализ (MMF)
+                    </button>
+                    <span className="text-[11px] text-muted-foreground/50 ml-auto hidden sm:block">анализ — оценка, MMF и рекомендации одним комментом</span>
                   </div>
                 </div>
               </div>
