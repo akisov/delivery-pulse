@@ -306,6 +306,7 @@ export function FeatureEstPage() {
                 <div className="flex items-center gap-3 flex-wrap">
                   <a href={it.url} target="_blank" rel="noreferrer" className="font-mono text-xs font-bold text-primary hover:underline inline-flex items-center gap-1 shrink-0">{it.key}<ExternalLink className="w-3 h-3 opacity-40" /></a>
                   <CatBadge c={it.category} sle={sleByCat[it.category]} />
+                  {it.promoted && <span className="text-[10px] text-muted-foreground/70" title={`по Effort это ${it.effCat}, но сроки ${it.effCat} превышены — как эталон лучше подходит к ${it.category}`}>↑ из {it.effCat}</span>}
                   <span className="flex-1 min-w-[160px] text-sm text-foreground truncate">{it.title}</span>
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground shrink-0"><User className="w-3 h-3" />{it.assignee}</span>
                   <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2.5 py-1 text-xs font-black text-primary shrink-0 tabular-nums" title="Effort факт (человеко-дни) — главный ориентир для оценки"><Hourglass className="w-3.5 h-3.5" />{it.effort} <span className="font-semibold opacity-70">effort</span></span>

@@ -4509,8 +4509,8 @@ async def _est_references():
         if not team:
             continue
         eff = _field(iss, "--anEffortFact")
-        cat = _eff_cat(eff, cats)
-        if not cat:
+        eff_cat = _eff_cat(eff, cats)                  # категория по Effort факт
+        if not eff_cat:
             continue
         start = (iss.get("start") or iss.get("createdAt") or "")[:10]
         if start and start < "2026-01-01":   # legacy — отбрасываем
@@ -4526,13 +4526,19 @@ async def _est_references():
                 continue
         except (TypeError, ValueError, ZeroDivisionError):
             pass
-        sle = sle_by.get(cat)                          # эталон = вошёл в SLE (дней ≤ SLE категории)
-        if sle and dv > sle:
+        # Эталон = задача, уложившаяся в SLE. Если по effort это S, но сроки S нарушены —
+        # поднимаем до категории, чей SLE выполнен (S→M→L). Даже L превышен → не эталон.
+        order = [c["key"] for c in cats]
+        idx = order.index(eff_cat)
+        while idx < len(order) and sle_by.get(order[idx]) and dv > sle_by[order[idx]]:
+            idx += 1
+        if idx >= len(order):
             continue
+        cat = order[idx]
         items.append({
             "key": iss.get("key"), "title": iss.get("summary", "—"),
             "url": f"https://tracker.yandex.ru/{iss.get('key')}",
-            "team": team, "category": cat,
+            "team": team, "category": cat, "effCat": eff_cat, "promoted": cat != eff_cat,
             "assignee": (iss.get("assignee") or {}).get("display", "—"),
             "effort": round(float(eff), 1), "days": round(dv),
         })
@@ -4542,7 +4548,7 @@ async def _est_references():
 
 @app.get("/est/references")
 async def est_references(refresh: bool = Query(False)):
-    ck = "est-refs-v2"
+    ck = "est-refs-v3"
     if not refresh:
         snap = await _osp_snap(ck)
         if snap:
@@ -4581,7 +4587,7 @@ async def est_settings_set(request: Request):
         ["est-settings-v1", json.dumps({"categories": clean}, ensure_ascii=False)])])
     # сбрасываем кэш эталонов — категории могли поменяться
     try:
-        await turso_execute([stmt("DELETE FROM osp_snapshot WHERE which=?", ["est-refs-v2"])])
+        await turso_execute([stmt("DELETE FROM osp_snapshot WHERE which=?", ["est-refs-v3"])])
     except Exception:
         pass
     return JSONResponse({"ok": True})
@@ -4606,7 +4612,7 @@ async def est_comment(request: Request):
 async def est_worklog_stacks(refresh: bool = Query(False)):
     """Логи времени по эталонным задачам (worklog их подзадач) → разбивка по стекам.
     Стек определяется по автору записи (маппинг dev→стек). Неопознанные — в список unknown."""
-    ck = "est-wl-stacks-v2"
+    ck = "est-wl-stacks-v3"
     if not refresh:
         snap = await _osp_snap(ck)
         if snap:

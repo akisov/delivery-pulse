@@ -98,6 +98,7 @@ export interface FeatureRef {
   key: string; title: string; url: string
   team: string; category: string; assignee: string
   effort: number; days: number
+  effCat?: string; promoted?: boolean   // category поднята по SLE (effCat — исходная по effort)
 }
 export interface FeatureCategory { key: string; maxEff: number | null; sle: number }
 export interface FeatureRefs {
