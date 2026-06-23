@@ -4473,27 +4473,30 @@ async def _est_settings():
     return [dict(c) for c in EST_CATEGORIES_DEFAULT]
 
 async def _est_jobcat_options(client):
-    """Варианты поля «Категория работ» (jobCategory) PUTKURERA → {буква S/M/L: точное значение}.
-    Берём из самого поля (там нестандартные пробелы), кэшируем."""
-    snap = await _osp_snap("est-jobcat-opts-v1")
-    if isinstance(snap, dict) and snap.get("byLetter"):
-        return snap["byLetter"]
+    """Поле «Категория работ» (jobCategory) PUTKURERA → {fieldId, byLetter:{S/M/L: точное значение}}.
+    ВАЖНО: локальное поле пишется по ПОЛНОМУ id (напр. 66e9b...--jobCategory), короткий
+    ключ Трекер не принимает. Значения опций берём из самого поля (нестандартные пробелы)."""
+    snap = await _osp_snap("est-jobcat-opts-v2")
+    if isinstance(snap, dict) and snap.get("byLetter") and snap.get("fieldId"):
+        return snap
     r = await tracker_request(client, "GET", "/v2/queues/PUTKURERA/localFields/jobCategory")
+    field_id = (r or {}).get("id") or ""
     vals = ((r or {}).get("optionsProvider") or {}).get("values") or []
     by_letter = {}
     for v in vals:
         s = str(v).strip()
         if s and s[0].upper() in ("S", "M", "L"):
             by_letter[s[0].upper()] = v
-    if by_letter:
+    data = {"fieldId": field_id, "byLetter": by_letter}
+    if by_letter and field_id:
         try:
             await turso_execute([stmt(
                 "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
                 "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
-                ["est-jobcat-opts-v1", json.dumps({"byLetter": by_letter}, ensure_ascii=False)])])
+                ["est-jobcat-opts-v2", json.dumps(data, ensure_ascii=False)])])
         except Exception as e:
             print(f"[est jobcat opts save] {e}")
-    return by_letter
+    return data
 
 def _median(xs):
     """Медиана числового списка (None если пусто)."""
@@ -4874,9 +4877,11 @@ async def est_set_effort(request: Request):
         async with httpx.AsyncClient(timeout=30) as client:
             if set_cat and cat_letter:
                 try:
-                    cat_val = (await _est_jobcat_options(client)).get(cat_letter)
-                    if cat_val:
-                        body["jobCategory"] = cat_val
+                    opts = await _est_jobcat_options(client)
+                    cat_val = (opts.get("byLetter") or {}).get(cat_letter)
+                    fid = opts.get("fieldId")
+                    if cat_val and fid:
+                        body[fid] = cat_val          # локальное поле — по ПОЛНОМУ id
                 except Exception as e:
                     print(f"[set-effort jobcat] {e}")
             r = await client.patch(f"https://api.tracker.yandex.net/v2/issues/{key}",

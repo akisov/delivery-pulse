@@ -313,19 +313,17 @@ export function FeatureEstPage() {
 
                 {/* Блок 1 — плановый effort */}
                 <div className="rounded-lg border border-border bg-secondary/30 p-3">
-                  <div className="flex items-end gap-2 flex-wrap">
-                    <label className="text-xs">
-                      <span className="block text-[11px] text-muted-foreground mb-1">
-                        Плановый effort, дн{result.effortDays != null && <span className="text-muted-foreground/60"> · AI предлагает ~{result.effortDays}</span>}
-                      </span>
-                      <input type="number" min="0" step="1" value={effortInput} onChange={e => setEffortInput(e.target.value)}
-                        className="w-28 bg-card border border-border rounded-lg px-3 h-9 text-sm text-foreground outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
-                    </label>
+                  <span className="block text-[11px] text-muted-foreground mb-1">
+                    Плановый effort, дн{result.effortDays != null && <span className="text-muted-foreground/60"> · AI предлагает ~{result.effortDays}</span>}
+                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input type="number" min="0" step="1" value={effortInput} onChange={e => setEffortInput(e.target.value)}
+                      className="w-24 bg-card border border-border rounded-lg px-3 h-9 text-sm text-foreground outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
                     {willCat && (
-                      <div className="flex items-center gap-1.5 h-9 pb-px">
+                      <span className="inline-flex items-center gap-1.5">
                         <span className="text-muted-foreground/50 text-sm">→</span>
                         <CatBadge c={willCat} sle={sleByCat[willCat]} />
-                      </div>
+                      </span>
                     )}
                     <button onClick={onSetEffort} disabled={settingEff || effortInput === ""}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 h-9 text-xs font-bold disabled:opacity-40 transition-all">
