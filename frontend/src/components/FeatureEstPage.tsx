@@ -17,13 +17,24 @@ const STACK_COLOR: Record<string, string> = {
 const STACK_ORDER = ["SA", "GO", "Front", "QA", "1С", "AQA", "АрхКом", "Другие"]
 function StackChips({ bs, sub }: { bs: StackBreakdown; sub?: boolean }) {
   const entries = STACK_ORDER.filter(s => (bs[s] || 0) > 0).map(s => [s, bs[s]] as [string, number])
-  if (!entries.length) return sub ? <span className="text-[10px] text-muted-foreground/50">нет логов по стекам</span> : null
+  if (!entries.length) return sub ? <span className="text-[10px] text-muted-foreground/40">нет логов по стекам</span> : null
+  // sub — приглушённо (сопроводительная инфа), не перетягивает внимание
+  if (sub) {
+    return (
+      <span className="text-[11px] text-muted-foreground/70 tabular-nums">
+        {entries.map(([s, v], i) => (
+          <span key={s}>{i > 0 && <span className="text-muted-foreground/30"> · </span>}<span className="text-muted-foreground">{s}</span> {v}</span>
+        ))}
+      </span>
+    )
+  }
+  // агрегат — цветные чипы (одно место, headline-сводка)
   return (
     <span className="inline-flex flex-wrap gap-1">
       {entries.map(([s, v]) => (
-        <span key={s} className={cn("inline-flex items-center gap-1 rounded font-bold", sub ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]")}
+        <span key={s} className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-bold"
           style={{ background: `${STACK_COLOR[s] || "#94A3B8"}1A`, color: STACK_COLOR[s] || "#94A3B8" }}
-          title={`${s}: ${v} SP по эталону`}>
+          title={`${s}: ${v} SP`}>
           {s} {v}
         </span>
       ))}
@@ -213,7 +224,7 @@ export function FeatureEstPage() {
         <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
           <CardHeader className="pb-2">
             <CardTitle>Эталоны — по командам и категориям</CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">Завершённые задачи PUTKURERA (с янв 2026). Категория — по Effort факт. Клик по фильтрам ниже.</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Завершённые задачи PUTKURERA (с янв 2026), <b>вошедшие в SLE</b> (дней ≤ SLE категории). Категория — по Effort факт. Клик по фильтрам ниже.</p>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -297,8 +308,8 @@ export function FeatureEstPage() {
                   <CatBadge c={it.category} sle={sleByCat[it.category]} />
                   <span className="flex-1 min-w-[160px] text-sm text-foreground truncate">{it.title}</span>
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground shrink-0"><User className="w-3 h-3" />{it.assignee}</span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-0.5 text-[11px] font-black text-primary shrink-0 tabular-nums" title="effort (человеко-дни)"><Hourglass className="w-3 h-3" />{it.effort}</span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-black text-amber-600 dark:text-amber-400 shrink-0 tabular-nums" title="дней в работе"><Clock className="w-3 h-3" />{it.days}д</span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2.5 py-1 text-xs font-black text-primary shrink-0 tabular-nums" title="Effort факт (человеко-дни) — главный ориентир для оценки"><Hourglass className="w-3.5 h-3.5" />{it.effort} <span className="font-semibold opacity-70">effort</span></span>
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 shrink-0 tabular-nums" title="дней в производственной системе (сопроводительно)"><Clock className="w-3 h-3 opacity-60" />{it.days}д</span>
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 shrink-0">по стекам:</span>

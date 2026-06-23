@@ -4491,6 +4491,7 @@ def _est_team(assignee: str):
 async def _est_references():
     """Эталонные завершённые задачи PUTKURERA (чистые, с янв 2026), команда×категория."""
     cats = await _est_settings()
+    sle_by = {c["key"]: c.get("sle") for c in cats}
     base = {"teams": list(EST_TEAM_LABEL.keys()), "teamLabels": EST_TEAM_LABEL,
             "categories": cats, "items": []}
     if not TRACKER_TOKEN:
@@ -4525,6 +4526,9 @@ async def _est_references():
                 continue
         except (TypeError, ValueError, ZeroDivisionError):
             pass
+        sle = sle_by.get(cat)                          # эталон = вошёл в SLE (дней ≤ SLE категории)
+        if sle and dv > sle:
+            continue
         items.append({
             "key": iss.get("key"), "title": iss.get("summary", "—"),
             "url": f"https://tracker.yandex.ru/{iss.get('key')}",
@@ -4538,7 +4542,7 @@ async def _est_references():
 
 @app.get("/est/references")
 async def est_references(refresh: bool = Query(False)):
-    ck = "est-refs-v1"
+    ck = "est-refs-v2"
     if not refresh:
         snap = await _osp_snap(ck)
         if snap:
@@ -4577,7 +4581,7 @@ async def est_settings_set(request: Request):
         ["est-settings-v1", json.dumps({"categories": clean}, ensure_ascii=False)])])
     # сбрасываем кэш эталонов — категории могли поменяться
     try:
-        await turso_execute([stmt("DELETE FROM osp_snapshot WHERE which=?", ["est-refs-v1"])])
+        await turso_execute([stmt("DELETE FROM osp_snapshot WHERE which=?", ["est-refs-v2"])])
     except Exception:
         pass
     return JSONResponse({"ok": True})
@@ -4602,7 +4606,7 @@ async def est_comment(request: Request):
 async def est_worklog_stacks(refresh: bool = Query(False)):
     """Логи времени по эталонным задачам (worklog их подзадач) → разбивка по стекам.
     Стек определяется по автору записи (маппинг dev→стек). Неопознанные — в список unknown."""
-    ck = "est-wl-stacks-v1"
+    ck = "est-wl-stacks-v2"
     if not refresh:
         snap = await _osp_snap(ck)
         if snap:
