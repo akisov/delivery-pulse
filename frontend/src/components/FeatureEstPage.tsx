@@ -260,7 +260,7 @@ export function FeatureEstPage() {
                         {it && (Object.keys(bs).length > 0 ? (
                           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                             <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 shrink-0">effort по стекам:</span>
-                            <StackChips bs={bs} />
+                            <StackChips bs={bs} sub />
                           </div>
                         ) : (
                           <p className="text-[10px] text-muted-foreground/40 mt-1">{it.inRefs ? "нет логов по стекам" : "не из набора эталонов — деталей по стекам нет"}</p>
