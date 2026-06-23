@@ -78,6 +78,7 @@ export function FeatureEstPage() {
   const [effortInput, setEffortInput] = useState("")
   const [settingEff, setSettingEff] = useState(false)
   const [curEffort, setCurEffort] = useState<number | null>(null)   // план в задаче (локально после записи)
+  const [curCat, setCurCat] = useState<string | null>(null)         // категория в задаче (локально после записи)
   const [discuss, setDiscuss] = useState("")                        // свободный коммент-обсуждение
   const [discussing, setDiscussing] = useState(false)
   const [simInfo, setSimInfo] = useState<FeatureRefInfo[] | null>(null)
@@ -138,6 +139,7 @@ export function FeatureEstPage() {
     const sug = result.effortDays ?? result.issue?.effort ?? null
     setEffortInput(sug != null ? String(Math.round(sug)) : "")
     setCurEffort(result.issue?.effort ?? null)
+    setCurCat(result.issue?.jobCategory ?? null)
     setDiscuss("")
     if (result.similar?.length) {
       setSimLoading(true)
@@ -150,12 +152,17 @@ export function FeatureEstPage() {
     if (!taskKey || effortInput === "") return
     setSettingEff(true)
     try {
-      const eff = await setFeatureEffort(taskKey, parseFloat(effortInput.replace(",", ".")))
-      setCurEffort(eff)
-      toast.success(`Effort ${eff} записан в ${taskKey}`, { description: `https://tracker.yandex.ru/${taskKey}` })
+      const res = await setFeatureEffort(taskKey, parseFloat(effortInput.replace(",", ".")))
+      setCurEffort(res.effort)
+      if (res.jobCategory) setCurCat(res.jobCategory)
+      toast.success(`Effort ${res.effort}${res.category ? ` · категория ${res.category}` : ""} записаны в ${taskKey}`,
+        { description: `https://tracker.yandex.ru/${taskKey}` })
     } catch (e: any) { toast.error(e.message) }
     finally { setSettingEff(false) }
   }
+  // категория по введённому effort (пороги из настроек) — что будет записано
+  const catByEff = (e: number) => { for (const c of cats) if (c.maxEff == null || e <= c.maxEff) return c.key; return cats[cats.length - 1]?.key }
+  const willCat = effortInput !== "" && !isNaN(parseFloat(effortInput)) ? catByEff(parseFloat(effortInput.replace(",", "."))) : null
   const onAddAnalysis = async () => {
     if (!taskKey || !result) return
     setCommenting(true)
@@ -299,7 +306,7 @@ export function FeatureEstPage() {
                     <span className="text-[11px] uppercase tracking-wide text-muted-foreground/70 mr-1">В задаче сейчас:</span>
                     <FieldChip label="Effort (план)" value={curEffort != null ? `${curEffort}` : "—"} />
                     <FieldChip label="Effort факт" value={result.issue.effortFact != null ? `${result.issue.effortFact}` : "—"} />
-                    {result.issue.jobCategory && <FieldChip label="Категория" value={result.issue.jobCategory} />}
+                    {curCat && <FieldChip label="Категория" value={curCat} />}
                     {result.issue.status && <FieldChip label="Статус" value={result.issue.status} />}
                   </div>
                 )}
@@ -314,11 +321,18 @@ export function FeatureEstPage() {
                       <input type="number" min="0" step="1" value={effortInput} onChange={e => setEffortInput(e.target.value)}
                         className="w-28 bg-card border border-border rounded-lg px-3 h-9 text-sm text-foreground outline-none focus:border-primary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
                     </label>
+                    {willCat && (
+                      <div className="flex items-center gap-1.5 h-9 pb-px">
+                        <span className="text-muted-foreground/50 text-sm">→</span>
+                        <CatBadge c={willCat} sle={sleByCat[willCat]} />
+                      </div>
+                    )}
                     <button onClick={onSetEffort} disabled={settingEff || effortInput === ""}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-4 h-9 text-xs font-bold disabled:opacity-40 transition-all">
-                      {settingEff ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Записать в {taskKey}
+                      {settingEff ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Записать effort и категорию
                     </button>
                   </div>
+                  <p className="text-[11px] text-muted-foreground/60 mt-1.5">Пишет в задачу поле «Effort» и «Категория работ» ({willCat ? `сейчас → ${willCat}` : "S/M/L по effort"}).</p>
                 </div>
 
                 {/* Блок 2 — комментарий в задачу: текстовое обсуждение + обе кнопки в одном ряду */}

@@ -4472,6 +4472,29 @@ async def _est_settings():
         return snap["categories"]
     return [dict(c) for c in EST_CATEGORIES_DEFAULT]
 
+async def _est_jobcat_options(client):
+    """Варианты поля «Категория работ» (jobCategory) PUTKURERA → {буква S/M/L: точное значение}.
+    Берём из самого поля (там нестандартные пробелы), кэшируем."""
+    snap = await _osp_snap("est-jobcat-opts-v1")
+    if isinstance(snap, dict) and snap.get("byLetter"):
+        return snap["byLetter"]
+    r = await tracker_request(client, "GET", "/v2/queues/PUTKURERA/localFields/jobCategory")
+    vals = ((r or {}).get("optionsProvider") or {}).get("values") or []
+    by_letter = {}
+    for v in vals:
+        s = str(v).strip()
+        if s and s[0].upper() in ("S", "M", "L"):
+            by_letter[s[0].upper()] = v
+    if by_letter:
+        try:
+            await turso_execute([stmt(
+                "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+                "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+                ["est-jobcat-opts-v1", json.dumps({"byLetter": by_letter}, ensure_ascii=False)])])
+        except Exception as e:
+            print(f"[est jobcat opts save] {e}")
+    return by_letter
+
 def _median(xs):
     """Медиана числового списка (None если пусто)."""
     ys = sorted(x for x in xs if isinstance(x, (int, float)))
@@ -4816,13 +4839,20 @@ async def est_analyze(request: Request):
         }
     else:
         out["effortBasis"] = None
+    # Категория — СТРОГО по итоговой оценке effort (а не из свободного выбора ИИ):
+    # 19 дн → M и т.д. Так бейдж, SLE и запись в задачу согласованы.
+    if out["effortDays"] is not None:
+        ec = _eff_cat(out["effortDays"], cats)
+        if ec:
+            out["category"] = ec
     out["sle"] = sle_map.get(out["category"]) if out["category"] else None
     out["issue"] = issue_info
     return JSONResponse({"ok": True, **out})
 
 @app.post("/est/set-effort")
 async def est_set_effort(request: Request):
-    """PBR: записываем плановый effort (дни) в поле «Effort» задачи."""
+    """PBR: записываем плановый effort (дни) в поле «Effort» + соответствующую категорию
+    (S/M/L по порогам effort) в поле «Категория работ»."""
     b = await request.json()
     key = _tracker_key(b.get("key"))
     if not key:
@@ -4836,14 +4866,27 @@ async def est_set_effort(request: Request):
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан"})
     out_val = int(val) if val == int(val) else round(val, 1)   # числовое поле — без хвостов
+    set_cat = b.get("setCategory", True)                       # по умолчанию ставим и категорию
+    cats = await _est_settings()
+    cat_letter = _eff_cat(out_val, cats)                       # S/M/L по effort
+    body, cat_val = {"effort": out_val}, None
     try:
         async with httpx.AsyncClient(timeout=30) as client:
+            if set_cat and cat_letter:
+                try:
+                    cat_val = (await _est_jobcat_options(client)).get(cat_letter)
+                    if cat_val:
+                        body["jobCategory"] = cat_val
+                except Exception as e:
+                    print(f"[set-effort jobcat] {e}")
             r = await client.patch(f"https://api.tracker.yandex.net/v2/issues/{key}",
-                                   headers=tracker_headers(), json={"effort": out_val})
+                                   headers=tracker_headers(), json=body)
         if r.status_code >= 300:
             return JSONResponse({"ok": False, "error": f"Трекер вернул {r.status_code}: {r.text[:300]}"})
-        eff = (r.json() or {}).get("effort")
+        j = r.json() or {}
+        eff = j.get("effort")
         return JSONResponse({"ok": True, "effort": eff if eff is not None else out_val,
+                             "category": cat_letter, "jobCategory": cat_val,
                              "url": f"https://tracker.yandex.ru/{key}"})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})

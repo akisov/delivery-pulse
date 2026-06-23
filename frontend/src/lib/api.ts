@@ -102,11 +102,11 @@ export async function addFeatureComment(key: string, text: string): Promise<stri
   if (!d.ok) throw new Error(d.error || "Ошибка")
   return d.url
 }
-export async function setFeatureEffort(key: string, effort: number): Promise<number> {
+export async function setFeatureEffort(key: string, effort: number): Promise<{ effort: number; category: string | null; jobCategory: string | null }> {
   const r = await fetch("/est/set-effort", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, effort }) })
   const d = await r.json()
   if (!d.ok) throw new Error(d.error || "Ошибка")
-  return d.effort
+  return { effort: d.effort, category: d.category ?? null, jobCategory: d.jobCategory ?? null }
 }
 export async function fetchRefInfo(keys: string[]): Promise<FeatureRefInfo[]> {
   const r = await fetch(`/est/ref-info?keys=${encodeURIComponent(keys.join(","))}`)
