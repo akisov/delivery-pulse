@@ -232,7 +232,16 @@ export function FeatureEstPage() {
                 <thead>
                   <tr className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                     <th className="text-left px-3 py-1.5">Команда</th>
-                    {cats.map(c => <th key={c.key} className="px-3 py-1.5 text-center"><CatBadge c={c.key} sle={c.sle} /></th>)}
+                    {cats.map((c, i) => {
+                      const prev = i > 0 ? cats[i - 1].maxEff : null
+                      const eff = c.maxEff == null ? `effort > ${prev ?? "?"}` : (i === 0 || prev == null) ? `effort ≤ ${c.maxEff}` : `effort ${(prev) + 1}–${c.maxEff}`
+                      return (
+                        <th key={c.key} className="px-3 py-1.5 text-center">
+                          <CatBadge c={c.key} sle={c.sle} />
+                          <span className="block text-[10px] font-normal normal-case text-muted-foreground/70 mt-0.5">{eff} дн</span>
+                        </th>
+                      )
+                    })}
                     <th className="px-3 py-1.5 text-center">Всего</th>
                   </tr>
                 </thead>
