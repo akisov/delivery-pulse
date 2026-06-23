@@ -80,6 +80,7 @@ export function EstimationPage() {
   const [newKey, setNewKey] = useState("")
   const [busy, setBusy] = useState(false)
   const [sprOpen, setSprOpen] = useState(false)
+  const [detail, setDetail] = useState<{ type: "task" | "role"; id: string } | null>(null)
   const sprRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -130,7 +131,7 @@ export function EstimationPage() {
     full: `${t.key} — ${t.title}`, key: t.key, plan: t.planTotal, fact: t.factTotal,
   })), [tasks])
   const byRole = useMemo(() => roles.map(r => ({
-    label: roleLabels[r] || r, plan: data?.byRole[r]?.plan ?? 0, fact: data?.byRole[r]?.fact ?? 0,
+    label: roleLabels[r] || r, key: r, plan: data?.byRole[r]?.plan ?? 0, fact: data?.byRole[r]?.fact ?? 0,
   })), [data, roles, roleLabels])
 
   // хайлайты
@@ -422,8 +423,9 @@ export function EstimationPage() {
           {/* графики */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
             <PFChart title="📋 По задачам" data={byTask}
-              linkBy={Object.fromEntries(byTask.map(d => [d.label, `https://tracker.yandex.ru/${d.key}`]))} />
-            <PFChart title="🧑‍💻 По ролям" data={byRole} />
+              linkBy={Object.fromEntries(byTask.map(d => [d.label, `https://tracker.yandex.ru/${d.key}`]))}
+              onBar={k => setDetail({ type: "task", id: k })} />
+            <PFChart title="🧑‍💻 По ролям" data={byRole} onBar={k => setDetail({ type: "role", id: k })} />
           </div>
 
           {/* прогресс по задачам */}
@@ -459,7 +461,73 @@ export function EstimationPage() {
 
       {/* Модалка нового спринта */}
       <NewSprintModal open={showNew} busy={busy} sprints={sprints} onClose={() => setShowNew(false)} onCreate={onCreate} />
+      <DetailModal detail={detail} data={data} onClose={() => setDetail(null)} />
     </>
+  )
+}
+
+// Детализация по клику: задача → план/факт по стекам; роль → по задачам. Перерасход — красным.
+function DetailModal({ detail, data, onClose }: { detail: { type: "task" | "role"; id: string } | null; data: SprintPlanFact | null; onClose: () => void }) {
+  if (!detail || !data) return null
+  const roles = data.roles, roleLabels = data.roleLabels
+  const cell = (plan: number, fact: number) => {
+    const over = plan > 0 && fact > plan
+    const c = plan === 0 && fact === 0 ? "text-muted-foreground/40" : over ? "" : "text-foreground"
+    return { over, c }
+  }
+  let title = "", subtitle = "", rows: { label: string; plan: number; fact: number; sub?: string }[] = []
+  if (detail.type === "task") {
+    const t = data.tasks.find(x => x.key === detail.id)
+    if (!t) return null
+    title = t.key; subtitle = t.title
+    rows = roles.map(r => ({ label: roleLabels[r] || r, plan: t.plan[r] || 0, fact: t.fact[r] || 0 }))
+      .filter(r => r.plan > 0 || r.fact > 0)
+  } else {
+    title = roleLabels[detail.id] || detail.id; subtitle = "Стек по задачам спринта"
+    rows = data.tasks.map(t => ({ label: t.key.replace(/^[A-Z]+-/, ""), sub: t.title, plan: t.plan[detail.id] || 0, fact: t.fact[detail.id] || 0 }))
+      .filter(r => r.plan > 0 || r.fact > 0)
+  }
+  const tp = r1(rows.reduce((s, r) => s + r.plan, 0)), tf = r1(rows.reduce((s, r) => s + r.fact, 0))
+  return (
+    <Modal open={!!detail} onClose={onClose} title={detail.type === "task" ? `${title} — план/факт по стекам` : `${title} — по задачам`} subtitle={subtitle}>
+      <table className="w-full text-sm border-separate border-spacing-0">
+        <thead>
+          <tr className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+            <th className="text-left px-2 py-1.5">{detail.type === "task" ? "Стек" : "Задача"}</th>
+            <th className="px-2 py-1.5 text-right w-20">План</th>
+            <th className="px-2 py-1.5 text-right w-20">Факт</th>
+            <th className="px-2 py-1.5 text-right w-16">Δ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={4} className="text-center text-muted-foreground py-4">Нет данных</td></tr>}
+          {rows.map((r, i) => {
+            const over = r.plan > 0 && r.fact > r.plan
+            const d = r1(r.fact - r.plan)
+            return (
+              <tr key={i} className="border-t border-border">
+                <td className="px-2 py-1.5">
+                  <span className="font-semibold text-foreground">{r.label}</span>
+                  {r.sub && <span className="block text-xs text-muted-foreground truncate max-w-[260px]">{r.sub}</span>}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-foreground">{r.plan || "—"}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums font-semibold" style={{ color: over ? OVER_C : undefined }}>{r.fact || "—"}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums font-semibold" style={{ color: d > 0 ? OVER_C : d < 0 ? OK_C : "hsl(var(--muted-foreground))" }}>{d > 0 ? `+${d}` : d || "—"}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-border font-black">
+            <td className="px-2 py-2">Итого</td>
+            <td className="px-2 py-2 text-right tabular-nums">{tp}</td>
+            <td className="px-2 py-2 text-right tabular-nums" style={{ color: tf > tp ? OVER_C : undefined }}>{tf}</td>
+            <td className="px-2 py-2 text-right tabular-nums" style={{ color: tf > tp ? OVER_C : tf < tp ? OK_C : undefined }}>{tf - tp > 0 ? `+${r1(tf - tp)}` : r1(tf - tp) || "—"}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <p className="text-[11px] text-muted-foreground mt-3">Перерасход (факт &gt; плана) — красным. SP = ч ÷ 8. Факт — из worklog за период спринта.</p>
+    </Modal>
   )
 }
 
@@ -492,10 +560,14 @@ function TaskTick(props: any) {
   )
 }
 
-function PFChart({ title, data, linkBy }: { title: string; data: { label: string; plan: number; fact: number }[]; linkBy?: Record<string, string> }) {
+function PFChart({ title, data, linkBy, onBar }: { title: string; data: { label: string; plan: number; fact: number; key?: string }[]; linkBy?: Record<string, string>; onBar?: (key: string) => void }) {
+  const click = (d: any) => { const k = d?.key ?? d?.payload?.key; if (onBar && k) onBar(k) }
   return (
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
-      <CardHeader className="pb-1"><CardTitle>{title}</CardTitle></CardHeader>
+      <CardHeader className="pb-1">
+        <CardTitle>{title}</CardTitle>
+        {onBar && <p className="text-[11px] text-muted-foreground mt-0.5">клик по столбцу — план/факт по стекам</p>}
+      </CardHeader>
       <CardContent>
         <div className="flex items-center justify-center gap-4 text-[11px] text-muted-foreground mb-2">
           <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: PLAN_C }} /> План</span>
@@ -511,10 +583,10 @@ function PFChart({ title, data, linkBy }: { title: string; data: { label: string
               labelFormatter={(label: any, p: any) => p?.[0]?.payload?.full || label}
               contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
             <Legend wrapperStyle={{ display: "none" }} />
-            <Bar dataKey="plan" name="План" fill={PLAN_C} radius={[3, 3, 0, 0]}>
+            <Bar dataKey="plan" name="План" fill={PLAN_C} radius={[3, 3, 0, 0]} style={{ cursor: onBar ? "pointer" : "default" }} onClick={click}>
               <LabelList dataKey="plan" position="top" formatter={(v: any) => v ? v : ""} style={{ fontSize: 9, fontWeight: 700, fill: PLAN_C }} />
             </Bar>
-            <Bar dataKey="fact" name="Факт" radius={[3, 3, 0, 0]}>
+            <Bar dataKey="fact" name="Факт" radius={[3, 3, 0, 0]} style={{ cursor: onBar ? "pointer" : "default" }} onClick={click}>
               {data.map((d, i) => <Cell key={i} fill={factColor(d.plan, d.fact)} />)}
               <LabelList dataKey="fact" position="top" formatter={(v: any) => v ? v : ""} style={{ fontSize: 9, fontWeight: 700, fill: "hsl(var(--foreground))" }} />
             </Bar>
