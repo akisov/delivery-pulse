@@ -78,7 +78,8 @@ export function FeatureEstPage() {
   const [effortInput, setEffortInput] = useState("")
   const [settingEff, setSettingEff] = useState(false)
   const [curEffort, setCurEffort] = useState<number | null>(null)   // план в задаче (локально после записи)
-  const [comment, setComment] = useState("")
+  const [discuss, setDiscuss] = useState("")                        // свободный коммент-обсуждение
+  const [discussing, setDiscussing] = useState(false)
   const [simInfo, setSimInfo] = useState<FeatureRefInfo[] | null>(null)
   const [simLoading, setSimLoading] = useState(false)
 
@@ -137,7 +138,7 @@ export function FeatureEstPage() {
     const sug = result.effortDays ?? result.issue?.effort ?? null
     setEffortInput(sug != null ? String(Math.round(sug)) : "")
     setCurEffort(result.issue?.effort ?? null)
-    setComment(buildComment(result))
+    setDiscuss("")
     if (result.similar?.length) {
       setSimLoading(true)
       fetchRefInfo(result.similar).then(setSimInfo).catch(() => setSimInfo([])).finally(() => setSimLoading(false))
@@ -155,14 +156,24 @@ export function FeatureEstPage() {
     } catch (e: any) { toast.error(e.message) }
     finally { setSettingEff(false) }
   }
-  const onComment = async () => {
-    if (!taskKey || !comment.trim()) return
+  const onAddAnalysis = async () => {
+    if (!taskKey || !result) return
     setCommenting(true)
     try {
-      const url = await addFeatureComment(taskKey, comment.trim())
-      toast.success("Комментарий добавлен в задачу", { description: url })
+      const url = await addFeatureComment(taskKey, buildComment(result))
+      toast.success("Анализ (MMF) добавлен в задачу", { description: url })
     } catch (e: any) { toast.error(e.message) }
     finally { setCommenting(false) }
+  }
+  const onAddDiscuss = async () => {
+    if (!taskKey || !discuss.trim()) return
+    setDiscussing(true)
+    try {
+      const url = await addFeatureComment(taskKey, discuss.trim())
+      toast.success("Комментарий добавлен в задачу", { description: url })
+      setDiscuss("")
+    } catch (e: any) { toast.error(e.message) }
+    finally { setDiscussing(false) }
   }
   const simByKey = useMemo(() => Object.fromEntries((simInfo ?? []).map(i => [i.key, i] as [string, FeatureRefInfo])), [simInfo])
 
@@ -308,19 +319,25 @@ export function FeatureEstPage() {
                   </button>
                 </div>
 
-                {/* комментарий в задачу (markdown, редактируемый) */}
+                {/* 1) анализ + MMF одной кнопкой (как было) */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={onAddAnalysis} disabled={commenting}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 text-primary px-3 h-9 text-xs font-semibold hover:bg-primary/15 disabled:opacity-50 transition-all">
+                    {commenting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить анализ (MMF) в {taskKey}
+                  </button>
+                  <span className="text-[11px] text-muted-foreground/60">пишет оценку, MMF и рекомендации одним комментарием</span>
+                </div>
+
+                {/* 2) свободное обсуждение (markdown) — если требуется */}
                 <div>
-                  <div className="flex items-baseline justify-between mb-1 gap-2 flex-wrap">
-                    <span className="text-[11px] text-muted-foreground">Комментарий в задачу <span className="text-muted-foreground/50">· поддерживается Markdown · можно дописать обсуждение</span></span>
-                    <button onClick={() => setComment(buildComment(result))} className="text-[11px] text-muted-foreground/70 hover:text-primary transition-colors">↺ из анализа</button>
-                  </div>
-                  <textarea value={comment} onChange={e => setComment(e.target.value)} rows={7}
+                  <span className="text-[11px] text-muted-foreground">Комментарий-обсуждение <span className="text-muted-foreground/50">· поддерживается Markdown · по желанию</span></span>
+                  <textarea value={discuss} onChange={e => setDiscuss(e.target.value)} rows={5}
                     placeholder="Обсуждение, уточнения, договорённости… (Markdown)"
-                    className="w-full bg-secondary/60 border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary/50 resize-y leading-relaxed" />
+                    className="mt-1 w-full bg-secondary/60 border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary/50 resize-y leading-relaxed" />
                   <div className="flex justify-end mt-2">
-                    <button onClick={onComment} disabled={commenting || !comment.trim()}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 text-primary px-3 h-9 text-xs font-semibold hover:bg-primary/15 disabled:opacity-50 transition-all">
-                      {commenting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить коммент в {taskKey}
+                    <button onClick={onAddDiscuss} disabled={discussing || !discuss.trim()}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card text-foreground px-3 h-9 text-xs font-semibold hover:border-primary/50 hover:text-primary disabled:opacity-40 transition-all">
+                      {discussing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <MessageSquarePlus className="w-3.5 h-3.5" />} Добавить обсуждение в {taskKey}
                     </button>
                   </div>
                 </div>
