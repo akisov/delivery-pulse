@@ -169,7 +169,7 @@ export function FlowTeamsPage() {
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
             <CardHeader className="pb-1">
               <CardTitle className="flex items-center gap-2"><Activity className="w-4 h-4 text-amber-500" /> WIP Age — динамика P90</CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">90-й перцентиль «дней в работе» по незавершённым задачам потока. Чем ниже — тем быстрее проходят задачи.</p>
+              <p className="text-xs text-muted-foreground mt-0.5">90-й перцентиль «дней в работе» по незавершённым задачам (Story / ТехДолг / Инцидент, все приоритеты и стеки). Чем ниже — тем быстрее проходят задачи.</p>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={240}>

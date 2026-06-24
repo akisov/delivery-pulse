@@ -152,6 +152,7 @@ def arch_is_test_task(title: str) -> bool:
 FLOW_TEAM_QUEUE = {"U": "UDOSTAVKA", "X": "POOLING", "R": "DOSTAVKAPIKO"}
 FLOW_TEAM_LABEL = {"U": "Курьеры U", "X": "Курьеры X", "R": "Курьеры R"}
 FLOW_TYPES = ["story", "technicaldebt", "incident", "technicalimprovement"]
+FLOW_WIPAGE_TYPES = {"incident", "technicaldebt", "story"}   # WIP Age: 3 типа, все приоритеты, любой стек
 FLOW_START = "2026-03-01"                              # с какой даты строим историю/CFD
 FLOW_REGULAR_PRIO = {"normal", "minor", "trivial"}     # «обычные»
 FLOW_CRIT_PRIO = {"blocker", "critical"}               # критичные + блокеры
@@ -5069,7 +5070,7 @@ async def query_flow_team(team: str):
     if not queue:
         return {"ok": False, "error": "Неизвестная команда"}
     _tr = await turso_execute([stmt(
-        "SELECT key,created_at,priority,is_1c,status_display,resolved FROM flow_tasks WHERE queue=?",
+        "SELECT key,created_at,issue_type,priority,is_1c,status_display,resolved FROM flow_tasks WHERE queue=?",
         [queue])])
     trows = rows_to_dicts(_tr[0]) if _tr else []
     _xr = await turso_execute([stmt(
@@ -5089,8 +5090,12 @@ async def query_flow_team(team: str):
     wip_ages: list = [[] for _ in range(n_days)]
 
     for t in trows:
-        if (t.get("priority") or "") not in FLOW_REGULAR_PRIO or int(t.get("is_1c") or 0):
-            continue   # CFD/возраст — обычные, без 1С (Turso отдаёт числа строками!)
+        # CFD — «обычные» задачи (обычные приоритеты, без 1С), как на доске.
+        # WIP Age — шире: типы incident/technicaldebt/story, любой приоритет/стек.
+        in_cfd = (t.get("priority") or "") in FLOW_REGULAR_PRIO and not int(t.get("is_1c") or 0)
+        in_wipage = (t.get("issue_type") or "") in FLOW_WIPAGE_TYPES
+        if not in_cfd and not in_wipage:
+            continue
         cday = _msk_date(t.get("created_at") or "")
         try:
             created = date.fromisoformat(cday) if cday else None
@@ -5112,10 +5117,12 @@ async def query_flow_team(team: str):
                 else:
                     break
             if st in FLOW_WIP_SET:
-                cfd[di][st] = cfd[di].get(st, 0) + 1
                 if wip_entry is None:
                     wip_entry = d
-                wip_ages[di].append((d - wip_entry).days + 1)
+                if in_cfd:
+                    cfd[di][st] = cfd[di].get(st, 0) + 1
+                if in_wipage:
+                    wip_ages[di].append((d - wip_entry).days + 1)
 
     cfd_out = [{"day": day_strs[i], **cfd[i]} for i in range(n_days)]
     wip_out = [{"day": day_strs[i],
