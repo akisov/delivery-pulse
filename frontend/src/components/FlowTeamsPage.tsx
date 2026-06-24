@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
+import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { Activity, RefreshCw, AlertTriangle, Database } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -49,6 +49,7 @@ function LimitCard({ title, lim, hint }: { title: string; lim: FlowLimit | undef
 
 export function FlowTeamsPage() {
   const [team, setTeam] = useState("U")
+  const [sel, setSel] = useState<Set<string>>(new Set())   // выбранные статусы CFD (пусто = все)
   const [data, setData] = useState<FlowTeamData | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -147,6 +148,25 @@ export function FlowTeamsPage() {
               <p className="text-xs text-muted-foreground mt-0.5">Накопительная диаграмма потока (обычные задачи) с {fmtDay(data.cfd[0]?.day as string)} по дням. Реконструкция из истории статусов Трекера.</p>
             </CardHeader>
             <CardContent>
+              {/* Кликабельные чипы статусов: выбери несколько — на графике останутся только они */}
+              <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                {statuses.map((s, i) => {
+                  const col = STATUS_COLOR[s] || COLOR_FALLBACK[i % COLOR_FALLBACK.length]
+                  const on = sel.size === 0 || sel.has(s)
+                  return (
+                    <button key={s} onClick={() => setSel(p => { const n = new Set(p); n.has(s) ? n.delete(s) : n.add(s); return n })}
+                      className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all",
+                        on ? "border-transparent text-foreground" : "border-border text-muted-foreground/50 hover:text-muted-foreground")}
+                      style={on ? { background: `${col}22` } : undefined}>
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: col, opacity: on ? 1 : 0.35 }} />
+                      {s}
+                    </button>
+                  )
+                })}
+                {sel.size > 0 && (
+                  <button onClick={() => setSel(new Set())} className="text-[11px] text-primary hover:underline ml-1">сбросить ({sel.size})</button>
+                )}
+              </div>
               <ResponsiveContainer width="100%" height={360}>
                 <AreaChart data={data.cfd} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
                   <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
@@ -156,10 +176,10 @@ export function FlowTeamsPage() {
                     labelFormatter={(d) => fmtDay(d as string)} />
                   {statuses.map((s, i) => (
                     <Area key={s} type="monotone" dataKey={s} stackId="1"
+                      hide={sel.size > 0 && !sel.has(s)}
                       stroke={STATUS_COLOR[s] || COLOR_FALLBACK[i % COLOR_FALLBACK.length]}
                       fill={STATUS_COLOR[s] || COLOR_FALLBACK[i % COLOR_FALLBACK.length]} fillOpacity={0.55} strokeWidth={0.5} />
                   ))}
-                  <Legend wrapperStyle={{ fontSize: 10 }} iconType="circle" iconSize={8} />
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>
