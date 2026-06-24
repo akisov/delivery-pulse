@@ -4980,13 +4980,14 @@ def _flow_is_1c(iss) -> int:
             return 1
     return 0
 
-async def _sync_flow_queue(client, queue, cb):
-    """Тянем задачи потока (нужные типы, с FLOW_START) + историю статусов (changelog)."""
+async def _sync_flow_queue(client, queue, updated_from, cb):
+    """Тянем задачи потока (нужные типы, обновлённые с updated_from) + историю статусов (changelog)."""
+    frm = updated_from if "T" in updated_from else f"{updated_from}T00:00:00"
     issues, page = [], 1
     while True:
         data = await tracker_request(client, "POST", f"/v2/issues/_search?perPage=100&page={page}",
             {"filter": {"queue": queue, "type": FLOW_TYPES,
-                        "updatedAt": {"from": f"{FLOW_START}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+                        "updatedAt": {"from": frm, "to": "2099-01-01T00:00:00"}}})
         chunk = data if isinstance(data, list) else []
         issues.extend(chunk)
         if len(chunk) < 100:
@@ -5037,21 +5038,25 @@ async def _sync_flow_queue(client, queue, cb):
 
 _flow_status = {"running": False, "pct": 0, "msg": "", "error": ""}
 
-async def run_flow_sync():
+async def run_flow_sync(full: bool = False):
+    """full=True — полный краул с FLOW_START; иначе инкрементально с last_synced (быстро)."""
     global _flow_status
     _flow_status = {"running": True, "pct": 2, "msg": "Поток: старт…", "error": ""}
     try:
         if not TRACKER_TOKEN:
             raise Exception("TRACKER_TOKEN не задан")
+        _lg = await turso_execute([stmt("SELECT queue,last_synced FROM flow_sync_log")])
+        last_by = {r["queue"]: r["last_synced"] for r in (rows_to_dicts(_lg[0]) if _lg else [])}
         teams = list(FLOW_TEAM_QUEUE.items())
         async with httpx.AsyncClient(timeout=90) as client:
             for ti, (team, queue) in enumerate(teams):
+                updated_from = FLOW_START if (full or queue not in last_by) else last_by[queue]
                 def cb(done, total, ti=ti, team=team):
                     seg = 96 / len(teams)
                     _flow_status["pct"] = 2 + round(ti * seg + (done / max(total, 1)) * seg)
                     _flow_status["msg"] = f"{FLOW_TEAM_LABEL.get(team, team)}: {done}/{total}"
-                n = await _sync_flow_queue(client, queue, cb)
-                print(f"[flow sync] {queue}: {n} задач")
+                n = await _sync_flow_queue(client, queue, updated_from, cb)
+                print(f"[flow sync] {queue}: {n} задач (с {updated_from})")
         _flow_status = {"running": False, "pct": 100, "msg": "Готово", "error": ""}
     except Exception as e:
         _flow_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
@@ -5063,12 +5068,14 @@ async def query_flow_team(team: str):
     queue = FLOW_TEAM_QUEUE.get(team)
     if not queue:
         return {"ok": False, "error": "Неизвестная команда"}
-    trows = rows_to_dicts(await turso_execute([stmt(
+    _tr = await turso_execute([stmt(
         "SELECT key,created_at,priority,is_1c,status_display,resolved FROM flow_tasks WHERE queue=?",
-        [queue])]))
-    xrows = rows_to_dicts(await turso_execute([stmt(
+        [queue])])
+    trows = rows_to_dicts(_tr[0]) if _tr else []
+    _xr = await turso_execute([stmt(
         "SELECT issue_key,ts,from_display,to_display FROM flow_transitions WHERE issue_key IN "
-        "(SELECT key FROM flow_tasks WHERE queue=?) ORDER BY ts", [queue])]))
+        "(SELECT key FROM flow_tasks WHERE queue=?) ORDER BY ts", [queue])])
+    xrows = rows_to_dicts(_xr[0]) if _xr else []
     by_key: dict = {}
     for r in xrows:
         by_key.setdefault(r["issue_key"], []).append(r)
@@ -5127,8 +5134,8 @@ async def query_flow_team(team: str):
     if "onec" in lims:
         limits["onec"] = {"count": cnt(lambda t: bool(t.get("is_1c")) and (t.get("priority") in FLOW_REGULAR_PRIO)),
                           "limit": lims.get("onec")}
-    log = rows_to_dicts(await turso_execute([stmt(
-        "SELECT last_synced FROM flow_sync_log WHERE queue=?", [queue])]))
+    _lg = await turso_execute([stmt("SELECT last_synced FROM flow_sync_log WHERE queue=?", [queue])])
+    log = rows_to_dicts(_lg[0]) if _lg else []
     return {"ok": True, "team": team, "label": FLOW_TEAM_LABEL.get(team, team), "queue": queue,
             "teams": list(FLOW_TEAM_QUEUE.keys()), "teamLabels": FLOW_TEAM_LABEL,
             "statuses": FLOW_WIP_STATUSES, "cfd": cfd_out, "wipAge": wip_out, "limits": limits,
@@ -5139,10 +5146,10 @@ async def flow_teams_get(team: str = Query("U")):
     return JSONResponse(await query_flow_team(team))
 
 @app.post("/flow-teams/sync")
-async def flow_teams_sync():
+async def flow_teams_sync(full: bool = Query(False)):
     if _flow_status["running"]:
         return JSONResponse({"ok": False, "error": "Синк потока уже идёт"})
-    asyncio.create_task(run_flow_sync())
+    asyncio.create_task(run_flow_sync(full))
     return JSONResponse({"ok": True})
 
 @app.get("/flow-teams/sync-status")
