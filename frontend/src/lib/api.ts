@@ -1,4 +1,18 @@
-import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks, FeatureRefInfo } from "./types"
+import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks, FeatureRefInfo, FlowTeamData, FlowSyncStatus } from "./types"
+
+export async function fetchFlowTeam(team: string): Promise<FlowTeamData> {
+  const r = await fetch(`/flow-teams?team=${encodeURIComponent(team)}`)
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.json()
+}
+export async function startFlowSync(full = false): Promise<{ ok: boolean; error?: string }> {
+  const r = await fetch(`/flow-teams/sync${full ? "?full=true" : ""}`, { method: "POST" })
+  return r.json()
+}
+export async function fetchFlowSyncStatus(): Promise<FlowSyncStatus> {
+  const r = await fetch("/flow-teams/sync-status")
+  return r.json()
+}
 
 export async function fetchDashboard(dateFrom?: string, dateTo?: string): Promise<DashboardData> {
   const params = new URLSearchParams()

@@ -162,3 +162,17 @@ export interface ArchTask {
   v1n: number  // возвратов от АрхКома (на ревью аналитики)
   v2n: number  // возвратов от ТА (на доработку)
 }
+
+// ── Поток по командам (CFD + WIP Age) ───────────────────────────────────────────
+export interface FlowLimit { count: number; limit: number | null }
+export interface FlowTeamData {
+  ok: boolean
+  team: string; label: string; queue: string
+  teams: string[]; teamLabels: Record<string, string>
+  statuses: string[]
+  cfd: Array<Record<string, number | string>>   // { day, [status]: count }
+  wipAge: { day: string; p90: number; count: number }[]
+  limits: { regular: FlowLimit; crit: FlowLimit; onec?: FlowLimit }
+  tasks: number; updatedAt: string | null
+}
+export interface FlowSyncStatus { running: boolean; pct: number; msg: string; error: string }

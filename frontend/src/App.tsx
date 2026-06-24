@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
-import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Command as CommandIcon } from "lucide-react"
+import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, Command as CommandIcon } from "lucide-react"
 import { Toaster, toast } from "sonner"
 import { CommandPalette } from "@/components/CommandPalette"
 import { SimpleTooltip } from "@/components/ui/tooltip"
@@ -32,6 +32,7 @@ import { IncidentsPage } from "@/components/IncidentsPage"
 import { ArchPage } from "@/components/ArchPage"
 import { EstimationPage } from "@/components/EstimationPage"
 import { FeatureEstPage } from "@/components/FeatureEstPage"
+import { FlowTeamsPage } from "@/components/FlowTeamsPage"
 import { PageHeader } from "@/components/PageHeader"
 import { BlockingTable } from "@/components/BlockingTable"
 import { DowntimeChart } from "@/components/DowntimeChart"
@@ -72,7 +73,7 @@ export default function App() {
   const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
-  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat">("home")
+  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat" | "flowt">("home")
   const [sleReloadKey, setSleReloadKey] = useState(0)  // пересбор SLE после синка
 
   const [data, setData] = useState<DashboardData | null>(null)
@@ -310,7 +311,7 @@ export default function App() {
             {([
               { items: [["home", Home, "Главная"]] },
               { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["est", Gauge, "Спринты"], ["osp", Truck, "ОСП"]] },
-              { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["sle", Target, "Анализ SLE"], ["feat", Lightbulb, "Оценка НВ"]] },
+              { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["flowt", Activity, "Поток команд"], ["sle", Target, "Анализ SLE"], ["feat", Lightbulb, "Оценка НВ"]] },
             ] as const).map((grp, gi) => (
               <div key={gi} className={gi ? "mt-2" : ""}>
                 {"title" in grp && grp.title && (
@@ -343,6 +344,7 @@ export default function App() {
          section === "est" ? <EstimationPage /> :
          section === "feat" ? <FeatureEstPage /> :
          section === "flow" ? <FlowPage /> :
+         section === "flowt" ? <FlowTeamsPage /> :
          section === "sle" ? <SLEPage reloadKey={sleReloadKey} /> : (
         <>
         <PageHeader icon={Lock} title="Время разрешения блокировок" info="blockings"

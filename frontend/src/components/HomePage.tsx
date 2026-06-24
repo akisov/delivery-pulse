@@ -1,11 +1,21 @@
-import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Props {
-  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat") => void
+  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat" | "flowt") => void
 }
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  {
+    date: "Июнь 2026",
+    title: "Раздел «Поток команд» (E2E)",
+    items: [
+      "CFD (накопительная диаграмма потока) с разбивкой по статусам по каждой команде курьеров (X / U / R).",
+      "Динамика WIP Age — 90-й перцентиль «дней в работе» по незавершённым задачам потока.",
+      "WIP-лимиты с подсветкой превышения: обычные (U 17 / X 16 / R 20), 1С (U — 6), критичные+блокеры (2).",
+      "История статусов реконструируется из changelog Трекера с 01.03.2026; синк инкрементальный.",
+    ],
+  },
   {
     date: "Июнь 2026",
     title: "«Оценка НВ» → PBR-флоу прямо из дашборда",
@@ -132,6 +142,8 @@ const NAV_CARDS = [
     title: "Анализ SLE", desc: "Кластеризация причин нарушения SLE по PUTKURERA, скрытые блокировки." },
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",
     title: "Поток E2E", desc: "Возраст работы в Discovery/Delivery (WIP Age P90), WIP-лимиты и недельный тренд." },
+  { section: "flowt" as const, icon: Activity, color: "#22D3EE",
+    title: "Поток команд", desc: "CFD по статусам и динамика WIP Age (P90 дней в работе) по командам курьеров (X · U · R), WIP-лимиты." },
   { section: "feat" as const, icon: Lightbulb, color: "#FBBF24",
     title: "Оценка НВ", desc: "Новые возможности: AI-категория (S/M/L), effort и MMF-проверка + эталоны по командам и категориям." },
   { section: "osp" as const, icon: Truck, color: "#F59E0B",
