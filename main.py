@@ -5156,6 +5156,24 @@ async def flow_teams_sync(full: bool = Query(False)):
 async def flow_teams_sync_status():
     return JSONResponse(_flow_status)
 
+@app.get("/flow-teams/diag")
+async def flow_teams_diag(team: str = Query("X")):
+    queue = FLOW_TEAM_QUEUE.get(team, "POOLING")
+    s = await turso_execute([stmt(
+        "SELECT status_display AS s, COUNT(*) AS c, SUM(resolved) AS r FROM flow_tasks "
+        "WHERE queue=? GROUP BY status_display ORDER BY c DESC", [queue])])
+    p = await turso_execute([stmt(
+        "SELECT priority AS p, COUNT(*) AS c FROM flow_tasks WHERE queue=? GROUP BY priority", [queue])])
+    td = await turso_execute([stmt(
+        "SELECT to_display AS s, COUNT(*) AS c FROM flow_transitions WHERE issue_key IN "
+        "(SELECT key FROM flow_tasks WHERE queue=?) GROUP BY to_display ORDER BY c DESC LIMIT 40", [queue])])
+    return JSONResponse({
+        "statuses_flow_tasks": rows_to_dicts(s[0]) if s else [],
+        "priorities": rows_to_dicts(p[0]) if p else [],
+        "to_display_transitions": rows_to_dicts(td[0]) if td else [],
+        "WIP_SET": sorted(FLOW_WIP_SET),
+    })
+
 # ── Static (React build) ──────────────────────────────────────────────────────
 
 import os as _os
