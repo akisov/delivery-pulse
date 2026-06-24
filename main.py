@@ -152,7 +152,7 @@ def arch_is_test_task(title: str) -> bool:
 FLOW_TEAM_QUEUE = {"U": "UDOSTAVKA", "X": "POOLING", "R": "DOSTAVKAPIKO"}
 FLOW_TEAM_LABEL = {"U": "Курьеры U", "X": "Курьеры X", "R": "Курьеры R"}
 FLOW_TYPES = ["story", "technicaldebt", "incident", "technicalimprovement"]
-FLOW_WIPAGE_TYPES = {"incident", "technicaldebt", "story"}   # WIP Age: 3 типа, все приоритеты, любой стек
+FLOW_WIPAGE_TYPES = {"incident", "technicaldebt", "story", "technicalimprovement"}   # WIP Age: все приоритеты, любой стек
 FLOW_START = "2026-03-01"                              # с какой даты строим историю/CFD
 FLOW_REGULAR_PRIO = {"normal", "minor", "trivial"}     # «обычные»
 FLOW_CRIT_PRIO = {"blocker", "critical"}               # критичные + блокеры
