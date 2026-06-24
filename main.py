@@ -5081,8 +5081,10 @@ async def query_flow_team(team: str):
     for r in xrows:
         by_key.setdefault(r["issue_key"], []).append(r)
 
-    start = date.fromisoformat(FLOW_START)
     today = datetime.now(MSK).date()
+    # окно отображения — последние ~3 месяца (данные в БД с FLOW_START; возраст WIP
+    # считается от истинного входа в работу по полной истории, см. twip ниже)
+    start = max(date.fromisoformat(FLOW_START), today - timedelta(days=90))
     n_days = (today - start).days + 1
     days = [start + timedelta(days=i) for i in range(n_days)]
     day_strs = [d.isoformat() for d in days]

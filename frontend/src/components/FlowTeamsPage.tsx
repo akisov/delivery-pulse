@@ -145,7 +145,7 @@ export function FlowTeamsPage() {
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
             <CardHeader className="pb-1">
               <CardTitle className="flex items-center gap-2"><Activity className="w-4 h-4 text-primary" /> CFD — задачи по статусам</CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">Накопительная диаграмма потока (обычные задачи) с {fmtDay(data.cfd[0]?.day as string)} по дням. Реконструкция из истории статусов Трекера.</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Накопительная диаграмма потока (обычные задачи) за последние 3 месяца, по дням. Реконструкция из истории статусов Трекера.</p>
             </CardHeader>
             <CardContent>
               {/* Кликабельные чипы статусов: выбери несколько — на графике останутся только они */}
