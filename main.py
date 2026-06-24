@@ -5089,8 +5089,8 @@ async def query_flow_team(team: str):
     wip_ages: list = [[] for _ in range(n_days)]
 
     for t in trows:
-        if (t.get("priority") or "") not in FLOW_REGULAR_PRIO or t.get("is_1c"):
-            continue   # CFD/возраст — обычные, без 1С
+        if (t.get("priority") or "") not in FLOW_REGULAR_PRIO or int(t.get("is_1c") or 0):
+            continue   # CFD/возраст — обычные, без 1С (Turso отдаёт числа строками!)
         cday = _msk_date(t.get("created_at") or "")
         try:
             created = date.fromisoformat(cday) if cday else None
@@ -5124,15 +5124,15 @@ async def query_flow_team(team: str):
 
     def cnt(pred):
         return sum(1 for t in trows
-                   if t.get("status_display") in FLOW_WIP_SET and not t.get("resolved") and pred(t))
+                   if t.get("status_display") in FLOW_WIP_SET and not int(t.get("resolved") or 0) and pred(t))
     lims = FLOW_LIMITS.get(team, {})
     limits = {
-        "regular": {"count": cnt(lambda t: (t.get("priority") in FLOW_REGULAR_PRIO) and not t.get("is_1c")),
+        "regular": {"count": cnt(lambda t: (t.get("priority") in FLOW_REGULAR_PRIO) and not int(t.get("is_1c") or 0)),
                     "limit": lims.get("regular")},
         "crit": {"count": cnt(lambda t: t.get("priority") in FLOW_CRIT_PRIO), "limit": lims.get("crit")},
     }
     if "onec" in lims:
-        limits["onec"] = {"count": cnt(lambda t: bool(t.get("is_1c")) and (t.get("priority") in FLOW_REGULAR_PRIO)),
+        limits["onec"] = {"count": cnt(lambda t: int(t.get("is_1c") or 0) and (t.get("priority") in FLOW_REGULAR_PRIO)),
                           "limit": lims.get("onec")}
     _lg = await turso_execute([stmt("SELECT last_synced FROM flow_sync_log WHERE queue=?", [queue])])
     log = rows_to_dicts(_lg[0]) if _lg else []
