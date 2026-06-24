@@ -11,7 +11,7 @@ const ITEMS: { section: Section; label: string; icon: LucideIcon; hint: string }
   { section: "blockings", label: "Блокировки",  icon: Lock,          hint: "время разрешения · причины" },
   { section: "incidents", label: "Инциденты",   icon: AlertTriangle, hint: "по месяцам · причины · топы" },
   { section: "arch",      label: "Арх. комитет", icon: Landmark,      hint: "возвраты · воронка · цикл" },
-  { section: "est",       label: "Оценка",      icon: Gauge,         hint: "план-факт спринта · SP" },
+  { section: "est",       label: "Спринты",     icon: Gauge,         hint: "план-факт спринта · SP" },
   { section: "sle",       label: "Анализ SLE",  icon: Target,        hint: "риски · кластеры причин" },
   { section: "flow",      label: "Поток E2E",   icon: Workflow,      hint: "WIP Age · лимиты" },
   { section: "feat",      label: "Оценка НВ", icon: Lightbulb, hint: "новые возможности · S/M/L · MMF · эталоны" },

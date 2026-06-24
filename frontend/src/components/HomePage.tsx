@@ -127,7 +127,7 @@ const NAV_CARDS = [
   { section: "arch" as const, icon: Landmark, color: "#6366F1",
     title: "Арх. комитет", desc: "Прохождение арх. комитета и возвраты (АрхКом · ТА) по трём очередям: воронка, время цикла и «сейчас в комитете»." },
   { section: "est" as const, icon: Gauge, color: "#EC4899",
-    title: "Оценка", desc: "План-факт спринта (Курьеры U): план в SP по ролям + факт из worklog в реальном времени, фиксация итога." },
+    title: "Спринты", desc: "План-факт спринта (Курьеры U): план в SP по ролям + факт из worklog в реальном времени, фиксация итога." },
   { section: "sle" as const, icon: Target, color: "#10B981",
     title: "Анализ SLE", desc: "Кластеризация причин нарушения SLE по PUTKURERA, скрытые блокировки." },
   { section: "flow" as const, icon: Workflow, color: "#38BDF8",

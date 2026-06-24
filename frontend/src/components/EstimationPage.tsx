@@ -228,7 +228,7 @@ export function EstimationPage() {
 
   return (
     <>
-      <PageHeader icon={Gauge} title="Оценка — план-факт спринта" info="est"
+      <PageHeader icon={Gauge} title="Спринты — план-факт" info="est"
         subtitle={<>Планируем SP по ролям, факт — из worklog в реальном времени · 1 SP = 8 ч{data?.sprint && <span className="ml-1">· {data.sprint.dateFrom && `${fmtD(data.sprint.dateFrom)}–${fmtD(data.sprint.dateTo)}`}</span>}</>}>
         {sel != null && data && (
           data.finalized
