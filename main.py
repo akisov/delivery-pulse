@@ -5146,6 +5146,7 @@ async def query_flow_team(team: str):
     return {"ok": True, "team": team, "label": FLOW_TEAM_LABEL.get(team, team), "queue": queue,
             "teams": list(FLOW_TEAM_QUEUE.keys()), "teamLabels": FLOW_TEAM_LABEL,
             "statuses": FLOW_WIP_STATUSES, "cfd": cfd_out, "wipAge": wip_out, "limits": limits,
+            "wipAgeTypes": sorted(FLOW_WIPAGE_TYPES),
             "tasks": len(trows), "updatedAt": (log[0]["last_synced"] if log else None)}
 
 @app.get("/flow-teams")

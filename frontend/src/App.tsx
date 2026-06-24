@@ -310,8 +310,8 @@ export default function App() {
             )}
             {([
               { items: [["home", Home, "Главная"]] },
-              { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["est", Gauge, "Спринты"], ["osp", Truck, "ОСП"]] },
-              { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["flowt", Activity, "Поток команд"], ["sle", Target, "Анализ SLE"], ["feat", Lightbulb, "Оценка НВ"]] },
+              { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["flowt", Activity, "Поток команд"], ["est", Gauge, "Спринты"], ["osp", Truck, "ОСП"]] },
+              { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["sle", Target, "Анализ SLE"], ["feat", Lightbulb, "Оценка НВ"]] },
             ] as const).map((grp, gi) => (
               <div key={gi} className={gi ? "mt-2" : ""}>
                 {"title" in grp && grp.title && (
