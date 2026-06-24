@@ -5105,7 +5105,17 @@ async def query_flow_team(team: str):
         ev_days = [(_msk_date(e.get("ts") or ""), e.get("to_display") or "") for e in evs]
         ev_days = [(d, s) for (d, s) in ev_days if d]
         created_status = (evs[0].get("from_display") if evs else "") or t.get("status_display") or ""
-        wip_entry = None
+        # Истинный вход в WIP — по ВСЕЙ истории (переход мог быть до окна FLOW_START),
+        # иначе возраст на 01.03 стартовал бы с нуля и линейно рос (артефакт).
+        twip = created if created_status in FLOW_WIP_SET else None
+        if twip is None:
+            for (ed, td) in ev_days:
+                if td in FLOW_WIP_SET:
+                    try:
+                        twip = date.fromisoformat(ed)
+                    except ValueError:
+                        twip = None
+                    break
         for di in range(n_days):
             d, ds = days[di], day_strs[di]
             if created and d < created:
@@ -5117,12 +5127,10 @@ async def query_flow_team(team: str):
                 else:
                     break
             if st in FLOW_WIP_SET:
-                if wip_entry is None:
-                    wip_entry = d
                 if in_cfd:
                     cfd[di][st] = cfd[di].get(st, 0) + 1
                 if in_wipage:
-                    wip_ages[di].append((d - wip_entry).days + 1)
+                    wip_ages[di].append((d - (twip or d)).days + 1)
 
     cfd_out = [{"day": day_strs[i], **cfd[i]} for i in range(n_days)]
     wip_out = [{"day": day_strs[i],
