@@ -148,6 +148,28 @@ def arch_is_test_task(title: str) -> bool:
     """Тестовые задачи: слово «тест»/«test» или «тестовый/тестовая/тестовое»."""
     return bool(_ARCH_TEST_RE.search(title or ""))
 
+# ── Поток по командам (CFD + WIP Age по очередям) ───────────────────────────────
+FLOW_TEAM_QUEUE = {"U": "UDOSTAVKA", "X": "POOLING", "R": "DOSTAVKAPIKO"}
+FLOW_TEAM_LABEL = {"U": "Курьеры U", "X": "Курьеры X", "R": "Курьеры R"}
+FLOW_TYPES = ["story", "technicaldebt", "incident", "technicalimprovement"]
+FLOW_START = "2026-03-01"                              # с какой даты строим историю/CFD
+FLOW_REGULAR_PRIO = {"normal", "minor", "trivial"}     # «обычные»
+FLOW_CRIT_PRIO = {"blocker", "critical"}               # критичные + блокеры
+# WIP-лимиты: обычные / 1С (только U) / критичные+блокеры (везде 2)
+FLOW_LIMITS = {
+    "U": {"regular": 17, "onec": 6, "crit": 2},
+    "X": {"regular": 16, "crit": 2},
+    "R": {"regular": 20, "crit": 2},
+}
+# Статусы потока (WIP) в порядке доски — по ним строим CFD-разбивку
+FLOW_WIP_STATUSES = [
+    "Протестировано", "Тестируется", "Помещение в продуктив", "Разработка готово",
+    "Аналитическая проработка", "В разработке", "Согласование архитектуры Готово",
+    "Согласование архитектуры", "Помещение в продуктив Готово", "На проверке у заказчика",
+    "Backlog команды", "Аналитическая проработка готово", "Ревью аналитики", "На уточнении",
+]
+FLOW_WIP_SET = set(FLOW_WIP_STATUSES)
+
 # ── Оценка (план-факт спринта): роли/сотрудники Курьеров U ───────────────────────
 SP_HOURS = 8  # 1 SP = 8 часов
 SPRINT_ROLES = ["SA", "GO", "Front", "QA", "1С", "AQA"]  # порядок в отчёте
@@ -292,6 +314,19 @@ async def init_db():
         stmt("CREATE INDEX IF NOT EXISTS idx_arch_trans_to  ON arch_transitions(to_status)"),
         # Отдельный журнал синка арх.кома — НЕ мешаем с sync_log блокировок
         stmt("""CREATE TABLE IF NOT EXISTS arch_sync_log (
+            queue TEXT PRIMARY KEY, last_synced TEXT)"""),
+        # ── Поток по командам: задачи + история статусов (для CFD/WIP Age) ────────
+        stmt("""CREATE TABLE IF NOT EXISTS flow_tasks (
+            key TEXT PRIMARY KEY, queue TEXT, created_at TEXT,
+            issue_type TEXT, priority TEXT, is_1c INTEGER DEFAULT 0,
+            status_display TEXT, resolved INTEGER DEFAULT 0, days_in_work INTEGER)"""),
+        stmt("""CREATE TABLE IF NOT EXISTS flow_transitions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_key TEXT NOT NULL, ts TEXT NOT NULL,
+            from_display TEXT, to_display TEXT)"""),
+        stmt("CREATE INDEX IF NOT EXISTS idx_flow_trans_key ON flow_transitions(issue_key)"),
+        stmt("CREATE INDEX IF NOT EXISTS idx_flow_trans_ts  ON flow_transitions(ts)"),
+        stmt("""CREATE TABLE IF NOT EXISTS flow_sync_log (
             queue TEXT PRIMARY KEY, last_synced TEXT)"""),
         # ── Оценка: спринты и план по ролям ──────────────────────────────────────
         stmt("""CREATE TABLE IF NOT EXISTS sprints (
@@ -4934,6 +4969,185 @@ async def est_ref_info(keys: str = Query("")):
             "byStack": stacks_by.get(k, {}), "inRefs": k in ref_by,
         })
     return JSONResponse({"ok": True, "items": out})
+
+# ── Поток по командам: синк (changelog) + реконструкция CFD/WIP Age ──────────────
+def _flow_is_1c(iss) -> int:
+    v = _field(iss, "--stackmultiple")
+    vals = v if isinstance(v, list) else ([v] if v else [])
+    for x in vals:
+        s = str((x.get("display") if isinstance(x, dict) else x) or "").lower()
+        if "1с" in s or "1c" in s:
+            return 1
+    return 0
+
+async def _sync_flow_queue(client, queue, cb):
+    """Тянем задачи потока (нужные типы, с FLOW_START) + историю статусов (changelog)."""
+    issues, page = [], 1
+    while True:
+        data = await tracker_request(client, "POST", f"/v2/issues/_search?perPage=100&page={page}",
+            {"filter": {"queue": queue, "type": FLOW_TYPES,
+                        "updatedAt": {"from": f"{FLOW_START}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+        chunk = data if isinstance(data, list) else []
+        issues.extend(chunk)
+        if len(chunk) < 100:
+            break
+        page += 1
+        await asyncio.sleep(0.4)
+    B = 3
+    for i in range(0, len(issues), B):
+        chunk = issues[i:i + B]
+        cls = await asyncio.gather(*[fetch_arch_changelog(client, x["key"]) for x in chunk],
+                                   return_exceptions=True)
+        await asyncio.sleep(1.0)
+        stmts = []
+        for iss, cl in zip(chunk, cls):
+            if isinstance(cl, Exception):
+                continue
+            key = iss["key"]
+            status = iss.get("status", {}) or {}
+            prio = (iss.get("priority") or {}).get("key", "")
+            stmts.append(stmt(
+                "INSERT INTO flow_tasks(key,queue,created_at,issue_type,priority,is_1c,"
+                "status_display,resolved,days_in_work) VALUES(?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET priority=excluded.priority, is_1c=excluded.is_1c, "
+                "status_display=excluded.status_display, resolved=excluded.resolved, "
+                "days_in_work=excluded.days_in_work",
+                [key, queue, iss.get("createdAt", ""), (iss.get("type") or {}).get("key", ""),
+                 prio, _flow_is_1c(iss), status.get("display", ""),
+                 1 if iss.get("resolution") else 0, _osp_days_field(iss)]))
+            for e in cl:
+                ts = e.get("updatedAt") or e.get("createdAt") or ""
+                for f in e.get("fields", []):
+                    if f.get("field", {}).get("id") == "status":
+                        fd = (f.get("from") or {}).get("display", "") if isinstance(f.get("from"), dict) else ""
+                        td = (f.get("to") or {}).get("display", "") if isinstance(f.get("to"), dict) else ""
+                        stmts.append(stmt(
+                            "INSERT INTO flow_transitions(issue_key,ts,from_display,to_display) "
+                            "SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM flow_transitions "
+                            "WHERE issue_key=? AND ts=? AND to_display=?)",
+                            [key, ts, fd, td, key, ts, td]))
+        if stmts:
+            await turso_execute(stmts)
+        cb(min(i + B, len(issues)), len(issues))
+    await turso_execute([stmt(
+        "INSERT INTO flow_sync_log(queue,last_synced) VALUES(?,?) "
+        "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
+        [queue, datetime.now(MSK).strftime("%Y-%m-%dT%H:%M:%S")])])
+    return len(issues)
+
+_flow_status = {"running": False, "pct": 0, "msg": "", "error": ""}
+
+async def run_flow_sync():
+    global _flow_status
+    _flow_status = {"running": True, "pct": 2, "msg": "Поток: старт…", "error": ""}
+    try:
+        if not TRACKER_TOKEN:
+            raise Exception("TRACKER_TOKEN не задан")
+        teams = list(FLOW_TEAM_QUEUE.items())
+        async with httpx.AsyncClient(timeout=90) as client:
+            for ti, (team, queue) in enumerate(teams):
+                def cb(done, total, ti=ti, team=team):
+                    seg = 96 / len(teams)
+                    _flow_status["pct"] = 2 + round(ti * seg + (done / max(total, 1)) * seg)
+                    _flow_status["msg"] = f"{FLOW_TEAM_LABEL.get(team, team)}: {done}/{total}"
+                n = await _sync_flow_queue(client, queue, cb)
+                print(f"[flow sync] {queue}: {n} задач")
+        _flow_status = {"running": False, "pct": 100, "msg": "Готово", "error": ""}
+    except Exception as e:
+        _flow_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
+        print(f"[flow sync] ERROR {e}")
+
+async def query_flow_team(team: str):
+    """Реконструкция CFD (по статусам) и динамики WIP Age P90 из flow_transitions.
+    CFD/возраст — по «обычному» набору (обычные приоритеты, без 1С); лимиты — по всем бакетам."""
+    queue = FLOW_TEAM_QUEUE.get(team)
+    if not queue:
+        return {"ok": False, "error": "Неизвестная команда"}
+    trows = rows_to_dicts(await turso_execute([stmt(
+        "SELECT key,created_at,priority,is_1c,status_display,resolved FROM flow_tasks WHERE queue=?",
+        [queue])]))
+    xrows = rows_to_dicts(await turso_execute([stmt(
+        "SELECT issue_key,ts,from_display,to_display FROM flow_transitions WHERE issue_key IN "
+        "(SELECT key FROM flow_tasks WHERE queue=?) ORDER BY ts", [queue])]))
+    by_key: dict = {}
+    for r in xrows:
+        by_key.setdefault(r["issue_key"], []).append(r)
+
+    start = date.fromisoformat(FLOW_START)
+    today = datetime.now(MSK).date()
+    n_days = (today - start).days + 1
+    days = [start + timedelta(days=i) for i in range(n_days)]
+    day_strs = [d.isoformat() for d in days]
+    cfd = [dict() for _ in range(n_days)]
+    wip_ages: list = [[] for _ in range(n_days)]
+
+    for t in trows:
+        if (t.get("priority") or "") not in FLOW_REGULAR_PRIO or t.get("is_1c"):
+            continue   # CFD/возраст — обычные, без 1С
+        cday = _msk_date(t.get("created_at") or "")
+        try:
+            created = date.fromisoformat(cday) if cday else None
+        except ValueError:
+            created = None
+        evs = by_key.get(t["key"], [])
+        ev_days = [(_msk_date(e.get("ts") or ""), e.get("to_display") or "") for e in evs]
+        ev_days = [(d, s) for (d, s) in ev_days if d]
+        created_status = (evs[0].get("from_display") if evs else "") or t.get("status_display") or ""
+        wip_entry = None
+        for di in range(n_days):
+            d, ds = days[di], day_strs[di]
+            if created and d < created:
+                continue
+            st = created_status
+            for (ed, td) in ev_days:
+                if ed <= ds:
+                    st = td
+                else:
+                    break
+            if st in FLOW_WIP_SET:
+                cfd[di][st] = cfd[di].get(st, 0) + 1
+                if wip_entry is None:
+                    wip_entry = d
+                wip_ages[di].append((d - wip_entry).days + 1)
+
+    cfd_out = [{"day": day_strs[i], **cfd[i]} for i in range(n_days)]
+    wip_out = [{"day": day_strs[i],
+                "p90": _pctl_interp(wip_ages[i], 0.90) if wip_ages[i] else 0,
+                "count": len(wip_ages[i])} for i in range(n_days)]
+
+    def cnt(pred):
+        return sum(1 for t in trows
+                   if t.get("status_display") in FLOW_WIP_SET and not t.get("resolved") and pred(t))
+    lims = FLOW_LIMITS.get(team, {})
+    limits = {
+        "regular": {"count": cnt(lambda t: (t.get("priority") in FLOW_REGULAR_PRIO) and not t.get("is_1c")),
+                    "limit": lims.get("regular")},
+        "crit": {"count": cnt(lambda t: t.get("priority") in FLOW_CRIT_PRIO), "limit": lims.get("crit")},
+    }
+    if "onec" in lims:
+        limits["onec"] = {"count": cnt(lambda t: bool(t.get("is_1c")) and (t.get("priority") in FLOW_REGULAR_PRIO)),
+                          "limit": lims.get("onec")}
+    log = rows_to_dicts(await turso_execute([stmt(
+        "SELECT last_synced FROM flow_sync_log WHERE queue=?", [queue])]))
+    return {"ok": True, "team": team, "label": FLOW_TEAM_LABEL.get(team, team), "queue": queue,
+            "teams": list(FLOW_TEAM_QUEUE.keys()), "teamLabels": FLOW_TEAM_LABEL,
+            "statuses": FLOW_WIP_STATUSES, "cfd": cfd_out, "wipAge": wip_out, "limits": limits,
+            "tasks": len(trows), "updatedAt": (log[0]["last_synced"] if log else None)}
+
+@app.get("/flow-teams")
+async def flow_teams_get(team: str = Query("U")):
+    return JSONResponse(await query_flow_team(team))
+
+@app.post("/flow-teams/sync")
+async def flow_teams_sync():
+    if _flow_status["running"]:
+        return JSONResponse({"ok": False, "error": "Синк потока уже идёт"})
+    asyncio.create_task(run_flow_sync())
+    return JSONResponse({"ok": True})
+
+@app.get("/flow-teams/sync-status")
+async def flow_teams_sync_status():
+    return JSONResponse(_flow_status)
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 
