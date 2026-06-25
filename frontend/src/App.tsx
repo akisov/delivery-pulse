@@ -12,6 +12,7 @@ const NAV_HINT: Record<string, string> = {
   arch: "Возвраты · воронка · цикл",
   sle: "Риски и кластеры причин",
   flow: "WIP Age · WIP-лимиты",
+  flowt: "CFD · WIP Age по командам",
   osp: "Обзор сервиса поставки",
   est: "План-факт спринта · SP",
   feat: "Оценка возможностей · S/M/L · эталоны",
