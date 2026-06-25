@@ -168,6 +168,7 @@ FLOW_WIP_STATUSES = [
     "Аналитическая проработка", "В разработке", "Согласование архитектуры Готово",
     "Согласование архитектуры", "Помещение в продуктив Готово", "На проверке у заказчика",
     "Backlog команды", "Аналитическая проработка готово", "Ревью аналитики", "На уточнении",
+    "Доработка на приемке",
 ]
 FLOW_WIP_SET = set(FLOW_WIP_STATUSES)
 
@@ -5088,7 +5089,7 @@ async def query_flow_team(team: str, refresh: bool = False):
     if not queue:
         return {"ok": False, "error": "Неизвестная команда"}
     today_str = datetime.now(MSK).date().isoformat()
-    ck = f"flowteam-{team}-v2"
+    ck = f"flowteam-{team}-v3"
     if not refresh:
         snap = await _osp_snap(ck)
         if isinstance(snap, dict) and snap.get("computedToday") == today_str:
