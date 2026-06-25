@@ -58,7 +58,10 @@ function TaskRow({ t }: { t: FlowWipTask }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <a href={t.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1">{t.key}<ExternalLink className="w-3 h-3" /></a>
-          <span className="text-[10px] text-muted-foreground">{t.status}</span>
+          <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={{ background: `${STATUS_COLOR[t.status] || "#94A3B8"}22`, color: STATUS_COLOR[t.status] || "#94A3B8" }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_COLOR[t.status] || "#94A3B8" }} />{t.status}
+          </span>
         </div>
         <p className="text-xs text-foreground mt-0.5 truncate">{t.title}</p>
         <p className="text-[11px] text-muted-foreground/70 mt-0.5 inline-flex items-center gap-1"><User className="w-3 h-3" />{t.assignee}</p>
