@@ -162,21 +162,6 @@ export function FlowTeamsPage() {
             <LimitCard title="Критичные + блокеры (WIP)" lim={data.limits.crit} hint="приоритеты Блокер + Критичный" onClick={() => setModal("crit")} />
           </div>
 
-          {/* Топ-5 старых задач в работе */}
-          {data.topOld.length > 0 && (
-            <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
-              <CardHeader className="pb-1">
-                <CardTitle className="flex items-center gap-2"><Clock className="w-4 h-4 text-rose-500" /> Топ-5 старых задач в работе</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">Дольше всех в работе сейчас (Story / ТехДолг / Инцидент / Тех. улучшение, все приоритеты).</p>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-xl border border-border overflow-hidden">
-                  {data.topOld.map((t, i) => <TaskRow key={t.key + i} t={t} />)}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
           {/* CFD по статусам */}
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
             <CardHeader className="pb-1">
@@ -247,6 +232,21 @@ export function FlowTeamsPage() {
               </ResponsiveContainer>
             </CardContent>
           </Card>
+
+          {/* Топ-5 старых задач в работе */}
+          {data.topOld.length > 0 && (
+            <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
+              <CardHeader className="pb-1">
+                <CardTitle className="flex items-center gap-2"><Clock className="w-4 h-4 text-rose-500" /> Топ-5 старых задач в работе</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">Дольше всех в работе сейчас (Story / ТехДолг / Инцидент / Тех. улучшение, все приоритеты).</p>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-xl border border-border overflow-hidden">
+                  {data.topOld.map((t, i) => <TaskRow key={t.key + i} t={t} />)}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 
