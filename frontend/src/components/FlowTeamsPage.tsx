@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
 import { Activity, RefreshCw, AlertTriangle, Database, User, Clock, ExternalLink, Hourglass } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -207,7 +207,8 @@ export function FlowTeamsPage() {
                 <AreaChart data={data.cfd} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
                   <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                   <XAxis dataKey="day" tickFormatter={fmtDay} minTickGap={28} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false}
+                    domain={[0, (max: number) => Math.max(max, (data.limits.regular.limit || 0) + 1)]} />
                   <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 11 }}
                     labelFormatter={(d) => fmtDay(d as string)} />
                   {statuses.map((s, i) => (
@@ -216,6 +217,10 @@ export function FlowTeamsPage() {
                       stroke={STATUS_COLOR[s] || COLOR_FALLBACK[i % COLOR_FALLBACK.length]}
                       fill={STATUS_COLOR[s] || COLOR_FALLBACK[i % COLOR_FALLBACK.length]} fillOpacity={0.55} strokeWidth={0.5} />
                   ))}
+                  {data.limits.regular.limit != null && (
+                    <ReferenceLine y={data.limits.regular.limit} stroke="#EF4444" strokeWidth={2} strokeDasharray="6 4" ifOverflow="extendDomain"
+                      label={{ value: `WIP-лимит ${data.limits.regular.limit}`, position: "insideTopRight", fill: "#EF4444", fontSize: 11, fontWeight: 700 }} />
+                  )}
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>

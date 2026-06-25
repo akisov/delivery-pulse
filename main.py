@@ -5206,6 +5206,28 @@ async def flow_teams_sync(full: bool = Query(False), meta: bool = Query(False)):
 async def flow_teams_sync_status():
     return JSONResponse(_flow_status)
 
+@app.get("/flow-teams/diag-wip")
+async def flow_teams_diag_wip(team: str = Query("X")):
+    """Сверка «обычного» WIP: живой запрос к Трекеру (как доска) vs наша БД — найти расхождение."""
+    queue = FLOW_TEAM_QUEUE.get(team, "POOLING")
+    q = (f'Queue: {queue} Type: story, technicaldebt, incident, technicalimprovement '
+         f'Priority: normal, minor, trivial Resolution: empty() '
+         f'"Status Type": !cancelled "Status Type": !done')
+    live = {}
+    if TRACKER_TOKEN:
+        async with httpx.AsyncClient(timeout=60) as client:
+            for iss in await tracker_query(client, q):
+                if _flow_is_1c(iss):
+                    continue   # обычные — без 1С
+                live[iss["key"]] = {"status": (iss.get("status") or {}).get("display", ""),
+                                    "type": (iss.get("type") or {}).get("key", "")}
+    d = await query_flow_team(team)
+    db = {t["key"]: t["status"] for t in d.get("wipTasks", []) if t.get("bucket") == "regular"}
+    only_live = {k: v for k, v in live.items() if k not in db}     # есть в Трекере, нет у нас
+    only_db = {k: db[k] for k in db if k not in live}              # есть у нас, нет в Трекере
+    return JSONResponse({"queue": queue, "live_count": len(live), "db_count": len(db),
+                         "only_live": only_live, "only_db": only_db})
+
 @app.get("/flow-teams/diag")
 async def flow_teams_diag(team: str = Query("X")):
     queue = FLOW_TEAM_QUEUE.get(team, "POOLING")
