@@ -348,6 +348,8 @@ async def init_db():
         "ALTER TABLE parent_tasks ADD COLUMN issue_type TEXT",
         "ALTER TABLE parent_tasks ADD COLUMN issue_type_display TEXT",
         "ALTER TABLE sprint_plan ADD COLUMN position INTEGER DEFAULT 0",
+        "ALTER TABLE flow_tasks ADD COLUMN assignee TEXT",
+        "ALTER TABLE flow_tasks ADD COLUMN title TEXT",
     ]:
         try:
             await turso_execute([stmt(col_sql)])
@@ -4981,8 +4983,9 @@ def _flow_is_1c(iss) -> int:
             return 1
     return 0
 
-async def _sync_flow_queue(client, queue, updated_from, cb):
-    """Тянем задачи потока (нужные типы, обновлённые с updated_from) + историю статусов (changelog)."""
+async def _sync_flow_queue(client, queue, updated_from, cb, meta_only=False):
+    """Тянем задачи потока (нужные типы, обновлённые с updated_from) + историю статусов (changelog).
+    meta_only=True — быстрый бэкфилл: только мета задач (assignee/title/статус/дни), без changelog."""
     frm = updated_from if "T" in updated_from else f"{updated_from}T00:00:00"
     issues, page = [], 1
     while True:
@@ -4995,28 +4998,35 @@ async def _sync_flow_queue(client, queue, updated_from, cb):
             break
         page += 1
         await asyncio.sleep(0.4)
-    B = 3
+    B = 25 if meta_only else 3
     for i in range(0, len(issues), B):
         chunk = issues[i:i + B]
-        cls = await asyncio.gather(*[fetch_arch_changelog(client, x["key"]) for x in chunk],
-                                   return_exceptions=True)
-        await asyncio.sleep(1.0)
+        if meta_only:
+            cls = [None] * len(chunk)
+        else:
+            cls = await asyncio.gather(*[fetch_arch_changelog(client, x["key"]) for x in chunk],
+                                       return_exceptions=True)
+            await asyncio.sleep(1.0)
         stmts = []
         for iss, cl in zip(chunk, cls):
-            if isinstance(cl, Exception):
+            if not meta_only and isinstance(cl, Exception):
                 continue
             key = iss["key"]
             status = iss.get("status", {}) or {}
             prio = (iss.get("priority") or {}).get("key", "")
+            assignee = (iss.get("assignee") or {}).get("display", "") if isinstance(iss.get("assignee"), dict) else ""
             stmts.append(stmt(
                 "INSERT INTO flow_tasks(key,queue,created_at,issue_type,priority,is_1c,"
-                "status_display,resolved,days_in_work) VALUES(?,?,?,?,?,?,?,?,?) "
+                "status_display,resolved,days_in_work,assignee,title) VALUES(?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(key) DO UPDATE SET priority=excluded.priority, is_1c=excluded.is_1c, "
                 "status_display=excluded.status_display, resolved=excluded.resolved, "
-                "days_in_work=excluded.days_in_work",
+                "days_in_work=excluded.days_in_work, assignee=excluded.assignee, title=excluded.title",
                 [key, queue, iss.get("createdAt", ""), (iss.get("type") or {}).get("key", ""),
                  prio, _flow_is_1c(iss), status.get("display", ""),
-                 1 if iss.get("resolution") else 0, _osp_days_field(iss)]))
+                 1 if iss.get("resolution") else 0, _osp_days_field(iss),
+                 assignee, iss.get("summary", "")]))
+            if meta_only or not cl:
+                continue
             for e in cl:
                 ts = e.get("updatedAt") or e.get("createdAt") or ""
                 for f in e.get("fields", []):
@@ -5031,16 +5041,18 @@ async def _sync_flow_queue(client, queue, updated_from, cb):
         if stmts:
             await turso_execute(stmts)
         cb(min(i + B, len(issues)), len(issues))
-    await turso_execute([stmt(
-        "INSERT INTO flow_sync_log(queue,last_synced) VALUES(?,?) "
-        "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
-        [queue, datetime.now(MSK).strftime("%Y-%m-%dT%H:%M:%S")])])
+    if not meta_only:   # last_synced двигаем только после полного краула с историей
+        await turso_execute([stmt(
+            "INSERT INTO flow_sync_log(queue,last_synced) VALUES(?,?) "
+            "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
+            [queue, datetime.now(MSK).strftime("%Y-%m-%dT%H:%M:%S")])])
     return len(issues)
 
 _flow_status = {"running": False, "pct": 0, "msg": "", "error": ""}
 
-async def run_flow_sync(full: bool = False):
-    """full=True — полный краул с FLOW_START; иначе инкрементально с last_synced (быстро)."""
+async def run_flow_sync(full: bool = False, meta_only: bool = False):
+    """full=True — полный краул с FLOW_START; иначе инкрементально с last_synced (быстро).
+    meta_only=True — быстрый бэкфилл меты (assignee/title/статус), без changelog."""
     global _flow_status
     _flow_status = {"running": True, "pct": 2, "msg": "Поток: старт…", "error": ""}
     try:
@@ -5051,13 +5063,14 @@ async def run_flow_sync(full: bool = False):
         teams = list(FLOW_TEAM_QUEUE.items())
         async with httpx.AsyncClient(timeout=90) as client:
             for ti, (team, queue) in enumerate(teams):
-                updated_from = FLOW_START if (full or queue not in last_by) else last_by[queue]
+                # для бэкфилла меты тянем по всему окну FLOW_START (нужны все текущие задачи)
+                updated_from = FLOW_START if (full or meta_only or queue not in last_by) else last_by[queue]
                 def cb(done, total, ti=ti, team=team):
                     seg = 96 / len(teams)
                     _flow_status["pct"] = 2 + round(ti * seg + (done / max(total, 1)) * seg)
                     _flow_status["msg"] = f"{FLOW_TEAM_LABEL.get(team, team)}: {done}/{total}"
-                n = await _sync_flow_queue(client, queue, updated_from, cb)
-                print(f"[flow sync] {queue}: {n} задач (с {updated_from})")
+                n = await _sync_flow_queue(client, queue, updated_from, cb, meta_only=meta_only)
+                print(f"[flow sync] {queue}: {n} задач (с {updated_from}, meta_only={meta_only})")
         _flow_status = {"running": False, "pct": 100, "msg": "Готово", "error": ""}
     except Exception as e:
         _flow_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
@@ -5070,8 +5083,8 @@ async def query_flow_team(team: str):
     if not queue:
         return {"ok": False, "error": "Неизвестная команда"}
     _tr = await turso_execute([stmt(
-        "SELECT key,created_at,issue_type,priority,is_1c,status_display,resolved FROM flow_tasks WHERE queue=?",
-        [queue])])
+        "SELECT key,created_at,issue_type,priority,is_1c,status_display,resolved,days_in_work,assignee,title "
+        "FROM flow_tasks WHERE queue=?", [queue])])
     trows = rows_to_dicts(_tr[0]) if _tr else []
     _xr = await turso_execute([stmt(
         "SELECT issue_key,ts,from_display,to_display FROM flow_transitions WHERE issue_key IN "
@@ -5151,12 +5164,31 @@ async def query_flow_team(team: str):
     if "onec" in lims:
         limits["onec"] = {"count": cnt(lambda t: int(t.get("is_1c") or 0) and (t.get("priority") in FLOW_REGULAR_PRIO)),
                           "limit": lims.get("onec")}
+
+    # Текущие задачи в WIP по бакетам (для модалки по клику на плитку) + топ-5 старых
+    def _bucket(t):
+        if (t.get("priority") or "") in FLOW_CRIT_PRIO:
+            return "crit"
+        if int(t.get("is_1c") or 0):
+            return "onec"
+        return "regular"
+
+    def _row(t):
+        return {"key": t["key"], "url": f"https://tracker.yandex.ru/{t['key']}",
+                "title": t.get("title") or t["key"], "assignee": t.get("assignee") or "—",
+                "status": t.get("status_display") or "—",
+                "days": int(t.get("days_in_work") or 0), "bucket": _bucket(t)}
+    wip_rows = [t for t in trows if t.get("status_display") in FLOW_WIP_SET and not int(t.get("resolved") or 0)]
+    wip_tasks = sorted([_row(t) for t in wip_rows], key=lambda r: -r["days"])
+    top_old = sorted([_row(t) for t in wip_rows if (t.get("issue_type") or "") in FLOW_WIPAGE_TYPES],
+                     key=lambda r: -r["days"])[:5]
+
     _lg = await turso_execute([stmt("SELECT last_synced FROM flow_sync_log WHERE queue=?", [queue])])
     log = rows_to_dicts(_lg[0]) if _lg else []
     return {"ok": True, "team": team, "label": FLOW_TEAM_LABEL.get(team, team), "queue": queue,
             "teams": list(FLOW_TEAM_QUEUE.keys()), "teamLabels": FLOW_TEAM_LABEL,
             "statuses": FLOW_WIP_STATUSES, "cfd": cfd_out, "wipAge": wip_out, "limits": limits,
-            "wipAgeTypes": sorted(FLOW_WIPAGE_TYPES),
+            "wipAgeTypes": sorted(FLOW_WIPAGE_TYPES), "wipTasks": wip_tasks, "topOld": top_old,
             "tasks": len(trows), "updatedAt": (log[0]["last_synced"] if log else None)}
 
 @app.get("/flow-teams")
@@ -5164,10 +5196,10 @@ async def flow_teams_get(team: str = Query("U")):
     return JSONResponse(await query_flow_team(team))
 
 @app.post("/flow-teams/sync")
-async def flow_teams_sync(full: bool = Query(False)):
+async def flow_teams_sync(full: bool = Query(False), meta: bool = Query(False)):
     if _flow_status["running"]:
         return JSONResponse({"ok": False, "error": "Синк потока уже идёт"})
-    asyncio.create_task(run_flow_sync(full))
+    asyncio.create_task(run_flow_sync(full, meta_only=meta))
     return JSONResponse({"ok": True})
 
 @app.get("/flow-teams/sync-status")

@@ -165,6 +165,10 @@ export interface ArchTask {
 
 // ── Поток по командам (CFD + WIP Age) ───────────────────────────────────────────
 export interface FlowLimit { count: number; limit: number | null }
+export interface FlowWipTask {
+  key: string; url: string; title: string; assignee: string
+  status: string; days: number; bucket: "regular" | "onec" | "crit"
+}
 export interface FlowTeamData {
   ok: boolean
   team: string; label: string; queue: string
@@ -173,6 +177,8 @@ export interface FlowTeamData {
   cfd: Array<Record<string, number | string>>   // { day, [status]: count }
   wipAge: { day: string; p90: number; count: number }[]
   limits: { regular: FlowLimit; crit: FlowLimit; onec?: FlowLimit }
+  wipTasks: FlowWipTask[]
+  topOld: FlowWipTask[]
   tasks: number; updatedAt: string | null
 }
 export interface FlowSyncStatus { running: boolean; pct: number; msg: string; error: string }

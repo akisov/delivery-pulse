@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react"
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import { Activity, RefreshCw, AlertTriangle, Database } from "lucide-react"
+import { Activity, RefreshCw, AlertTriangle, Database, User, Clock, ExternalLink, Hourglass } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Modal } from "@/components/ui/modal"
 import { PageHeader } from "@/components/PageHeader"
 import { fetchFlowTeam, startFlowSync, fetchFlowSyncStatus } from "@/lib/api"
-import type { FlowTeamData, FlowLimit } from "@/lib/types"
+import type { FlowTeamData, FlowLimit, FlowWipTask } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -21,14 +22,15 @@ const STATUS_COLOR: Record<string, string> = {
 const COLOR_FALLBACK = ["#94A3B8", "#64748B", "#A78BFA", "#F472B6", "#FB923C", "#34D399"]
 const fmtDay = (d: string) => { const [, m, day] = (d || "").split("-"); return m && day ? `${day}.${m}` : d }
 
-function LimitCard({ title, lim, hint }: { title: string; lim: FlowLimit | undefined; hint?: string }) {
+function LimitCard({ title, lim, hint, onClick }: { title: string; lim: FlowLimit | undefined; hint?: string; onClick?: () => void }) {
   if (!lim) return null
   const over = lim.limit != null && lim.count > lim.limit
   const at = lim.limit != null && lim.count === lim.limit
   const color = over ? "#EF4444" : at ? "#F59E0B" : "#10B981"
   const pct = lim.limit ? Math.min(100, Math.round((lim.count / lim.limit) * 100)) : 0
   return (
-    <div className="rounded-xl border border-border bg-card p-4 transition-all hover:-translate-y-0.5"
+    <button onClick={onClick} disabled={!onClick || !lim.count}
+      className="text-left rounded-xl border border-border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/40 disabled:hover:translate-y-0 disabled:cursor-default"
       style={{ borderColor: over ? "#EF444455" : undefined }}>
       <div className="flex items-baseline justify-between">
         <span className="text-xs font-semibold text-muted-foreground">{title}</span>
@@ -42,7 +44,25 @@ function LimitCard({ title, lim, hint }: { title: string; lim: FlowLimit | undef
       <div className="mt-2 h-1.5 rounded-full bg-secondary overflow-hidden">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
       </div>
-      {hint && <p className="text-[10px] text-muted-foreground/60 mt-1.5">{hint}</p>}
+      <p className="text-[10px] text-muted-foreground/60 mt-1.5">{hint}{onClick && lim.count ? " · клик — список" : ""}</p>
+    </button>
+  )
+}
+
+function TaskRow({ t }: { t: FlowWipTask }) {
+  return (
+    <div className="border-b border-border last:border-0 px-4 py-2.5 flex items-start gap-3 hover:bg-accent/30 transition-colors">
+      <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-xs font-black text-primary shrink-0 tabular-nums" title="дней в работе">
+        <Hourglass className="w-3.5 h-3.5" />{t.days}д
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <a href={t.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1">{t.key}<ExternalLink className="w-3 h-3" /></a>
+          <span className="text-[10px] text-muted-foreground">{t.status}</span>
+        </div>
+        <p className="text-xs text-foreground mt-0.5 truncate">{t.title}</p>
+        <p className="text-[11px] text-muted-foreground/70 mt-0.5 inline-flex items-center gap-1"><User className="w-3 h-3" />{t.assignee}</p>
+      </div>
     </div>
   )
 }
@@ -50,6 +70,7 @@ function LimitCard({ title, lim, hint }: { title: string; lim: FlowLimit | undef
 export function FlowTeamsPage() {
   const [team, setTeam] = useState("U")
   const [sel, setSel] = useState<Set<string>>(new Set())   // выбранные статусы CFD (пусто = все)
+  const [modal, setModal] = useState<"regular" | "onec" | "crit" | null>(null)
   const [data, setData] = useState<FlowTeamData | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -134,12 +155,27 @@ export function FlowTeamsPage() {
         </CardContent></Card>
       ) : (
         <>
-          {/* WIP-лимиты */}
+          {/* WIP-лимиты (клик по плитке — список задач) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <LimitCard title="Обычные (WIP)" lim={data.limits.regular} hint="обычные приоритеты, без 1С" />
-            {data.limits.onec && <LimitCard title="1С-задачи (WIP)" lim={data.limits.onec} hint="стек 1С" />}
-            <LimitCard title="Критичные + блокеры (WIP)" lim={data.limits.crit} hint="приоритеты Блокер + Критичный" />
+            <LimitCard title="Обычные (WIP)" lim={data.limits.regular} hint="обычные приоритеты, без 1С" onClick={() => setModal("regular")} />
+            {data.limits.onec && <LimitCard title="1С-задачи (WIP)" lim={data.limits.onec} hint="стек 1С" onClick={() => setModal("onec")} />}
+            <LimitCard title="Критичные + блокеры (WIP)" lim={data.limits.crit} hint="приоритеты Блокер + Критичный" onClick={() => setModal("crit")} />
           </div>
+
+          {/* Топ-5 старых задач в работе */}
+          {data.topOld.length > 0 && (
+            <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
+              <CardHeader className="pb-1">
+                <CardTitle className="flex items-center gap-2"><Clock className="w-4 h-4 text-rose-500" /> Топ-5 старых задач в работе</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">Дольше всех в работе сейчас (Story / ТехДолг / Инцидент / Тех. улучшение, все приоритеты).</p>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-xl border border-border overflow-hidden">
+                  {data.topOld.map((t, i) => <TaskRow key={t.key + i} t={t} />)}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* CFD по статусам */}
           <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
@@ -208,6 +244,25 @@ export function FlowTeamsPage() {
           </Card>
         </>
       )}
+
+      {/* Модалка со списком задач выбранного WIP-бакета */}
+      {(() => {
+        const titles: Record<string, string> = { regular: "Обычные", onec: "1С-задачи", crit: "Критичные + блокеры" }
+        const list = (data?.wipTasks ?? []).filter(t => t.bucket === modal)
+        return (
+          <Modal open={!!modal} onClose={() => setModal(null)} wide
+            title={modal ? `${titles[modal]} — в работе` : ""}
+            subtitle={`${list.length} задач · ${data?.label ?? ""}`}>
+            {list.length === 0 ? (
+              <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">Нет задач</div>
+            ) : (
+              <div className="rounded-xl border border-border overflow-hidden">
+                {list.map((t, i) => <TaskRow key={t.key + i} t={t} />)}
+              </div>
+            )}
+          </Modal>
+        )
+      })()}
     </>
   )
 }
