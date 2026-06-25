@@ -1,4 +1,5 @@
-import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, ChevronLeft, ChevronRight } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface Props {
@@ -150,6 +151,61 @@ const NAV_CARDS = [
     title: "ОСП", desc: "Обзор сервиса поставки: сколько сделали по месяцам (Story, тех. долг, инциденты) по командам курьеров." },
 ]
 
+type Section = Parameters<Props["onGo"]>[0]
+const TIPS: { lead: string; text: string; section?: Section }[] = [
+  { lead: "⌘K — командная палитра", text: "жми Cmd/Ctrl + K и прыгай в любой раздел за секунду, не тыкая в меню." },
+  { lead: "Поток команд", text: "кликни по плитке WIP — откроется список задач с исполнителем, статусом и днями в работе.", section: "flowt" },
+  { lead: "Оценка НВ", text: "вставь ссылку на задачу — AI прикинет категорию (S/M/L) и effort по реальным эталонам, плюс проверит на MMF.", section: "feat" },
+  { lead: "Спринты", text: "факт считается из worklog Трекера в реальном времени: затрекал часы — они уже в спринте.", section: "est" },
+  { lead: "Поток команд", text: "красная линия на CFD — WIP-лимит команды. Стек выше неё = работы в потоке больше, чем тянет команда.", section: "flowt" },
+  { lead: "Арх. комитет", text: "смотри возвраты (АрхКом · ТА) и кто засиделся в комитете ≥ 7 дней — подсвечивается.", section: "arch" },
+  { lead: "Анализ SLE", text: "AI кластеризует причины нарушений: внешние зависимости, не-MMF, тех. блокировки, ошибки оценки.", section: "sle" },
+  { lead: "Блокировки", text: "клик по столбцу или причине разворачивает задачи по этапам — видно, где именно встало.", section: "blockings" },
+  { lead: "Инциденты", text: "AI-сводка сравнивает период с предыдущим равным — сразу видно, стало хуже или лучше.", section: "incidents" },
+  { lead: "Поток E2E", text: "WIP Age P90 — возраст незавершённой работы. Чем ниже линия, тем быстрее задачи проходят поток.", section: "flow" },
+  { lead: "ОСП", text: "попадание в SLE по дням и часам с целью 85%; клик по проценту покажет задачи вне SLE.", section: "osp" },
+  { lead: "Не мониторь руками", text: "жми «Синк» — данные сами подтянутся из Трекера; синк потока копит историю статусов." },
+  { lead: "Тёмная тема", text: "переключатель в правом верхнем углу — глаза скажут спасибо на ночных разборах." },
+]
+
+function TipOfDay({ onGo }: { onGo: Props["onGo"] }) {
+  const [idx, setIdx] = useState(() => Math.floor(Math.random() * TIPS.length))
+  useEffect(() => {
+    const id = setTimeout(() => setIdx(i => (i + 1) % TIPS.length), 5000)
+    return () => clearTimeout(id)
+  }, [idx])
+  const tip = TIPS[idx]
+  return (
+    <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/5 via-card to-card p-5 shadow-[0_0_24px_rgba(108,99,255,0.08)]">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-lg">💡</span>
+        <h3 className="text-base font-black text-foreground">Совет дня</h3>
+      </div>
+      <p key={idx} className="text-sm text-muted-foreground leading-relaxed animate-fade-in-up min-h-[3.5rem]">
+        <b className="text-foreground">{tip.lead}</b> — {tip.text}{" "}
+        {tip.section && (
+          <button onClick={() => onGo(tip.section!)} className="font-semibold text-primary hover:underline whitespace-nowrap">Перейти →</button>
+        )}
+      </p>
+      <div className="flex items-center justify-between mt-3">
+        <button onClick={() => setIdx(i => (i - 1 + TIPS.length) % TIPS.length)}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+          <ChevronLeft className="w-4 h-4" /> пред.
+        </button>
+        <div className="flex gap-1">
+          {TIPS.map((_, i) => (
+            <span key={i} className={`h-1.5 rounded-full transition-all ${i === idx ? "w-4 bg-primary" : "w-1.5 bg-border"}`} />
+          ))}
+        </div>
+        <button onClick={() => setIdx(i => (i + 1) % TIPS.length)}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+          след. <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function HomePage({ onGo }: Props) {
   return (
     <div className="space-y-8">
@@ -164,6 +220,9 @@ export function HomePage({ onGo }: Props) {
           и AI-оценкой.
         </p>
       </div>
+
+      {/* Совет дня */}
+      <TipOfDay onGo={onGo} />
 
       {/* Карточки разделов */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
