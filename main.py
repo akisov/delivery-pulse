@@ -5228,6 +5228,35 @@ async def flow_teams_diag_wip(team: str = Query("X")):
     return JSONResponse({"queue": queue, "live_count": len(live), "db_count": len(db),
                          "only_live": only_live, "only_db": only_db})
 
+@app.get("/flow-teams/diag-task")
+async def flow_teams_diag_task(keys: str = Query("")):
+    """По ключам: текущий статус в Трекере vs наш в БД vs реконструированный на сегодня + переходы."""
+    want = [k.strip().upper() for k in keys.split(",") if k.strip()]
+    out = []
+    today = datetime.now(MSK).date().isoformat()
+    async with httpx.AsyncClient(timeout=60) as client:
+        for k in want:
+            live = None
+            if TRACKER_TOKEN:
+                iss = await fetch_issue(client, k)
+                if isinstance(iss, dict):
+                    live = (iss.get("status") or {}).get("display", "")
+            _t = await turso_execute([stmt(
+                "SELECT status_display,resolved,priority,is_1c,issue_type FROM flow_tasks WHERE key=?", [k])])
+            trow = (rows_to_dicts(_t[0]) if _t else [])
+            db = trow[0] if trow else None
+            _x = await turso_execute([stmt(
+                "SELECT ts,from_display,to_display FROM flow_transitions WHERE issue_key=? ORDER BY ts", [k])])
+            xs = rows_to_dicts(_x[0]) if _x else []
+            recon = (xs[0]["from_display"] if xs else (db or {}).get("status_display", "")) or ""
+            for e in xs:
+                if _msk_date(e["ts"]) <= today:
+                    recon = e["to_display"]
+            out.append({"key": k, "liveStatus": live, "dbStatus": (db or {}).get("status_display"),
+                        "dbResolved": (db or {}).get("resolved"), "reconToday": recon,
+                        "transitions": [{"ts": _msk_date(e["ts"]), "to": e["to_display"]} for e in xs[-6:]]})
+    return JSONResponse({"tasks": out, "today": today})
+
 @app.get("/flow-teams/diag")
 async def flow_teams_diag(team: str = Query("X")):
     queue = FLOW_TEAM_QUEUE.get(team, "POOLING")
