@@ -5071,17 +5071,28 @@ async def run_flow_sync(full: bool = False, meta_only: bool = False):
                     _flow_status["msg"] = f"{FLOW_TEAM_LABEL.get(team, team)}: {done}/{total}"
                 n = await _sync_flow_queue(client, queue, updated_from, cb, meta_only=meta_only)
                 print(f"[flow sync] {queue}: {n} задач (с {updated_from}, meta_only={meta_only})")
+        try:   # сбрасываем кэш срезов — при заходе пересчитаются на свежих данных
+            await turso_execute([stmt("DELETE FROM osp_snapshot WHERE which LIKE 'flowteam-%'")])
+        except Exception as e:
+            print(f"[flow sync cache invalidate] {e}")
         _flow_status = {"running": False, "pct": 100, "msg": "Готово", "error": ""}
     except Exception as e:
         _flow_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
         print(f"[flow sync] ERROR {e}")
 
-async def query_flow_team(team: str):
+async def query_flow_team(team: str, refresh: bool = False):
     """Реконструкция CFD (по статусам) и динамики WIP Age P90 из flow_transitions.
-    CFD/возраст — по «обычному» набору (обычные приоритеты, без 1С); лимиты — по всем бакетам."""
+    CFD/возраст — по «обычному» набору (обычные приоритеты, без 1С); лимиты — по всем бакетам.
+    Результат кэшируется (osp_snapshot) — инвалидируется синком и сменой дня."""
     queue = FLOW_TEAM_QUEUE.get(team)
     if not queue:
         return {"ok": False, "error": "Неизвестная команда"}
+    today_str = datetime.now(MSK).date().isoformat()
+    ck = f"flowteam-{team}-v1"
+    if not refresh:
+        snap = await _osp_snap(ck)
+        if isinstance(snap, dict) and snap.get("computedToday") == today_str:
+            return snap
     _tr = await turso_execute([stmt(
         "SELECT key,created_at,issue_type,priority,is_1c,status_display,resolved,days_in_work,assignee,title "
         "FROM flow_tasks WHERE queue=?", [queue])])
@@ -5185,15 +5196,24 @@ async def query_flow_team(team: str):
 
     _lg = await turso_execute([stmt("SELECT last_synced FROM flow_sync_log WHERE queue=?", [queue])])
     log = rows_to_dicts(_lg[0]) if _lg else []
-    return {"ok": True, "team": team, "label": FLOW_TEAM_LABEL.get(team, team), "queue": queue,
-            "teams": list(FLOW_TEAM_QUEUE.keys()), "teamLabels": FLOW_TEAM_LABEL,
-            "statuses": FLOW_WIP_STATUSES, "cfd": cfd_out, "wipAge": wip_out, "limits": limits,
-            "wipAgeTypes": sorted(FLOW_WIPAGE_TYPES), "wipTasks": wip_tasks, "topOld": top_old,
-            "tasks": len(trows), "updatedAt": (log[0]["last_synced"] if log else None)}
+    payload = {"ok": True, "team": team, "label": FLOW_TEAM_LABEL.get(team, team), "queue": queue,
+               "teams": list(FLOW_TEAM_QUEUE.keys()), "teamLabels": FLOW_TEAM_LABEL,
+               "statuses": FLOW_WIP_STATUSES, "cfd": cfd_out, "wipAge": wip_out, "limits": limits,
+               "wipAgeTypes": sorted(FLOW_WIPAGE_TYPES), "wipTasks": wip_tasks, "topOld": top_old,
+               "tasks": len(trows), "updatedAt": (log[0]["last_synced"] if log else None),
+               "computedToday": today_str}
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ck, json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[flowteam cache save] {e}")
+    return payload
 
 @app.get("/flow-teams")
-async def flow_teams_get(team: str = Query("U")):
-    return JSONResponse(await query_flow_team(team))
+async def flow_teams_get(team: str = Query("U"), refresh: bool = Query(False)):
+    return JSONResponse(await query_flow_team(team, refresh))
 
 @app.post("/flow-teams/sync")
 async def flow_teams_sync(full: bool = Query(False), meta: bool = Query(False)):
@@ -5205,75 +5225,6 @@ async def flow_teams_sync(full: bool = Query(False), meta: bool = Query(False)):
 @app.get("/flow-teams/sync-status")
 async def flow_teams_sync_status():
     return JSONResponse(_flow_status)
-
-@app.get("/flow-teams/diag-wip")
-async def flow_teams_diag_wip(team: str = Query("X")):
-    """Сверка «обычного» WIP: живой запрос к Трекеру (как доска) vs наша БД — найти расхождение."""
-    queue = FLOW_TEAM_QUEUE.get(team, "POOLING")
-    q = (f'Queue: {queue} Type: story, technicaldebt, incident, technicalimprovement '
-         f'Priority: normal, minor, trivial Resolution: empty() '
-         f'"Status Type": !cancelled "Status Type": !done')
-    live = {}
-    if TRACKER_TOKEN:
-        async with httpx.AsyncClient(timeout=60) as client:
-            for iss in await tracker_query(client, q):
-                st = (iss.get("status") or {}).get("display", "")
-                if _flow_is_1c(iss) or st not in FLOW_WIP_SET:
-                    continue   # обычные, только рабочие статусы доски (как на доске)
-                live[iss["key"]] = {"status": st, "type": (iss.get("type") or {}).get("key", "")}
-    d = await query_flow_team(team)
-    db = {t["key"]: t["status"] for t in d.get("wipTasks", []) if t.get("bucket") == "regular"}
-    only_live = {k: v for k, v in live.items() if k not in db}     # есть в Трекере, нет у нас
-    only_db = {k: db[k] for k in db if k not in live}              # есть у нас, нет в Трекере
-    return JSONResponse({"queue": queue, "live_count": len(live), "db_count": len(db),
-                         "only_live": only_live, "only_db": only_db})
-
-@app.get("/flow-teams/diag-task")
-async def flow_teams_diag_task(keys: str = Query("")):
-    """По ключам: текущий статус в Трекере vs наш в БД vs реконструированный на сегодня + переходы."""
-    want = [k.strip().upper() for k in keys.split(",") if k.strip()]
-    out = []
-    today = datetime.now(MSK).date().isoformat()
-    async with httpx.AsyncClient(timeout=60) as client:
-        for k in want:
-            live = None
-            if TRACKER_TOKEN:
-                iss = await fetch_issue(client, k)
-                if isinstance(iss, dict):
-                    live = (iss.get("status") or {}).get("display", "")
-            _t = await turso_execute([stmt(
-                "SELECT status_display,resolved,priority,is_1c,issue_type FROM flow_tasks WHERE key=?", [k])])
-            trow = (rows_to_dicts(_t[0]) if _t else [])
-            db = trow[0] if trow else None
-            _x = await turso_execute([stmt(
-                "SELECT ts,from_display,to_display FROM flow_transitions WHERE issue_key=? ORDER BY ts", [k])])
-            xs = rows_to_dicts(_x[0]) if _x else []
-            recon = (xs[0]["from_display"] if xs else (db or {}).get("status_display", "")) or ""
-            for e in xs:
-                if _msk_date(e["ts"]) <= today:
-                    recon = e["to_display"]
-            out.append({"key": k, "liveStatus": live, "dbStatus": (db or {}).get("status_display"),
-                        "dbResolved": (db or {}).get("resolved"), "reconToday": recon,
-                        "transitions": [{"ts": _msk_date(e["ts"]), "to": e["to_display"]} for e in xs[-6:]]})
-    return JSONResponse({"tasks": out, "today": today})
-
-@app.get("/flow-teams/diag")
-async def flow_teams_diag(team: str = Query("X")):
-    queue = FLOW_TEAM_QUEUE.get(team, "POOLING")
-    s = await turso_execute([stmt(
-        "SELECT status_display AS s, COUNT(*) AS c, SUM(resolved) AS r FROM flow_tasks "
-        "WHERE queue=? GROUP BY status_display ORDER BY c DESC", [queue])])
-    p = await turso_execute([stmt(
-        "SELECT priority AS p, COUNT(*) AS c FROM flow_tasks WHERE queue=? GROUP BY priority", [queue])])
-    td = await turso_execute([stmt(
-        "SELECT to_display AS s, COUNT(*) AS c FROM flow_transitions WHERE issue_key IN "
-        "(SELECT key FROM flow_tasks WHERE queue=?) GROUP BY to_display ORDER BY c DESC LIMIT 40", [queue])])
-    return JSONResponse({
-        "statuses_flow_tasks": rows_to_dicts(s[0]) if s else [],
-        "priorities": rows_to_dicts(p[0]) if p else [],
-        "to_display_transitions": rows_to_dicts(td[0]) if td else [],
-        "WIP_SET": sorted(FLOW_WIP_SET),
-    })
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 
