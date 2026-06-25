@@ -5217,10 +5217,10 @@ async def flow_teams_diag_wip(team: str = Query("X")):
     if TRACKER_TOKEN:
         async with httpx.AsyncClient(timeout=60) as client:
             for iss in await tracker_query(client, q):
-                if _flow_is_1c(iss):
-                    continue   # обычные — без 1С
-                live[iss["key"]] = {"status": (iss.get("status") or {}).get("display", ""),
-                                    "type": (iss.get("type") or {}).get("key", "")}
+                st = (iss.get("status") or {}).get("display", "")
+                if _flow_is_1c(iss) or st not in FLOW_WIP_SET:
+                    continue   # обычные, только рабочие статусы доски (как на доске)
+                live[iss["key"]] = {"status": st, "type": (iss.get("type") or {}).get("key", "")}
     d = await query_flow_team(team)
     db = {t["key"]: t["status"] for t in d.get("wipTasks", []) if t.get("bucket") == "regular"}
     only_live = {k: v for k, v in live.items() if k not in db}     # есть в Трекере, нет у нас
