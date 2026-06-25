@@ -112,7 +112,8 @@ export default function App() {
   // ⌘K / Ctrl+K — командная палитра
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      // e.code === "KeyK" — физическая клавиша, не зависит от раскладки (на RU e.key = "л")
+      if ((e.metaKey || e.ctrlKey) && (e.code === "KeyK" || e.key.toLowerCase() === "k")) {
         e.preventDefault(); setCmdOpen(o => !o)
       }
     }
