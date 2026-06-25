@@ -5088,7 +5088,7 @@ async def query_flow_team(team: str, refresh: bool = False):
     if not queue:
         return {"ok": False, "error": "Неизвестная команда"}
     today_str = datetime.now(MSK).date().isoformat()
-    ck = f"flowteam-{team}-v1"
+    ck = f"flowteam-{team}-v2"
     if not refresh:
         snap = await _osp_snap(ck)
         if isinstance(snap, dict) and snap.get("computedToday") == today_str:
@@ -5114,11 +5114,12 @@ async def query_flow_team(team: str, refresh: bool = False):
     day_strs = [d.isoformat() for d in days]
     cfd = [dict() for _ in range(n_days)]
     wip_ages: list = [[] for _ in range(n_days)]
+    has_onec = "onec" in FLOW_LIMITS.get(team, {})   # 1С выделяем отдельно только у U; у X/R — в «обычных»
 
     for t in trows:
-        # CFD — «обычные» задачи (обычные приоритеты, без 1С), как на доске.
+        # CFD — «обычные» задачи (обычные приоритеты; 1С исключаем только у команд с 1С-бакетом).
         # WIP Age — шире: типы incident/technicaldebt/story, любой приоритет/стек.
-        in_cfd = (t.get("priority") or "") in FLOW_REGULAR_PRIO and not int(t.get("is_1c") or 0)
+        in_cfd = (t.get("priority") or "") in FLOW_REGULAR_PRIO and not (has_onec and int(t.get("is_1c") or 0))
         in_wipage = (t.get("issue_type") or "") in FLOW_WIPAGE_TYPES
         if not in_cfd and not in_wipage:
             continue
@@ -5168,7 +5169,7 @@ async def query_flow_team(team: str, refresh: bool = False):
                    if t.get("status_display") in FLOW_WIP_SET and not int(t.get("resolved") or 0) and pred(t))
     lims = FLOW_LIMITS.get(team, {})
     limits = {
-        "regular": {"count": cnt(lambda t: (t.get("priority") in FLOW_REGULAR_PRIO) and not int(t.get("is_1c") or 0)),
+        "regular": {"count": cnt(lambda t: (t.get("priority") in FLOW_REGULAR_PRIO) and not (has_onec and int(t.get("is_1c") or 0))),
                     "limit": lims.get("regular")},
         "crit": {"count": cnt(lambda t: t.get("priority") in FLOW_CRIT_PRIO), "limit": lims.get("crit")},
     }
@@ -5180,7 +5181,7 @@ async def query_flow_team(team: str, refresh: bool = False):
     def _bucket(t):
         if (t.get("priority") or "") in FLOW_CRIT_PRIO:
             return "crit"
-        if int(t.get("is_1c") or 0):
+        if has_onec and int(t.get("is_1c") or 0):
             return "onec"
         return "regular"
 
