@@ -171,7 +171,7 @@ const TIPS: { lead: string; text: string; section?: Section }[] = [
 function TipOfDay({ onGo }: { onGo: Props["onGo"] }) {
   const [idx, setIdx] = useState(() => Math.floor(Math.random() * TIPS.length))
   useEffect(() => {
-    const id = setTimeout(() => setIdx(i => (i + 1) % TIPS.length), 5000)
+    const id = setTimeout(() => setIdx(i => (i + 1) % TIPS.length), 10000)
     return () => clearTimeout(id)
   }, [idx])
   const tip = TIPS[idx]
