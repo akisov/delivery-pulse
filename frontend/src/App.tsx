@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, lazy, Suspense } from "react"
 import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, Command as CommandIcon } from "lucide-react"
 import { Toaster, toast } from "sonner"
 import { CommandPalette } from "@/components/CommandPalette"
@@ -23,22 +23,23 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { StatCard } from "@/components/StatCard"
 import { SyncBar } from "@/components/SyncBar"
 import { SyncProgress } from "@/components/SyncProgress"
-import { BlockingChart } from "@/components/BlockingChart"
 import { InsightInformer } from "@/components/InsightInformer"
-import { SLEPage } from "@/components/SLEPage"
 import { HomePage } from "@/components/HomePage"
-import { FlowPage } from "@/components/FlowPage"
-import { OSPPage } from "@/components/OSPPage"
-import { IncidentsPage } from "@/components/IncidentsPage"
-import { ArchPage } from "@/components/ArchPage"
-import { EstimationPage } from "@/components/EstimationPage"
-import { FeatureEstPage } from "@/components/FeatureEstPage"
-import { FlowTeamsPage } from "@/components/FlowTeamsPage"
 import { PageHeader } from "@/components/PageHeader"
 import { BlockingTable } from "@/components/BlockingTable"
-import { DowntimeChart } from "@/components/DowntimeChart"
-import { BlockingDaysTrend } from "@/components/BlockingDaysTrend"
-import { InsightsPanel } from "@/components/InsightsPanel"
+// Тяжёлые (recharts) компоненты — lazy, чтобы не тянуть их в стартовый бандл
+const BlockingChart = lazy(() => import("@/components/BlockingChart").then(m => ({ default: m.BlockingChart })))
+const DowntimeChart = lazy(() => import("@/components/DowntimeChart").then(m => ({ default: m.DowntimeChart })))
+const BlockingDaysTrend = lazy(() => import("@/components/BlockingDaysTrend").then(m => ({ default: m.BlockingDaysTrend })))
+const SLEPage = lazy(() => import("@/components/SLEPage").then(m => ({ default: m.SLEPage })))
+const FlowPage = lazy(() => import("@/components/FlowPage").then(m => ({ default: m.FlowPage })))
+const OSPPage = lazy(() => import("@/components/OSPPage").then(m => ({ default: m.OSPPage })))
+const IncidentsPage = lazy(() => import("@/components/IncidentsPage").then(m => ({ default: m.IncidentsPage })))
+const ArchPage = lazy(() => import("@/components/ArchPage").then(m => ({ default: m.ArchPage })))
+const EstimationPage = lazy(() => import("@/components/EstimationPage").then(m => ({ default: m.EstimationPage })))
+const FeatureEstPage = lazy(() => import("@/components/FeatureEstPage").then(m => ({ default: m.FeatureEstPage })))
+const FlowTeamsPage = lazy(() => import("@/components/FlowTeamsPage").then(m => ({ default: m.FlowTeamsPage })))
+const InsightsPanel = lazy(() => import("@/components/InsightsPanel").then(m => ({ default: m.InsightsPanel })))
 import { TaskDetailModal } from "@/components/TaskDetailModal"
 import { TaskListModal, type StatFilter } from "@/components/TaskListModal"
 import { fetchDashboard, fetchSyncInfo, fetchSyncStatus, startSync } from "@/lib/api"
@@ -338,6 +339,7 @@ export default function App() {
         </aside>
 
         <main className="flex-1 min-w-0 py-8 space-y-6">
+        <Suspense fallback={<div className="space-y-4"><Skeleton className="h-10 w-72 rounded-lg" /><Skeleton className="h-72 rounded-xl" /></div>}>
         {section === "home" ? <HomePage onGo={setSection} /> :
          section === "osp" ? <OSPPage onGo={setSection} /> :
          section === "incidents" ? <IncidentsPage /> :
@@ -497,6 +499,7 @@ export default function App() {
         )}
         </>
         )}
+        </Suspense>
         </main>
       </div>
 
