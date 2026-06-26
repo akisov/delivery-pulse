@@ -21,64 +21,80 @@ const QUOTES = [
   "Каждое утро я открываю дашборд. Дашборд открывает рот.",
 ]
 
-// Оригинальная SVG-иллюстрация: брутальный лысый бородач в смокинге (без копирайта)
+// Оригинальная SVG-иллюстрация: суровый лысый бородач в смокинге (action-типаж, без копирайта)
 function BroAvatar() {
   return (
-    <svg viewBox="0 0 80 104" className="h-full w-full" style={{ filter: "drop-shadow(0 6px 12px rgba(0,0,0,0.4))" }}>
+    <svg viewBox="0 0 80 104" className="h-full w-full" style={{ filter: "drop-shadow(0 6px 12px rgba(0,0,0,0.45))" }}>
       <defs>
         <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#ECBC97" /><stop offset="0.5" stopColor="#D89D72" /><stop offset="1" stopColor="#B97F58" />
+          <stop offset="0" stopColor="#EEC09B" /><stop offset="0.5" stopColor="#D99E73" /><stop offset="1" stopColor="#B57C55" />
         </linearGradient>
         <linearGradient id="suit" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#2a2e38" /><stop offset="1" stopColor="#0d0f14" />
+          <stop offset="0" stopColor="#2c303a" /><stop offset="1" stopColor="#0c0e13" />
         </linearGradient>
         <linearGradient id="beard" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#6b7280" /><stop offset="1" stopColor="#4a5360" />
+          <stop offset="0" stopColor="#5a626e" /><stop offset="1" stopColor="#363d48" />
         </linearGradient>
       </defs>
-      {/* плечи / смокинг */}
-      <path d="M6 104 V84 Q6 72 24 67 L40 63 L56 67 Q74 72 74 84 V104 Z" fill="url(#suit)" />
-      <path d="M40 64 L29 104 H34 L40 74 L46 104 H51 Z" fill="#0a0b0e" />
-      <path d="M36 64 L40 84 L44 64 L40 66 Z" fill="#f5f5f6" />
+      {/* плечи / смокинг с острыми лацканами */}
+      <path d="M5 104 V83 Q5 71 24 66 L40 62 L56 66 Q75 71 75 83 V104 Z" fill="url(#suit)" />
+      <path d="M40 63 L27 104 H33 L40 73 L47 104 H53 Z" fill="#070809" />
+      <path d="M36.5 63 L40 84 L43.5 63 L40 65 Z" fill="#f5f5f6" />
+      <path d="M30 70 l10 -6 l10 6" stroke="#3a3f4a" strokeWidth="0.8" fill="none" opacity="0.7" />
       {/* бабочка */}
-      <path d="M40 70 l-6.5 -4 v8 z M40 70 l6.5 -4 v8 z" fill="#08090c" />
-      <rect x="37.8" y="68" width="4.4" height="4.4" rx="1.1" fill="#08090c" />
-      {/* шея */}
-      <path d="M32 56 h16 v9 q-8 5 -16 0 z" fill="#B27C54" />
-      <path d="M32 60 q8 4 16 0 v3 q-8 4 -16 0 z" fill="#945f3e" opacity="0.45" />
-      {/* голова с сильной челюстью */}
-      <path d="M40 12 C26 12 20 22 19 35 C18.6 43 20 50 24 56 C28 63 33 66 40 66 C47 66 52 63 56 56 C60 50 61.4 43 61 35 C60 22 54 12 40 12 Z" fill="url(#skin)" />
-      {/* блик на лысине */}
-      <ellipse cx="34" cy="22" rx="11" ry="6" fill="#F3CDA8" opacity="0.5" />
-      {/* тени скул */}
-      <path d="M22 40 q3 9 8 14 q-7 -2 -9 -10 z" fill="#AE7850" opacity="0.4" />
-      <path d="M58 40 q-3 9 -8 14 q7 -2 9 -10 z" fill="#AE7850" opacity="0.4" />
+      <path d="M40 70 l-7 -4.2 v8.4 z M40 70 l7 -4.2 v8.4 z" fill="#060708" />
+      <rect x="37.7" y="67.8" width="4.6" height="4.6" rx="1.2" fill="#060708" />
+      {/* шея + кадык-тень */}
+      <path d="M31 55 h18 v10 q-9 5 -18 0 z" fill="#B07A52" />
+      <path d="M31 59 q9 4 18 0 v3 q-9 4 -18 0 z" fill="#8f5a3a" opacity="0.5" />
+      {/* короткая стрижка по бокам/затылку (тень) — за головой */}
+      <path d="M17 30 Q15 46 22 58 Q17 50 16 38 Z" fill="#3c4250" opacity="0.85" />
+      <path d="M63 30 Q65 46 58 58 Q63 50 64 38 Z" fill="#3c4250" opacity="0.85" />
+      {/* голова: сильная угловатая челюсть */}
+      <path d="M40 11 C25 11 19 22 18.5 34 C18.2 42 20 49 24 55 C27.5 62 33 65 40 65 C47 65 52.5 62 56 55 C60 49 61.8 42 61.5 34 C61 22 55 11 40 11 Z" fill="url(#skin)" />
+      {/* блик на лысине + лобные доли */}
+      <ellipse cx="34" cy="21" rx="12" ry="6.5" fill="#F4CFAA" opacity="0.55" />
+      <path d="M28 17 Q40 12 52 17 Q40 15 28 17 Z" fill="#F7D6B4" opacity="0.5" />
+      {/* короткая щетина на скальпе по краям */}
+      <path d="M19 33 Q22 22 31 17 Q24 24 21 34 Z" fill="#7a4f39" opacity="0.25" />
+      <path d="M61 33 Q58 22 49 17 Q56 24 59 34 Z" fill="#7a4f39" opacity="0.25" />
+      {/* надбровный выступ — тень */}
+      <path d="M25 31 Q40 27 55 31 Q40 33 25 31 Z" fill="#A8744E" opacity="0.4" />
+      {/* скулы: блик + впадина */}
+      <path d="M23 42 q3 7 7 11 q-7 -1 -9 -8 z" fill="#A8744E" opacity="0.45" />
+      <path d="M57 42 q-3 7 -7 11 q7 -1 9 -8 z" fill="#A8744E" opacity="0.45" />
+      <ellipse cx="29" cy="40" rx="3.5" ry="2" fill="#F4CFAA" opacity="0.35" transform="rotate(-15 29 40)" />
+      <ellipse cx="51" cy="40" rx="3.5" ry="2" fill="#F4CFAA" opacity="0.35" transform="rotate(15 51 40)" />
       {/* уши */}
-      <ellipse cx="19.5" cy="40" rx="3.2" ry="5" fill="#B27C54" />
-      <ellipse cx="60.5" cy="40" rx="3.2" ry="5" fill="#B27C54" />
-      {/* тяжёлые брови, нахмурен */}
-      <path d="M26 33 q6 -4 11.5 -1.2 l-0.7 3 q-5 -2.4 -10.4 0.3 z" fill="#43332765" />
-      <path d="M26 33 q6 -4 11.5 -1.2 l-0.7 3 q-5 -2.4 -10.4 0.3 z" fill="#433327" />
-      <path d="M54 33 q-6 -4 -11.5 -1.2 l0.7 3 q5 -2.4 10.4 0.3 z" fill="#433327" />
-      <path d="M39 32 v4 M41 32 v4" stroke="#9a6a45" strokeWidth="0.7" opacity="0.5" strokeLinecap="round" />
-      {/* глаза — прищур, цепкий взгляд */}
-      <path d="M28.5 39 q4 -3 8 -0.6 q-3.6 3 -8 0.6 z" fill="#f4f1ec" />
-      <path d="M43.5 39 q4 -3 8 -0.6 q-3.6 3 -8 0.6 z" fill="#f4f1ec" />
-      <circle cx="32.4" cy="38.8" r="1.5" fill="#4a3526" /><circle cx="32.4" cy="38.8" r="0.6" fill="#1c140d" />
-      <circle cx="47.6" cy="38.8" r="1.5" fill="#4a3526" /><circle cx="47.6" cy="38.8" r="0.6" fill="#1c140d" />
-      <path d="M28 38 q4 -2.6 8.4 -0.4 M43.6 38 q4 -2.6 8.4 -0.4" stroke="#6e4f37" strokeWidth="1" fill="none" strokeLinecap="round" />
-      {/* нос */}
-      <path d="M40 37 v9 q-2.8 1.6 -4.6 0.2" stroke="#A06A45" strokeWidth="1.4" fill="none" strokeLinecap="round" />
-      {/* короткая густая борода */}
-      <path d="M21 41 Q23 55 30 61 Q35 66 40 66 Q45 66 50 61 Q57 55 59 41 Q57 51 50 55 Q49 50 46 49 H34 Q31 50 30 55 Q23 51 21 41 Z" fill="url(#beard)" />
+      <ellipse cx="19" cy="40" rx="3.3" ry="5.2" fill="#B07A52" /><ellipse cx="19" cy="40" rx="1.4" ry="2.6" fill="#915d3c" />
+      <ellipse cx="61" cy="40" rx="3.3" ry="5.2" fill="#B07A52" /><ellipse cx="61" cy="40" rx="1.4" ry="2.6" fill="#915d3c" />
+      {/* брови — густые, сведённые */}
+      <path d="M25 32.6 Q31 29 37.5 31.4 L37 34.6 Q31 32 25.6 35 Z" fill="#3b2c20" />
+      <path d="M55 32.6 Q49 29 42.5 31.4 L43 34.6 Q49 32 54.4 35 Z" fill="#3b2c20" />
+      <path d="M38.6 31 v4.5 M41.4 31 v4.5" stroke="#9a6a45" strokeWidth="0.7" opacity="0.55" strokeLinecap="round" />
+      {/* глаза — прищур, тяжёлое верхнее веко */}
+      <path d="M28 39.4 Q32.3 36.6 36.6 39 Q32.3 41.8 28 39.4 Z" fill="#efe7dc" />
+      <path d="M43.4 39 Q47.7 36.6 52 39.4 Q47.7 41.8 43.4 39 Z" fill="#efe7dc" />
+      <circle cx="32.3" cy="39" r="1.7" fill="#43352a" /><circle cx="32.3" cy="39" r="0.7" fill="#15100b" /><circle cx="31.8" cy="38.4" r="0.4" fill="#fff" opacity="0.8" />
+      <circle cx="47.7" cy="39" r="1.7" fill="#43352a" /><circle cx="47.7" cy="39" r="0.7" fill="#15100b" /><circle cx="47.2" cy="38.4" r="0.4" fill="#fff" opacity="0.8" />
+      <path d="M27.6 37.6 Q32.3 35 37 37.6 M43 37.6 Q47.7 35 52.4 37.6" stroke="#5e4330" strokeWidth="1.1" fill="none" strokeLinecap="round" />
+      <path d="M28.5 41 Q32.3 42.4 36 41 M44 41 Q47.7 42.4 51.5 41" stroke="#a8744e" strokeWidth="0.6" fill="none" opacity="0.6" strokeLinecap="round" />
+      {/* нос — спинка с бликом, ноздри */}
+      <path d="M40 35 v10" stroke="#F4CFAA" strokeWidth="1.4" opacity="0.5" strokeLinecap="round" />
+      <path d="M40 45 q-3 1.8 -4.8 0.2 M40 45 q3 1.8 4.8 0.2" stroke="#9a6038" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+      <ellipse cx="37.6" cy="45.6" rx="0.9" ry="0.7" fill="#7a4a2c" /><ellipse cx="42.4" cy="45.6" rx="0.9" ry="0.7" fill="#7a4a2c" />
+      {/* короткая густая борода с краем */}
+      <path d="M20 40 Q22 55 29 61 Q34 65 40 65 Q46 65 51 61 Q58 55 60 40 Q58 51 50.5 55 Q49.5 49 46 48 H34 Q30.5 49 29.5 55 Q22 51 20 40 Z" fill="url(#beard)" />
       {/* усы */}
-      <path d="M32 49 q8 3.5 16 0 q-3.2 3.4 -8 3.4 q-4.8 0 -8 -3.4 z" fill="#5b6470" />
-      {/* рот */}
-      <path d="M34 53 q6 2.4 12 0" stroke="#4f3526" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-      {/* текстура бороды */}
-      <g fill="#3c4350" opacity="0.55">
-        <circle cx="26" cy="46" r="0.6" /><circle cx="29" cy="50" r="0.6" /><circle cx="54" cy="46" r="0.6" />
-        <circle cx="51" cy="50" r="0.6" /><circle cx="40" cy="60" r="0.6" /><circle cx="35" cy="58" r="0.6" /><circle cx="45" cy="58" r="0.6" />
+      <path d="M31.5 48 q8.5 4 17 0 q-3.4 3.8 -8.5 3.8 q-5.1 0 -8.5 -3.8 z" fill="#4a525e" />
+      {/* рот — твёрдый, лёгкий ухмыл */}
+      <path d="M33.5 52.6 q6.5 2.6 13 -0.4" stroke="#42291d" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+      {/* нижняя губа-тень */}
+      <path d="M37 55 q3 1.2 6 0" stroke="#caa074" strokeWidth="1.2" fill="none" opacity="0.6" strokeLinecap="round" />
+      {/* штрихи бороды */}
+      <g stroke="#2f3641" strokeWidth="0.5" opacity="0.5" strokeLinecap="round">
+        <path d="M25 45 l1.5 4" /><path d="M29 49 l1 4" /><path d="M55 45 l-1.5 4" /><path d="M51 49 l-1 4" />
+        <path d="M38 58 l0.5 4" /><path d="M42 58 l-0.5 4" /><path d="M34 56 l0.8 3.5" /><path d="M46 56 l-0.8 3.5" />
       </g>
     </svg>
   )
