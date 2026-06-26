@@ -151,8 +151,8 @@ def arch_is_test_task(title: str) -> bool:
 # ── Поток по командам (CFD + WIP Age по очередям) ───────────────────────────────
 FLOW_TEAM_QUEUE = {"U": "UDOSTAVKA", "X": "POOLING", "R": "DOSTAVKAPIKO"}
 FLOW_TEAM_LABEL = {"U": "Курьеры U", "X": "Курьеры X", "R": "Курьеры R"}
-FLOW_TYPES = ["story", "technicaldebt", "incident", "technicalimprovement"]
-FLOW_WIPAGE_TYPES = {"incident", "technicaldebt", "story", "technicalimprovement"}   # WIP Age: все приоритеты, любой стек
+FLOW_TYPES = ["story", "technicaldebt", "incident", "technicalimprovement", "analytics"]
+FLOW_WIPAGE_TYPES = {"incident", "technicaldebt", "story", "technicalimprovement", "analytics"}   # WIP Age: все приоритеты, любой стек
 FLOW_START = "2026-03-01"                              # с какой даты строим историю/CFD
 FLOW_REGULAR_PRIO = {"normal", "minor", "trivial"}     # «обычные»
 FLOW_CRIT_PRIO = {"blocker", "critical"}               # критичные + блокеры
@@ -168,7 +168,7 @@ FLOW_WIP_STATUSES = [
     "Аналитическая проработка", "В разработке", "Согласование архитектуры Готово",
     "Согласование архитектуры", "Помещение в продуктив Готово", "На проверке у заказчика",
     "Backlog команды", "Аналитическая проработка готово", "Ревью аналитики", "На уточнении",
-    "Доработка на приемке",
+    "Доработка на приемке", "Доработка",
 ]
 FLOW_WIP_SET = set(FLOW_WIP_STATUSES)
 
@@ -5089,7 +5089,7 @@ async def query_flow_team(team: str, refresh: bool = False):
     if not queue:
         return {"ok": False, "error": "Неизвестная команда"}
     today_str = datetime.now(MSK).date().isoformat()
-    ck = f"flowteam-{team}-v3"
+    ck = f"flowteam-{team}-v4"
     if not refresh:
         snap = await _osp_snap(ck)
         if isinstance(snap, dict) and snap.get("computedToday") == today_str:
