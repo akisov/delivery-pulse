@@ -21,29 +21,60 @@ const QUOTES = [
   "Каждое утро я открываю дашборд. Дашборд открывает рот.",
 ]
 
-// SVG-аватарка «брутальный лысый» — фолбэк, если нет /statham.jpg
+// Оригинальная SVG-аватарка: брутальный лысый в смокинге (без копирайта, деплоится как код)
 function BroAvatar() {
   return (
-    <svg viewBox="0 0 64 64" className="w-full h-full">
+    <svg viewBox="0 0 64 64" className="h-full w-full">
       <defs>
-        <linearGradient id="sk" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#E8B591" /><stop offset="1" stopColor="#C8916B" />
+        <radialGradient id="bg" cx="50%" cy="38%" r="75%">
+          <stop offset="0" stopColor="#2b3242" /><stop offset="1" stopColor="#161a24" />
+        </radialGradient>
+        <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#EBBA95" /><stop offset="0.55" stopColor="#D89E73" /><stop offset="1" stopColor="#BC835B" />
+        </linearGradient>
+        <linearGradient id="suit" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#23262e" /><stop offset="1" stopColor="#0e1014" />
         </linearGradient>
       </defs>
-      <circle cx="32" cy="32" r="32" fill="#1f2433" />
-      <ellipse cx="32" cy="30" rx="17" ry="19" fill="url(#sk)" />
-      <path d="M16 26 Q32 6 48 26 Q40 18 32 18 Q24 18 16 26Z" fill="#d8a37c" opacity="0.5" />
-      {/* щетина */}
-      <path d="M18 34 Q32 52 46 34 Q44 46 32 48 Q20 46 18 34Z" fill="#6b7280" opacity="0.45" />
-      {/* брови */}
-      <rect x="20" y="27" width="9" height="2.4" rx="1.2" fill="#5b4636" transform="rotate(6 24 28)" />
-      <rect x="35" y="27" width="9" height="2.4" rx="1.2" fill="#5b4636" transform="rotate(-6 40 28)" />
-      {/* очки */}
-      <rect x="19" y="29" width="11" height="7" rx="2" fill="#111827" />
-      <rect x="34" y="29" width="11" height="7" rx="2" fill="#111827" />
-      <rect x="29.5" y="31.5" width="5" height="2" fill="#111827" />
-      {/* серьёзный рот */}
-      <rect x="27" y="42" width="10" height="2" rx="1" fill="#7a4b3a" />
+      <circle cx="32" cy="32" r="32" fill="url(#bg)" />
+      {/* смокинг */}
+      <path d="M12 64 V58 Q12 49 22 46 L32 44 L42 46 Q52 49 52 58 V64 Z" fill="url(#suit)" />
+      <path d="M27 45 L32 64 L37 45 L32 47 Z" fill="#f4f4f5" />
+      {/* бабочка */}
+      <path d="M32 50 l-5 -3 v6 z M32 50 l5 -3 v6 z" fill="#0b0c0f" />
+      <rect x="30.6" y="48.4" width="2.8" height="3.2" rx="0.8" fill="#0b0c0f" />
+      {/* шея */}
+      <path d="M26 41 h12 v6 q-6 4 -12 0 z" fill="#C2885F" />
+      {/* голова */}
+      <path d="M18 30 Q18 13 32 13 Q46 13 46 30 Q46 44 32 47 Q18 44 18 30 Z" fill="url(#skin)" />
+      {/* блик на лысине */}
+      <ellipse cx="29" cy="20" rx="7" ry="4" fill="#F2CBA6" opacity="0.55" />
+      {/* уши */}
+      <ellipse cx="18.5" cy="31" rx="2.6" ry="3.6" fill="#C2885F" />
+      <ellipse cx="45.5" cy="31" rx="2.6" ry="3.6" fill="#C2885F" />
+      {/* брови — тяжёлые, серьёзные */}
+      <path d="M22 28 q4 -2.6 8 -0.6 l-0.4 2 q-3.6 -1.6 -7.2 0.4 z" fill="#4b3a2c" />
+      <path d="M42 28 q-4 -2.6 -8 -0.6 l0.4 2 q3.6 -1.6 7.2 0.4 z" fill="#4b3a2c" />
+      {/* глаза — прищур */}
+      <ellipse cx="26" cy="31.5" rx="2.4" ry="1.5" fill="#fff" />
+      <ellipse cx="38" cy="31.5" rx="2.4" ry="1.5" fill="#fff" />
+      <circle cx="26.3" cy="31.6" r="1.15" fill="#3b2f25" />
+      <circle cx="38.3" cy="31.6" r="1.15" fill="#3b2f25" />
+      <path d="M23.4 30.6 q2.6 -1.4 5.2 0 M35.4 30.6 q2.6 -1.4 5.2 0" stroke="#7a5a3f" strokeWidth="0.8" fill="none" strokeLinecap="round" />
+      {/* нос */}
+      <path d="M32 32 v4 q-2 1 -3 0.2" stroke="#A9744F" strokeWidth="1.1" fill="none" strokeLinecap="round" />
+      {/* рот — твёрдая линия */}
+      <path d="M27.5 40.4 q4.5 1.8 9 0" stroke="#6e4733" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+      {/* щетина — борода/усы текстурой */}
+      <g fill="#5c6470" opacity="0.5">
+        <path d="M20 33 Q22 44 32 47 Q42 44 44 33 Q42 41 38 43.5 H26 Q22 41 20 33 Z" />
+        <rect x="28.5" y="37" width="7" height="2" rx="1" />
+      </g>
+      {/* лёгкая щетина точками на щеках */}
+      <g fill="#3f4654" opacity="0.45">
+        <circle cx="24" cy="38" r="0.5" /><circle cx="27" cy="40" r="0.5" /><circle cx="40" cy="38" r="0.5" />
+        <circle cx="37" cy="40" r="0.5" /><circle cx="32" cy="43" r="0.5" /><circle cx="29.5" cy="42" r="0.5" /><circle cx="34.5" cy="42" r="0.5" />
+      </g>
     </svg>
   )
 }
@@ -51,7 +82,6 @@ function BroAvatar() {
 export function StathamBro() {
   const [i, setI] = useState(() => Math.floor(Math.random() * QUOTES.length))
   const [hidden, setHidden] = useState(false)
-  const [imgOk, setImgOk] = useState(true)
   useEffect(() => {
     const id = setTimeout(() => setI(v => (v + 1) % QUOTES.length), 10000)
     return () => clearTimeout(id)
@@ -67,9 +97,7 @@ export function StathamBro() {
       {/* аватарка */}
       <div className="relative shrink-0">
         <div className="h-14 w-14 overflow-hidden rounded-full border-2 border-primary/40 shadow-[0_4px_16px_rgba(108,99,255,0.35)] bg-[#1f2433]">
-          {imgOk
-            ? <img src="/statham.jpeg" alt="bro" className="h-full w-full object-cover object-[50%_22%]" onError={() => setImgOk(false)} />
-            : <BroAvatar />}
+          <BroAvatar />
         </div>
         <button onClick={() => setHidden(true)} title="Скрыть"
           className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground shadow">
