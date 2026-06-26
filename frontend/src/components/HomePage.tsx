@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, ChevronLeft, ChevronRight } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StathamBro } from "@/components/StathamBro"
 
 interface Props {
   onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat" | "flowt") => void
@@ -272,6 +273,8 @@ export function HomePage({ onGo }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      <StathamBro />
     </div>
   )
 }
