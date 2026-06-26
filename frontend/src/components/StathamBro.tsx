@@ -21,59 +21,64 @@ const QUOTES = [
   "Каждое утро я открываю дашборд. Дашборд открывает рот.",
 ]
 
-// Оригинальная SVG-аватарка: брутальный лысый в смокинге (без копирайта, деплоится как код)
+// Оригинальная SVG-иллюстрация: брутальный лысый бородач в смокинге (без копирайта)
 function BroAvatar() {
   return (
-    <svg viewBox="0 0 64 64" className="h-full w-full">
+    <svg viewBox="0 0 80 104" className="h-full w-full" style={{ filter: "drop-shadow(0 6px 12px rgba(0,0,0,0.4))" }}>
       <defs>
-        <radialGradient id="bg" cx="50%" cy="38%" r="75%">
-          <stop offset="0" stopColor="#2b3242" /><stop offset="1" stopColor="#161a24" />
-        </radialGradient>
         <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#EBBA95" /><stop offset="0.55" stopColor="#D89E73" /><stop offset="1" stopColor="#BC835B" />
+          <stop offset="0" stopColor="#ECBC97" /><stop offset="0.5" stopColor="#D89D72" /><stop offset="1" stopColor="#B97F58" />
         </linearGradient>
         <linearGradient id="suit" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#23262e" /><stop offset="1" stopColor="#0e1014" />
+          <stop offset="0" stopColor="#2a2e38" /><stop offset="1" stopColor="#0d0f14" />
+        </linearGradient>
+        <linearGradient id="beard" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#6b7280" /><stop offset="1" stopColor="#4a5360" />
         </linearGradient>
       </defs>
-      <circle cx="32" cy="32" r="32" fill="url(#bg)" />
-      {/* смокинг */}
-      <path d="M12 64 V58 Q12 49 22 46 L32 44 L42 46 Q52 49 52 58 V64 Z" fill="url(#suit)" />
-      <path d="M27 45 L32 64 L37 45 L32 47 Z" fill="#f4f4f5" />
+      {/* плечи / смокинг */}
+      <path d="M6 104 V84 Q6 72 24 67 L40 63 L56 67 Q74 72 74 84 V104 Z" fill="url(#suit)" />
+      <path d="M40 64 L29 104 H34 L40 74 L46 104 H51 Z" fill="#0a0b0e" />
+      <path d="M36 64 L40 84 L44 64 L40 66 Z" fill="#f5f5f6" />
       {/* бабочка */}
-      <path d="M32 50 l-5 -3 v6 z M32 50 l5 -3 v6 z" fill="#0b0c0f" />
-      <rect x="30.6" y="48.4" width="2.8" height="3.2" rx="0.8" fill="#0b0c0f" />
+      <path d="M40 70 l-6.5 -4 v8 z M40 70 l6.5 -4 v8 z" fill="#08090c" />
+      <rect x="37.8" y="68" width="4.4" height="4.4" rx="1.1" fill="#08090c" />
       {/* шея */}
-      <path d="M26 41 h12 v6 q-6 4 -12 0 z" fill="#C2885F" />
-      {/* голова */}
-      <path d="M18 30 Q18 13 32 13 Q46 13 46 30 Q46 44 32 47 Q18 44 18 30 Z" fill="url(#skin)" />
+      <path d="M32 56 h16 v9 q-8 5 -16 0 z" fill="#B27C54" />
+      <path d="M32 60 q8 4 16 0 v3 q-8 4 -16 0 z" fill="#945f3e" opacity="0.45" />
+      {/* голова с сильной челюстью */}
+      <path d="M40 12 C26 12 20 22 19 35 C18.6 43 20 50 24 56 C28 63 33 66 40 66 C47 66 52 63 56 56 C60 50 61.4 43 61 35 C60 22 54 12 40 12 Z" fill="url(#skin)" />
       {/* блик на лысине */}
-      <ellipse cx="29" cy="20" rx="7" ry="4" fill="#F2CBA6" opacity="0.55" />
+      <ellipse cx="34" cy="22" rx="11" ry="6" fill="#F3CDA8" opacity="0.5" />
+      {/* тени скул */}
+      <path d="M22 40 q3 9 8 14 q-7 -2 -9 -10 z" fill="#AE7850" opacity="0.4" />
+      <path d="M58 40 q-3 9 -8 14 q7 -2 9 -10 z" fill="#AE7850" opacity="0.4" />
       {/* уши */}
-      <ellipse cx="18.5" cy="31" rx="2.6" ry="3.6" fill="#C2885F" />
-      <ellipse cx="45.5" cy="31" rx="2.6" ry="3.6" fill="#C2885F" />
-      {/* брови — тяжёлые, серьёзные */}
-      <path d="M22 28 q4 -2.6 8 -0.6 l-0.4 2 q-3.6 -1.6 -7.2 0.4 z" fill="#4b3a2c" />
-      <path d="M42 28 q-4 -2.6 -8 -0.6 l0.4 2 q3.6 -1.6 7.2 0.4 z" fill="#4b3a2c" />
-      {/* глаза — прищур */}
-      <ellipse cx="26" cy="31.5" rx="2.4" ry="1.5" fill="#fff" />
-      <ellipse cx="38" cy="31.5" rx="2.4" ry="1.5" fill="#fff" />
-      <circle cx="26.3" cy="31.6" r="1.15" fill="#3b2f25" />
-      <circle cx="38.3" cy="31.6" r="1.15" fill="#3b2f25" />
-      <path d="M23.4 30.6 q2.6 -1.4 5.2 0 M35.4 30.6 q2.6 -1.4 5.2 0" stroke="#7a5a3f" strokeWidth="0.8" fill="none" strokeLinecap="round" />
+      <ellipse cx="19.5" cy="40" rx="3.2" ry="5" fill="#B27C54" />
+      <ellipse cx="60.5" cy="40" rx="3.2" ry="5" fill="#B27C54" />
+      {/* тяжёлые брови, нахмурен */}
+      <path d="M26 33 q6 -4 11.5 -1.2 l-0.7 3 q-5 -2.4 -10.4 0.3 z" fill="#43332765" />
+      <path d="M26 33 q6 -4 11.5 -1.2 l-0.7 3 q-5 -2.4 -10.4 0.3 z" fill="#433327" />
+      <path d="M54 33 q-6 -4 -11.5 -1.2 l0.7 3 q5 -2.4 10.4 0.3 z" fill="#433327" />
+      <path d="M39 32 v4 M41 32 v4" stroke="#9a6a45" strokeWidth="0.7" opacity="0.5" strokeLinecap="round" />
+      {/* глаза — прищур, цепкий взгляд */}
+      <path d="M28.5 39 q4 -3 8 -0.6 q-3.6 3 -8 0.6 z" fill="#f4f1ec" />
+      <path d="M43.5 39 q4 -3 8 -0.6 q-3.6 3 -8 0.6 z" fill="#f4f1ec" />
+      <circle cx="32.4" cy="38.8" r="1.5" fill="#4a3526" /><circle cx="32.4" cy="38.8" r="0.6" fill="#1c140d" />
+      <circle cx="47.6" cy="38.8" r="1.5" fill="#4a3526" /><circle cx="47.6" cy="38.8" r="0.6" fill="#1c140d" />
+      <path d="M28 38 q4 -2.6 8.4 -0.4 M43.6 38 q4 -2.6 8.4 -0.4" stroke="#6e4f37" strokeWidth="1" fill="none" strokeLinecap="round" />
       {/* нос */}
-      <path d="M32 32 v4 q-2 1 -3 0.2" stroke="#A9744F" strokeWidth="1.1" fill="none" strokeLinecap="round" />
-      {/* рот — твёрдая линия */}
-      <path d="M27.5 40.4 q4.5 1.8 9 0" stroke="#6e4733" strokeWidth="1.4" fill="none" strokeLinecap="round" />
-      {/* щетина — борода/усы текстурой */}
-      <g fill="#5c6470" opacity="0.5">
-        <path d="M20 33 Q22 44 32 47 Q42 44 44 33 Q42 41 38 43.5 H26 Q22 41 20 33 Z" />
-        <rect x="28.5" y="37" width="7" height="2" rx="1" />
-      </g>
-      {/* лёгкая щетина точками на щеках */}
-      <g fill="#3f4654" opacity="0.45">
-        <circle cx="24" cy="38" r="0.5" /><circle cx="27" cy="40" r="0.5" /><circle cx="40" cy="38" r="0.5" />
-        <circle cx="37" cy="40" r="0.5" /><circle cx="32" cy="43" r="0.5" /><circle cx="29.5" cy="42" r="0.5" /><circle cx="34.5" cy="42" r="0.5" />
+      <path d="M40 37 v9 q-2.8 1.6 -4.6 0.2" stroke="#A06A45" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+      {/* короткая густая борода */}
+      <path d="M21 41 Q23 55 30 61 Q35 66 40 66 Q45 66 50 61 Q57 55 59 41 Q57 51 50 55 Q49 50 46 49 H34 Q31 50 30 55 Q23 51 21 41 Z" fill="url(#beard)" />
+      {/* усы */}
+      <path d="M32 49 q8 3.5 16 0 q-3.2 3.4 -8 3.4 q-4.8 0 -8 -3.4 z" fill="#5b6470" />
+      {/* рот */}
+      <path d="M34 53 q6 2.4 12 0" stroke="#4f3526" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      {/* текстура бороды */}
+      <g fill="#3c4350" opacity="0.55">
+        <circle cx="26" cy="46" r="0.6" /><circle cx="29" cy="50" r="0.6" /><circle cx="54" cy="46" r="0.6" />
+        <circle cx="51" cy="50" r="0.6" /><circle cx="40" cy="60" r="0.6" /><circle cx="35" cy="58" r="0.6" /><circle cx="45" cy="58" r="0.6" />
       </g>
     </svg>
   )
@@ -94,13 +99,11 @@ export function StathamBro() {
         <p className="text-xs font-semibold text-foreground leading-snug">«{QUOTES[i]}»</p>
         <span className="absolute -right-1.5 bottom-3 h-3 w-3 rotate-45 border-b border-r border-border bg-card" />
       </div>
-      {/* аватарка */}
-      <div className="relative shrink-0">
-        <div className="h-14 w-14 overflow-hidden rounded-full border-2 border-primary/40 shadow-[0_4px_16px_rgba(108,99,255,0.35)] bg-[#1f2433]">
-          <BroAvatar />
-        </div>
+      {/* аватарка — крупная, без круга */}
+      <div className="relative shrink-0 w-[92px] h-[116px] -mb-1">
+        <BroAvatar />
         <button onClick={() => setHidden(true)} title="Скрыть"
-          className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground shadow">
+          className="absolute top-0 right-0 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground shadow">
           <X className="h-3 w-3" />
         </button>
       </div>
