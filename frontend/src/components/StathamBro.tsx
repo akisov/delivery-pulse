@@ -68,7 +68,7 @@ export function StathamBro() {
       <div className="relative shrink-0">
         <div className="h-14 w-14 overflow-hidden rounded-full border-2 border-primary/40 shadow-[0_4px_16px_rgba(108,99,255,0.35)] bg-[#1f2433]">
           {imgOk
-            ? <img src="/statham.jpg" alt="bro" className="h-full w-full object-cover object-[50%_22%]" onError={() => setImgOk(false)} />
+            ? <img src="/statham.jpeg" alt="bro" className="h-full w-full object-cover object-[50%_22%]" onError={() => setImgOk(false)} />
             : <BroAvatar />}
         </div>
         <button onClick={() => setHidden(true)} title="Скрыть"
