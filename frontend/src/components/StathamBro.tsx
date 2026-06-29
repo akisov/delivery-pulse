@@ -123,7 +123,7 @@ export function StathamBro() {
       <div className="relative shrink-0 w-[92px] h-[116px] -mb-1">
         {srcIdx < AVATAR_SRCS.length
           ? <img src={AVATAR_SRCS[srcIdx]} alt="" onError={() => setSrcIdx(n => n + 1)}
-              className="h-full w-full rounded-2xl object-cover object-top shadow-[0_6px_16px_rgba(0,0,0,0.4)]" />
+              className="h-full w-full rounded-2xl object-cover object-top" />
           : <BroAvatar />}
         <button onClick={() => setHidden(true)} title="Скрыть"
           className="absolute top-0 right-0 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground shadow">
