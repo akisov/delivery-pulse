@@ -100,9 +100,13 @@ function BroAvatar() {
   )
 }
 
+// Файл аватара пробуем в любом из форматов; если ни один не загрузился — рисуем SVG
+const AVATAR_SRCS = ["/statham.png", "/statham.jpeg", "/statham.jpg"]
+
 export function StathamBro() {
   const [i, setI] = useState(() => Math.floor(Math.random() * QUOTES.length))
   const [hidden, setHidden] = useState(false)
+  const [srcIdx, setSrcIdx] = useState(0)
   useEffect(() => {
     const id = setTimeout(() => setI(v => (v + 1) % QUOTES.length), 10000)
     return () => clearTimeout(id)
@@ -115,9 +119,12 @@ export function StathamBro() {
         <p className="text-xs font-semibold text-foreground leading-snug">«{QUOTES[i]}»</p>
         <span className="absolute -right-1.5 bottom-3 h-3 w-3 rotate-45 border-b border-r border-border bg-card" />
       </div>
-      {/* аватарка — крупная, без круга */}
+      {/* аватарка — крупная, без круга; своё фото из public/ или SVG-фолбэк */}
       <div className="relative shrink-0 w-[92px] h-[116px] -mb-1">
-        <BroAvatar />
+        {srcIdx < AVATAR_SRCS.length
+          ? <img src={AVATAR_SRCS[srcIdx]} alt="" onError={() => setSrcIdx(n => n + 1)}
+              className="h-full w-full rounded-2xl object-cover object-top shadow-[0_6px_16px_rgba(0,0,0,0.4)]" />
+          : <BroAvatar />}
         <button onClick={() => setHidden(true)} title="Скрыть"
           className="absolute top-0 right-0 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground shadow">
           <X className="h-3 w-3" />
