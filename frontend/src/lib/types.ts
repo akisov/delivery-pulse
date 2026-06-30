@@ -185,11 +185,12 @@ export interface FlowSyncStatus { running: boolean; pct: number; msg: string; er
 
 // ── «Негодяи» (учёт часов) ──────────────────────────────────────────────────────
 export interface Slacker {
-  name: string; label: string; last2: number
+  id: string; name: string; team: string; label: string; last2: number
   perDay: Record<string, number>
   lastLog: string | null; daysSince: number | null
+  since?: string; kind?: string   // для тех, кто на отпуске/больничном
 }
 export interface SlackersData {
   ok: boolean; days: string[]; rosterSize: number
-  slackers: Slacker[]; timesheet: string; computedAt: string
+  slackers: Slacker[]; onLeave: Slacker[]; timesheet: string; computedAt: string
 }

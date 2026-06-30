@@ -5441,77 +5441,117 @@ async def slackers(refresh: bool = Query(False)):
     (включая тех, кто не вносил вовсе). Часы — из worklog курьерских очередей."""
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
-    ck = "slackers-v2"
-    if not refresh:
-        snap = await _osp_snap(ck)
-        if snap:
-            return JSONResponse({"ok": True, **snap})
-    today = datetime.now(MSK).date()
-    since = (today - timedelta(days=14)).isoformat()
-    by_person: dict = {}      # норм-фамилия → {"team","disp","d":{дата:часы}}
-    async with httpx.AsyncClient(timeout=90) as client:
-        todo: list = []
-        for q in OSP_QUEUES:
-            page = 1
-            while True:
-                data = await tracker_request(client, "POST", f"/v2/issues/_search?perPage=100&page={page}",
-                    {"filter": {"queue": q, "updatedAt": {"from": f"{since}T00:00:00", "to": "2099-01-01T00:00:00"}}})
-                chunk = data if isinstance(data, list) else []
-                for iss in chunk:
-                    if iss.get("spent"):
-                        todo.append(iss["key"])
-                if len(chunk) < 100:
-                    break
-                page += 1
+    ck = "slackers-v3"       # кэш ПОЛНОГО списка людей (отпуск применяется на чтении)
+    cached = None if refresh else await _osp_snap(ck)
+    if cached and cached.get("people") is not None:
+        people, wdays, computed = cached["people"], cached["days"], cached["computedAt"]
+    else:
+        today = datetime.now(MSK).date()
+        since = (today - timedelta(days=14)).isoformat()
+        by_person: dict = {}      # норм-фамилия → {"team","disp","d":{дата:часы}}
+        async with httpx.AsyncClient(timeout=90) as client:
+            todo: list = []
+            for q in OSP_QUEUES:
+                page = 1
+                while True:
+                    data = await tracker_request(client, "POST", f"/v2/issues/_search?perPage=100&page={page}",
+                        {"filter": {"queue": q, "updatedAt": {"from": f"{since}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+                    chunk = data if isinstance(data, list) else []
+                    for iss in chunk:
+                        if iss.get("spent"):
+                            todo.append(iss["key"])
+                    if len(chunk) < 100:
+                        break
+                    page += 1
+                    await asyncio.sleep(0.3)
+            todo = list(dict.fromkeys(todo))
+            for i in range(0, len(todo), 5):
+                wls = await asyncio.gather(*[_wl_fetch(client, k) for k in todo[i:i + 5]], return_exceptions=True)
+                for wl in wls:
+                    if not isinstance(wl, list):
+                        continue
+                    for e in wl:
+                        h = _iso_dur_hours(e.get("duration"))
+                        if h <= 0:
+                            continue
+                        dt = (e.get("start") or e.get("createdAt") or "")[:10]
+                        if not dt or dt < since:
+                            continue
+                        disp = (e.get("createdBy") or {}).get("display") or ""
+                        m = _match_courier(disp)
+                        if not m:
+                            continue
+                        surn, team = m
+                        rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
+                        rec["disp"] = disp
+                        rec["d"][dt] = rec["d"].get(dt, 0) + h
                 await asyncio.sleep(0.3)
-        todo = list(dict.fromkeys(todo))
-        for i in range(0, len(todo), 5):
-            wls = await asyncio.gather(*[_wl_fetch(client, k) for k in todo[i:i + 5]], return_exceptions=True)
-            for wl in wls:
-                if not isinstance(wl, list):
-                    continue
-                for e in wl:
-                    h = _iso_dur_hours(e.get("duration"))
-                    if h <= 0:
-                        continue
-                    dt = (e.get("start") or e.get("createdAt") or "")[:10]
-                    if not dt or dt < since:
-                        continue
-                    disp = (e.get("createdBy") or {}).get("display") or ""
-                    m = _match_courier(disp)
-                    if not m:
-                        continue
-                    surn, team = m
-                    rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
-                    rec["disp"] = disp
-                    rec["d"][dt] = rec["d"].get(dt, 0) + h
-            await asyncio.sleep(0.3)
-    wdays = _prev_working_days(today, 2)
-    people = []
-    for surn, team in _COURIER_HOME.items():
-        rec = by_person.get(surn)
-        days = rec["d"] if rec else {}
-        name = rec["disp"] if rec else SLACKER_NAMES.get(surn, surn)
-        last2 = round(sum(days.get(d, 0) for d in wdays), 1)
-        logged = sorted([d for d, h in days.items() if h > 0])
-        last_log = logged[-1] if logged else None
-        days_since = (today - date.fromisoformat(last_log)).days if last_log else None
-        people.append({"name": name, "team": team, "label": OSP_QUEUES.get(team, team),
-                       "last2": last2, "perDay": {d: round(days.get(d, 0), 1) for d in wdays},
-                       "lastLog": last_log, "daysSince": days_since})
-    slack = sorted([p for p in people if p["last2"] < 8],
-                   key=lambda p: (p["last2"], -(p["daysSince"] or 99)))
-    payload = {"days": wdays, "rosterSize": len(_COURIER_HOME), "slackers": slack,
-               "timesheet": "https://timesheet.svc.vkusvill.ru/",
-               "computedAt": datetime.now(MSK).strftime("%Y-%m-%d %H:%M")}
+        wdays = _prev_working_days(today, 2)
+        people = []
+        for surn, team in _COURIER_HOME.items():
+            rec = by_person.get(surn)
+            days = rec["d"] if rec else {}
+            name = rec["disp"] if rec else SLACKER_NAMES.get(surn, surn)
+            last2 = round(sum(days.get(d, 0) for d in wdays), 1)
+            logged = sorted([d for d, h in days.items() if h > 0])
+            last_log = logged[-1] if logged else None
+            days_since = (today - date.fromisoformat(last_log)).days if last_log else None
+            people.append({"id": surn, "name": name, "team": team, "label": OSP_QUEUES.get(team, team),
+                           "last2": last2, "perDay": {d: round(days.get(d, 0), 1) for d in wdays},
+                           "lastLog": last_log, "daysSince": days_since})
+        computed = datetime.now(MSK).strftime("%Y-%m-%d %H:%M")
+        try:
+            await turso_execute([stmt(
+                "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+                "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+                [ck, json.dumps({"people": people, "days": wdays, "computedAt": computed}, ensure_ascii=False)])])
+        except Exception as e:
+            print(f"[slackers save] {e}")
+    # статус «отпуск/больничный» — отдельный снапшот, применяем на чтении
+    leave = await _slacker_leave()
+    on_leave, slack = [], []
+    for p in people:
+        if p["id"] in leave:
+            on_leave.append({**p, "since": leave[p["id"]].get("since"), "kind": leave[p["id"]].get("kind", "отпуск")})
+        elif p["last2"] < 8:
+            slack.append(p)
+    slack.sort(key=lambda p: (p["last2"], -(p["daysSince"] or 99)))
+    on_leave.sort(key=lambda p: p["name"])
+    return JSONResponse({"ok": True, "days": wdays, "rosterSize": len(people),
+                         "slackers": slack, "onLeave": on_leave,
+                         "timesheet": "https://timesheet.svc.vkusvill.ru/", "computedAt": computed})
+
+async def _slacker_leave() -> dict:
+    """{id(норм-фамилия): {name, team, label, kind, since}} — кто на отпуске/больничном."""
+    snap = await _osp_snap("slackers-leave-v1")
+    return snap if isinstance(snap, dict) else {}
+
+@app.post("/slackers/leave")
+async def slackers_leave(request: Request):
+    """Тоггл «отпуск/больничный» по сотруднику: {id, on, name?, team?, label?, kind?}.
+    Если on — сотрудник исключается из негодяев (он легально не вносит часы)."""
+    try:
+        body = await request.json()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"bad json: {e}"})
+    pid = body.get("id")
+    if not pid:
+        return JSONResponse({"ok": False, "error": "нужен id"})
+    leave = await _slacker_leave()
+    if body.get("on"):
+        leave[pid] = {"name": body.get("name"), "team": body.get("team"),
+                      "label": body.get("label"), "kind": body.get("kind") or "отпуск",
+                      "since": datetime.now(MSK).strftime("%Y-%m-%d")}
+    else:
+        leave.pop(pid, None)
     try:
         await turso_execute([stmt(
             "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
             "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
-            [ck, json.dumps(payload, ensure_ascii=False)])])
+            ["slackers-leave-v1", json.dumps(leave, ensure_ascii=False)])])
     except Exception as e:
-        print(f"[slackers save] {e}")
-    return JSONResponse({"ok": True, **payload})
+        return JSONResponse({"ok": False, "error": str(e)})
+    return JSONResponse({"ok": True, "onLeave": sorted(leave.keys())})
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 

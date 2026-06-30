@@ -18,6 +18,11 @@ export async function fetchSlackers(refresh = false): Promise<SlackersData> {
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.json()
 }
+export async function setSlackerLeave(body: { id: string; on: boolean; name?: string; team?: string; label?: string; kind?: string }): Promise<void> {
+  const r = await fetch("/slackers/leave", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  const d = await r.json()
+  if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`)
+}
 
 export async function fetchDashboard(dateFrom?: string, dateTo?: string): Promise<DashboardData> {
   const params = new URLSearchParams()
