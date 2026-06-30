@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, lazy, Suspense } from "react"
-import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, AlertOctagon, Command as CommandIcon } from "lucide-react"
+import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, Clock4, Command as CommandIcon } from "lucide-react"
 import { Toaster, toast } from "sonner"
 import { CommandPalette } from "@/components/CommandPalette"
 import { SimpleTooltip } from "@/components/ui/tooltip"
@@ -16,7 +16,7 @@ const NAV_HINT: Record<string, string> = {
   osp: "Обзор сервиса поставки",
   est: "План-факт спринта · SP",
   feat: "Оценка возможностей · S/M/L · эталоны",
-  slackers: "Кто не вносит часы",
+  slackers: "Кто недосписал часы",
 }
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
@@ -315,7 +315,7 @@ export default function App() {
             )}
             {([
               { items: [["home", Home, "Главная"]] },
-              { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["flowt", Activity, "Поток команд"], ["est", Gauge, "Спринты"], ["slackers", AlertOctagon, "Негодяи"], ["osp", Truck, "ОСП"]] },
+              { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["flowt", Activity, "Поток команд"], ["est", Gauge, "Спринты"], ["slackers", Clock4, "Учёт часов"], ["osp", Truck, "ОСП"]] },
               { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["sle", Target, "Анализ SLE"], ["feat", Lightbulb, "Оценка НВ"]] },
             ] as const).map((grp, gi) => (
               <div key={gi} className={gi ? "mt-2" : ""}>
