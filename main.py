@@ -2272,10 +2272,18 @@ async def fetch_sle_tasks(which: str) -> dict:
         except Exception as e:
             print(f"[sle live sub-blockings] {e}")
 
+    def _is_block_sub(s):
+        """Подзадача-(БЛОК) = сама блокировка (тип blokirovka или имя «(БЛОК)…»)."""
+        summ = (s.get("summary") or "").upper().lstrip()
+        return ((s.get("type") or {}).get("key") == "blokirovka"
+                or summ.startswith("(БЛОК") or "(БЛОК)" in summ[:16])
+
     tasks = []
     for p in parents:
         pk = p["key"]
-        plist = subs_by_parent.get(pk, [])
+        all_subs = subs_by_parent.get(pk, [])
+        block_children = [s for s in all_subs if _is_block_sub(s)]   # блоки на самой задаче
+        plist = [s for s in all_subs if not _is_block_sub(s)]        # реальные рабочие подзадачи
         active = [s for s in plist if (s.get("status") or {}).get("key") not in SLE_DONE_SUB]
         # фазы подзадач: завершено / в работе / не начато
         phases = [_sub_phase((s.get("status") or {}).get("key", "")) for s in plist]
@@ -2286,6 +2294,14 @@ async def fetch_sle_tasks(which: str) -> dict:
         # либо не начаты: new/open/бэклог). new/open больше НЕ считаем активной работой.
         hidden_blocked = len(plist) > 0 and working_cnt == 0
         sub_out, blocked_subs, blocked_details = [], [], []
+        # Прямые подзадачи-(БЛОК) родителя = открытый блок на самой задаче (любая очередь)
+        for bs in block_children:
+            if (bs.get("status") or {}).get("key") in SLE_DONE_SUB:
+                continue   # блок снят
+            bk = bs.get("key")
+            blocked_subs.append(bk)
+            blocked_details.append({"key": bk, "url": f"https://tracker.yandex.ru/{bk}",
+                                    "reason": bs.get("summary") or "Блокировка"})
         for s in plist:
             sk = s.get("key")
             s_active = (s.get("status") or {}).get("key") not in SLE_DONE_SUB
