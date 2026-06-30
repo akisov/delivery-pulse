@@ -4228,6 +4228,25 @@ async def diag_issue(key: str = Query(...)):
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
+@app.get("/diag/links")
+async def diag_links(key: str = Query(...)):
+    """Все связи задачи: тип связи + объект (ключ/название/тип) — чтобы понять, где блок."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            links = await fetch_issue_links(client, key)
+        out = []
+        for l in (links or []):
+            obj = l.get("object", {}) or {}
+            lt = l.get("type", {}) or {}
+            out.append({"linkType": lt.get("id") or lt.get("display"), "dir": l.get("direction"),
+                        "key": obj.get("key"), "display": obj.get("display"),
+                        "objType": (obj.get("type") or {}).get("key")})
+        return JSONResponse({"ok": True, "key": key, "links": out})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
 @app.get("/diag/field")
 async def diag_field(queue: str = Query("RKDS"), key: str = Query("team")):
     if not TRACKER_TOKEN:
