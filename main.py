@@ -5448,43 +5448,61 @@ async def slackers(refresh: bool = Query(False)):
     else:
         today = datetime.now(MSK).date()
         since = (today - timedelta(days=14)).isoformat()
+        disc_since = (today - timedelta(days=30)).isoformat()   # окно поиска людей
         by_person: dict = {}      # норм-фамилия → {"team","disp","d":{дата:часы}}
-        # Считаем списания человека во ВСЕХ очередях (worklog/_search по дате), а не
-        # только курьерских — иначе тот, кто трекает в чужих очередях, ложно «негодяй».
-        seen_ids: set = set()
+        ident: dict = {}          # норм-фамилия → {"cid","team","disp"} (id автора из Трекера)
         async with httpx.AsyncClient(timeout=90) as client:
-            page = 1
-            while page <= 300:
-                data = await tracker_request(client, "POST", f"/v2/worklog/_search?perPage=100&page={page}",
-                    {"start": {"from": f"{since}T00:00:00", "to": "2099-01-01T00:00:00"}})
-                chunk = data if isinstance(data, list) else []
-                new = 0
-                for e in chunk:
-                    eid = e.get("id")
-                    if eid in seen_ids:        # защита от игнора page (задвоение)
+            # Фаза 1: находим людей и их Tracker-id через курьерские очереди (по worklog).
+            todo: list = []
+            for q in OSP_QUEUES:
+                page = 1
+                while True:
+                    data = await tracker_request(client, "POST", f"/v2/issues/_search?perPage=100&page={page}",
+                        {"filter": {"queue": q, "updatedAt": {"from": f"{disc_since}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+                    chunk = data if isinstance(data, list) else []
+                    for iss in chunk:
+                        if iss.get("spent"):
+                            todo.append(iss["key"])
+                    if len(chunk) < 100:
+                        break
+                    page += 1
+                    await asyncio.sleep(0.3)
+            todo = list(dict.fromkeys(todo))
+            for i in range(0, len(todo), 5):
+                wls = await asyncio.gather(*[_wl_fetch(client, k) for k in todo[i:i + 5]], return_exceptions=True)
+                for wl in wls:
+                    if not isinstance(wl, list):
                         continue
-                    seen_ids.add(eid); new += 1
-                    h = _iso_dur_hours(e.get("duration"))
-                    if h <= 0:
-                        continue
-                    dt = (e.get("start") or e.get("createdAt") or "")[:10]
-                    if not dt or dt < since:
-                        continue
-                    disp = (e.get("createdBy") or {}).get("display") or ""
-                    m = _match_courier(disp)
-                    if not m:
-                        continue
-                    surn, team = m
-                    rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
-                    rec["disp"] = disp
-                    rec["d"][dt] = rec["d"].get(dt, 0) + h
-                if len(chunk) < 100 or new == 0:   # конец данных или пагинация не двигается
-                    break
-                page += 1
+                    for e in wl:
+                        cb = e.get("createdBy") or {}
+                        m = _match_courier(cb.get("display") or "")
+                        if not m or not cb.get("id"):
+                            continue
+                        surn, team = m
+                        ident[surn] = {"cid": cb["id"], "team": team, "disp": cb.get("display") or surn}
                 await asyncio.sleep(0.2)
-        if not seen_ids:
-            # пустой ответ worklog/_search — не кешируем, чтобы не пометить всех негодяями
-            return JSONResponse({"ok": False, "error": "worklog/_search вернул пусто — попробуй обновить"})
+            # Фаза 2: по каждому человеку тянем списания во ВСЕХ очередях (worklog/_search
+            # по автору) — иначе тот, кто трекает в чужих очередях, ложно «недосписавший».
+            for surn, info in ident.items():
+                day_h: dict = {}
+                page = 1
+                while page <= 20:
+                    data = await tracker_request(client, "POST", f"/v2/worklog/_search?perPage=100&page={page}",
+                        {"createdBy": info["cid"], "start": {"from": f"{since}T00:00:00", "to": "2099-01-01T00:00:00"}})
+                    chunk = data if isinstance(data, list) else []
+                    for e in chunk:
+                        h = _iso_dur_hours(e.get("duration"))
+                        if h <= 0:
+                            continue
+                        dt = (e.get("start") or e.get("createdAt") or "")[:10]
+                        if not dt or dt < since:
+                            continue
+                        day_h[dt] = day_h.get(dt, 0) + h
+                    if len(chunk) < 100:
+                        break
+                    page += 1
+                by_person[surn] = {"team": info["team"], "disp": info["disp"], "d": day_h}
+                await asyncio.sleep(0.15)
         wdays = _prev_working_days(today, 2)
         people = []
         for surn, team in _COURIER_HOME.items():
