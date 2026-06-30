@@ -368,7 +368,8 @@ def tracker_headers():
         "Content-Type": "application/json"
     }
 
-async def tracker_request(client: httpx.AsyncClient, method: str, path: str, body: dict = None):
+async def tracker_request(client: httpx.AsyncClient, method: str, path: str, body: dict = None,
+                          with_headers: bool = False):
     url = f"https://api.tracker.yandex.net{path}"
     for attempt in range(6):
         async with _sem:
@@ -393,7 +394,7 @@ async def tracker_request(client: httpx.AsyncClient, method: str, path: str, bod
             await asyncio.sleep(wait)
             continue
         r.raise_for_status()
-        return r.json()
+        return (r.json(), r.headers) if with_headers else r.json()
     raise Exception(f"Failed after retries: {url}")
 
 async def fetch_issues_with_blockings(client, queue, page):
@@ -5449,16 +5450,23 @@ async def run_slackers_job():
         since = (today - timedelta(days=14)).isoformat()
         by_person: dict = {}      # норм-фамилия → {"team","disp","d":{дата:часы}}
         seen_ids: set = set()
+        body = {"start": {"from": f"{since}T00:00:00", "to": "2099-01-01T00:00:00"}}
         async with httpx.AsyncClient(timeout=120) as client:
-            page = 1
-            while page <= 2000:
-                data = await tracker_request(client, "POST", f"/v2/worklog/_search?perPage=100&page={page}",
-                    {"start": {"from": f"{since}T00:00:00", "to": "2099-01-01T00:00:00"}})
+            # scroll-пагинация: page-based режется на 10000 записей, а за 2 недели их больше
+            sid = stok = None
+            steps = 0
+            while steps < 2000:
+                steps += 1
+                if sid and stok:
+                    path = f"/v2/worklog/_search?scrollId={sid}&scrollToken={stok}"
+                else:
+                    path = "/v2/worklog/_search?scrollType=unsorted&perScroll=500&scrollTTLMillis=30000"
+                data, headers = await tracker_request(client, "POST", path, body, with_headers=True)
                 chunk = data if isinstance(data, list) else []
                 new = 0
                 for e in chunk:
                     eid = e.get("id")
-                    if eid in seen_ids:           # защита от игнора page (задвоение)
+                    if eid in seen_ids:
                         continue
                     seen_ids.add(eid); new += 1
                     h = _iso_dur_hours(e.get("duration"))
@@ -5475,11 +5483,11 @@ async def run_slackers_job():
                     rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
                     rec["disp"] = disp
                     rec["d"][dt] = rec["d"].get(dt, 0) + h
+                sid = headers.get("X-Scroll-Id"); stok = headers.get("X-Scroll-Token")
                 _slk_status["msg"] = f"worklog: {len(seen_ids)} записей…"
-                _slk_status["pct"] = min(95, 5 + page)
-                if len(chunk) < 100 or new == 0:
+                _slk_status["pct"] = min(95, 5 + steps)
+                if not chunk or new == 0 or not sid or not stok:
                     break
-                page += 1
                 await asyncio.sleep(0.1)
         if not seen_ids:
             _slk_status = {"running": False, "pct": 0, "msg": "", "error": "worklog/_search вернул пусто"}
