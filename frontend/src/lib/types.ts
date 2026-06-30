@@ -190,7 +190,9 @@ export interface Slacker {
   lastLog: string | null; daysSince: number | null
   since?: string; kind?: string   // для тех, кто на отпуске/больничном
 }
+export interface SlackersStatus { running: boolean; pct: number; msg: string; error: string }
 export interface SlackersData {
   ok: boolean; days: string[]; rosterSize: number
   slackers: Slacker[]; onLeave: Slacker[]; timesheet: string; computedAt: string
+  building?: boolean; status?: SlackersStatus
 }

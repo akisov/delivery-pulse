@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Clock4, RefreshCw, Clock, ExternalLink, CheckCircle2, Palmtree, Thermometer, Undo2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageHeader } from "@/components/PageHeader"
 import { SimpleTooltip } from "@/components/ui/tooltip"
-import { fetchSlackers, setSlackerLeave } from "@/lib/api"
+import { fetchSlackers, fetchSlackersStatus, setSlackerLeave } from "@/lib/api"
 import type { SlackersData, Slacker } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -16,12 +16,26 @@ export function SlackersPage() {
   const [data, setData] = useState<SlackersData | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const startPoll = () => {
+    if (pollRef.current) return
+    pollRef.current = setInterval(async () => {
+      const s = await fetchSlackersStatus().catch(() => null)
+      setData(prev => prev ? { ...prev, status: s || prev.status } : prev)
+      if (s && !s.running) {
+        clearInterval(pollRef.current!); pollRef.current = null
+        fetchSlackers(false).then(setData).catch(() => {})
+      }
+    }, 2500)
+  }
 
   const load = (refresh = false) => {
     setLoading(true)
-    fetchSlackers(refresh).then(setData).catch(() => toast.error("Не удалось загрузить")).finally(() => setLoading(false))
+    fetchSlackers(refresh).then(d => { setData(d); if (d.building) startPoll() })
+      .catch(() => toast.error("Не удалось загрузить")).finally(() => setLoading(false))
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current) } }, [])
 
   const toggleLeave = async (p: Slacker, on: boolean, kind = "отпуск") => {
     setBusy(p.id)
@@ -44,14 +58,16 @@ export function SlackersPage() {
   const slackers = data?.slackers ?? []
   const onLeave = data?.onLeave ?? []
   const days = data?.days ?? []
+  const refreshing = !!data?.building            // идёт фоновая пересборка
+  const building = refreshing && !data?.computedAt   // первый сбор, кэша ещё нет
 
   return (
     <>
       <PageHeader icon={Clock4} title="Учёт часов" info="slackers"
         subtitle="Кто за 2 прошлых рабочих дня внёс меньше 8 ч (или не вносил вовсе)">
-        <button onClick={() => load(true)} disabled={loading} title="Пересчитать вживую"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all">
-          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Обновить
+        <button onClick={() => load(true)} disabled={loading || refreshing} title="Пересобрать (тянет worklog по всем очередям)"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 h-9 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all disabled:opacity-60">
+          <RefreshCw className={cn("w-4 h-4", (loading || refreshing) && "animate-spin")} /> {refreshing ? "Собираем…" : "Обновить"}
         </button>
       </PageHeader>
 
@@ -68,6 +84,12 @@ export function SlackersPage() {
 
       {loading ? (
         <Skeleton className="h-64 rounded-xl" />
+      ) : building ? (
+        <Card><CardContent className="py-12 text-center">
+          <RefreshCw className="w-8 h-8 text-primary mx-auto mb-3 animate-spin" />
+          <p className="text-sm font-semibold text-foreground">Собираем списания по всем очередям…</p>
+          <p className="text-xs text-muted-foreground mt-1">{data?.status?.msg || "Это занимает до минуты"} {data?.status?.pct ? `· ${data.status.pct}%` : ""}</p>
+        </CardContent></Card>
       ) : slackers.length === 0 ? (
         <Card><CardContent className="py-12 text-center">
           <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />

@@ -5435,74 +5435,55 @@ def _prev_working_days(today, n: int):
         d -= timedelta(days=1)
     return out
 
-@app.get("/slackers")
-async def slackers(refresh: bool = Query(False)):
-    """Кто из курьерского пула мало вносил часы: за 2 прошлых рабочих дня < 8ч
-    (включая тех, кто не вносил вовсе). Часы — из worklog курьерских очередей."""
-    if not TRACKER_TOKEN:
-        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
-    ck = "slackers-v3"       # кэш ПОЛНОГО списка людей (отпуск применяется на чтении)
-    cached = None if refresh else await _osp_snap(ck)
-    if cached and cached.get("people") is not None:
-        people, wdays, computed = cached["people"], cached["days"], cached["computedAt"]
-    else:
+SLACKERS_CK = "slackers-v3"      # кэш ПОЛНОГО списка людей (отпуск применяется на чтении)
+_slk_status = {"running": False, "pct": 0, "msg": "", "error": ""}
+
+async def run_slackers_job():
+    """Фоном: сумма списаний каждого курьерского сотрудника во ВСЕХ очередях за
+    ~2 недели (worklog/_search по дате, матч по фамилии автора). Org-wide медленно,
+    поэтому фоном — фронт поллит статус. Результат → snapshot slackers-v3."""
+    global _slk_status
+    _slk_status = {"running": True, "pct": 2, "msg": "Собираем списания…", "error": ""}
+    try:
         today = datetime.now(MSK).date()
         since = (today - timedelta(days=14)).isoformat()
-        disc_since = (today - timedelta(days=30)).isoformat()   # окно поиска людей
         by_person: dict = {}      # норм-фамилия → {"team","disp","d":{дата:часы}}
-        ident: dict = {}          # норм-фамилия → {"cid","team","disp"} (id автора из Трекера)
-        async with httpx.AsyncClient(timeout=90) as client:
-            # Фаза 1: находим людей и их Tracker-id через курьерские очереди (по worklog).
-            todo: list = []
-            for q in OSP_QUEUES:
-                page = 1
-                while True:
-                    data = await tracker_request(client, "POST", f"/v2/issues/_search?perPage=100&page={page}",
-                        {"filter": {"queue": q, "updatedAt": {"from": f"{disc_since}T00:00:00", "to": "2099-01-01T00:00:00"}}})
-                    chunk = data if isinstance(data, list) else []
-                    for iss in chunk:
-                        if iss.get("spent"):
-                            todo.append(iss["key"])
-                    if len(chunk) < 100:
-                        break
-                    page += 1
-                    await asyncio.sleep(0.3)
-            todo = list(dict.fromkeys(todo))
-            for i in range(0, len(todo), 5):
-                wls = await asyncio.gather(*[_wl_fetch(client, k) for k in todo[i:i + 5]], return_exceptions=True)
-                for wl in wls:
-                    if not isinstance(wl, list):
+        seen_ids: set = set()
+        async with httpx.AsyncClient(timeout=120) as client:
+            page = 1
+            while page <= 2000:
+                data = await tracker_request(client, "POST", f"/v2/worklog/_search?perPage=100&page={page}",
+                    {"start": {"from": f"{since}T00:00:00", "to": "2099-01-01T00:00:00"}})
+                chunk = data if isinstance(data, list) else []
+                new = 0
+                for e in chunk:
+                    eid = e.get("id")
+                    if eid in seen_ids:           # защита от игнора page (задвоение)
                         continue
-                    for e in wl:
-                        cb = e.get("createdBy") or {}
-                        m = _match_courier(cb.get("display") or "")
-                        if not m or not cb.get("id"):
-                            continue
-                        surn, team = m
-                        ident[surn] = {"cid": cb["id"], "team": team, "disp": cb.get("display") or surn}
-                await asyncio.sleep(0.2)
-            # Фаза 2: по каждому человеку тянем списания во ВСЕХ очередях (worklog/_search
-            # по автору) — иначе тот, кто трекает в чужих очередях, ложно «недосписавший».
-            for surn, info in ident.items():
-                day_h: dict = {}
-                page = 1
-                while page <= 20:
-                    data = await tracker_request(client, "POST", f"/v2/worklog/_search?perPage=100&page={page}",
-                        {"createdBy": info["cid"], "start": {"from": f"{since}T00:00:00", "to": "2099-01-01T00:00:00"}})
-                    chunk = data if isinstance(data, list) else []
-                    for e in chunk:
-                        h = _iso_dur_hours(e.get("duration"))
-                        if h <= 0:
-                            continue
-                        dt = (e.get("start") or e.get("createdAt") or "")[:10]
-                        if not dt or dt < since:
-                            continue
-                        day_h[dt] = day_h.get(dt, 0) + h
-                    if len(chunk) < 100:
-                        break
-                    page += 1
-                by_person[surn] = {"team": info["team"], "disp": info["disp"], "d": day_h}
-                await asyncio.sleep(0.15)
+                    seen_ids.add(eid); new += 1
+                    h = _iso_dur_hours(e.get("duration"))
+                    if h <= 0:
+                        continue
+                    dt = (e.get("start") or e.get("createdAt") or "")[:10]
+                    if not dt or dt < since:
+                        continue
+                    disp = (e.get("createdBy") or {}).get("display") or ""
+                    m = _match_courier(disp)
+                    if not m:
+                        continue
+                    surn, team = m
+                    rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
+                    rec["disp"] = disp
+                    rec["d"][dt] = rec["d"].get(dt, 0) + h
+                _slk_status["msg"] = f"worklog: {len(seen_ids)} записей…"
+                _slk_status["pct"] = min(95, 5 + page)
+                if len(chunk) < 100 or new == 0:
+                    break
+                page += 1
+                await asyncio.sleep(0.1)
+        if not seen_ids:
+            _slk_status = {"running": False, "pct": 0, "msg": "", "error": "worklog/_search вернул пусто"}
+            return
         wdays = _prev_working_days(today, 2)
         people = []
         for surn, team in _COURIER_HOME.items():
@@ -5517,14 +5498,36 @@ async def slackers(refresh: bool = Query(False)):
                            "last2": last2, "perDay": {d: round(days.get(d, 0), 1) for d in wdays},
                            "lastLog": last_log, "daysSince": days_since})
         computed = datetime.now(MSK).strftime("%Y-%m-%d %H:%M")
-        try:
-            await turso_execute([stmt(
-                "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
-                "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
-                [ck, json.dumps({"people": people, "days": wdays, "computedAt": computed}, ensure_ascii=False)])])
-        except Exception as e:
-            print(f"[slackers save] {e}")
-    # статус «отпуск/больничный» — отдельный снапшот, применяем на чтении
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [SLACKERS_CK, json.dumps({"people": people, "days": wdays, "computedAt": computed}, ensure_ascii=False)])])
+        _slk_status = {"running": False, "pct": 100, "msg": "Готово", "error": ""}
+    except Exception as e:
+        _slk_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
+
+@app.get("/slackers/status")
+async def slackers_status():
+    return JSONResponse(_slk_status)
+
+@app.get("/slackers")
+async def slackers(refresh: bool = Query(False)):
+    """Кто недосписал часы: за 2 прошлых рабочих дня < 8ч (учёт списаний во ВСЕХ
+    очередях). Тяжёлый сбор worklog идёт фоном (run_slackers_job) — фронт поллит."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    cached = await _osp_snap(SLACKERS_CK)
+    # нет кэша — запускаем фоновый сбор и отдаём «строится»
+    if not cached or cached.get("people") is None:
+        if not _slk_status["running"]:
+            asyncio.create_task(run_slackers_job())
+        return JSONResponse({"ok": True, "building": True, "status": _slk_status,
+                             "days": [], "rosterSize": len(_COURIER_HOME), "slackers": [], "onLeave": [],
+                             "timesheet": "https://timesheet.svc.vkusvill.ru/", "computedAt": ""})
+    # есть кэш — по refresh пересобираем фоном, но сразу отдаём текущее
+    if refresh and not _slk_status["running"]:
+        asyncio.create_task(run_slackers_job())
+    people, wdays, computed = cached["people"], cached["days"], cached["computedAt"]
     leave = await _slacker_leave()
     on_leave, slack = [], []
     for p in people:
@@ -5534,7 +5537,8 @@ async def slackers(refresh: bool = Query(False)):
             slack.append(p)
     slack.sort(key=lambda p: (p["last2"], -(p["daysSince"] or 99)))
     on_leave.sort(key=lambda p: p["name"])
-    return JSONResponse({"ok": True, "days": wdays, "rosterSize": len(people),
+    return JSONResponse({"ok": True, "building": _slk_status["running"], "status": _slk_status,
+                         "days": wdays, "rosterSize": len(people),
                          "slackers": slack, "onLeave": on_leave,
                          "timesheet": "https://timesheet.svc.vkusvill.ru/", "computedAt": computed})
 
