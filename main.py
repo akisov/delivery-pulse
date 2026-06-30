@@ -5414,6 +5414,8 @@ async def flow_teams_sync_status():
 
 # ── «Негодяи»: кто мало вносит часы ─────────────────────────────────────────────
 # Ростер — состав курьерских команд (COURIER_TEAM_MEMBERS); команда = X/U/R.
+# Очереди, в которых команды реально списывают часы (для учёта «всех» списаний):
+SLACKER_QUEUES = list(OSP_QUEUES.keys()) + ["PUTKURERA"]
 SLACKER_NAMES = {}   # норм-фамилия → фамилия (фолбэк-имя, если человек ничего не списал)
 for _t, _ns in COURIER_TEAM_MEMBERS.items():
     for _n in _ns:
@@ -5453,37 +5455,46 @@ async def slackers(refresh: bool = Query(False)):
         wdays = _prev_working_days(today, 2)        # напр. ['2026-06-29','2026-06-26']
         frm = min(wdays)                            # начало окна выборки
         by_person: dict = {}                        # норм-фамилия → {"team","disp","d":{дата:часы}}
-        seen_ids: set = set()
+        # Тянем worklog ТОЛЬКО по релевантным очередям (курьерские + PUTKURERA, где
+        # команды трекают фичи) за окно 2 дней. Матч по фамилии автора (ловит и тех,
+        # у кого несколько учёток в Трекере — точечный запрос по id их теряет).
         async with httpx.AsyncClient(timeout=90) as client:
-            page = 1
-            while page <= 100:                      # окно ~4 дня → записей мало, лимит 10000 не грозит
-                data = await tracker_request(client, "POST", f"/v2/worklog/_search?perPage=100&page={page}",
-                    {"start": {"from": f"{frm}T00:00:00", "to": "2099-01-01T00:00:00"}})
-                chunk = data if isinstance(data, list) else []
-                new = 0
-                for e in chunk:
-                    eid = e.get("id")
-                    if eid in seen_ids:
+            todo: list = []
+            for q in SLACKER_QUEUES:
+                page = 1
+                while True:
+                    data = await tracker_request(client, "POST", f"/v2/issues/_search?perPage=100&page={page}",
+                        {"filter": {"queue": q, "updatedAt": {"from": f"{frm}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+                    chunk = data if isinstance(data, list) else []
+                    for iss in chunk:
+                        if iss.get("spent"):
+                            todo.append(iss["key"])
+                    if len(chunk) < 100:
+                        break
+                    page += 1
+                    await asyncio.sleep(0.2)
+            todo = list(dict.fromkeys(todo))
+            for i in range(0, len(todo), 5):
+                wls = await asyncio.gather(*[_wl_fetch(client, k) for k in todo[i:i + 5]], return_exceptions=True)
+                for wl in wls:
+                    if not isinstance(wl, list):
                         continue
-                    seen_ids.add(eid); new += 1
-                    h = _iso_dur_hours(e.get("duration"))
-                    if h <= 0:
-                        continue
-                    dt = (e.get("start") or e.get("createdAt") or "")[:10]
-                    if not dt or dt < frm:
-                        continue
-                    disp = (e.get("createdBy") or {}).get("display") or ""
-                    m = _match_courier(disp)
-                    if not m:
-                        continue
-                    surn, team = m
-                    rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
-                    rec["disp"] = disp
-                    rec["d"][dt] = rec["d"].get(dt, 0) + h
-                if len(chunk) < 100 or new == 0:
-                    break
-                page += 1
-                await asyncio.sleep(0.1)
+                    for e in wl:
+                        h = _iso_dur_hours(e.get("duration"))
+                        if h <= 0:
+                            continue
+                        dt = (e.get("start") or e.get("createdAt") or "")[:10]
+                        if not dt or dt < frm:
+                            continue
+                        disp = (e.get("createdBy") or {}).get("display") or ""
+                        m = _match_courier(disp)
+                        if not m:
+                            continue
+                        surn, team = m
+                        rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
+                        rec["disp"] = disp
+                        rec["d"][dt] = rec["d"].get(dt, 0) + h
+                await asyncio.sleep(0.15)
         people = []
         for surn, team in _COURIER_HOME.items():
             rec = by_person.get(surn)
