@@ -5436,32 +5436,29 @@ def _prev_working_days(today, n: int):
         d -= timedelta(days=1)
     return out
 
-SLACKERS_CK = "slackers-v3"      # кэш ПОЛНОГО списка людей (отпуск применяется на чтении)
-_slk_status = {"running": False, "pct": 0, "msg": "", "error": ""}
+SLACKERS_CK = "slackers-v4"      # кэш списка людей (отпуск применяется на чтении)
 
-async def run_slackers_job():
-    """Фоном: сумма списаний каждого курьерского сотрудника во ВСЕХ очередях за
-    ~2 недели (worklog/_search по дате, матч по фамилии автора). Org-wide медленно,
-    поэтому фоном — фронт поллит статус. Результат → snapshot slackers-v3."""
-    global _slk_status
-    _slk_status = {"running": True, "pct": 2, "msg": "Собираем списания…", "error": ""}
-    try:
+@app.get("/slackers")
+async def slackers(refresh: bool = Query(False)):
+    """Кто недосписал часы: за 2 прошлых рабочих дня < 8ч. Тянем worklog ТОЛЬКО за
+    окно этих ~2 рабочих дней (по всем очередям, page-based — записей сотни) и
+    матчим по курьерскому ростеру COURIER_TEAM_MEMBERS. Быстро и синхронно."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
+    cached = None if refresh else await _osp_snap(SLACKERS_CK)
+    if cached and cached.get("people") is not None:
+        people, wdays, computed = cached["people"], cached["days"], cached["computedAt"]
+    else:
         today = datetime.now(MSK).date()
-        since = (today - timedelta(days=14)).isoformat()
-        by_person: dict = {}      # норм-фамилия → {"team","disp","d":{дата:часы}}
+        wdays = _prev_working_days(today, 2)        # напр. ['2026-06-29','2026-06-26']
+        frm = min(wdays)                            # начало окна выборки
+        by_person: dict = {}                        # норм-фамилия → {"team","disp","d":{дата:часы}}
         seen_ids: set = set()
-        body = {"start": {"from": f"{since}T00:00:00", "to": "2099-01-01T00:00:00"}}
-        async with httpx.AsyncClient(timeout=120) as client:
-            # scroll-пагинация: page-based режется на 10000 записей, а за 2 недели их больше
-            sid = stok = None
-            steps = 0
-            while steps < 2000:
-                steps += 1
-                if sid and stok:
-                    path = f"/v2/worklog/_search?scrollId={sid}&scrollToken={stok}"
-                else:
-                    path = "/v2/worklog/_search?scrollType=unsorted&perScroll=500&scrollTTLMillis=30000"
-                data, headers = await tracker_request(client, "POST", path, body, with_headers=True)
+        async with httpx.AsyncClient(timeout=90) as client:
+            page = 1
+            while page <= 100:                      # окно ~4 дня → записей мало, лимит 10000 не грозит
+                data = await tracker_request(client, "POST", f"/v2/worklog/_search?perPage=100&page={page}",
+                    {"start": {"from": f"{frm}T00:00:00", "to": "2099-01-01T00:00:00"}})
                 chunk = data if isinstance(data, list) else []
                 new = 0
                 for e in chunk:
@@ -5473,7 +5470,7 @@ async def run_slackers_job():
                     if h <= 0:
                         continue
                     dt = (e.get("start") or e.get("createdAt") or "")[:10]
-                    if not dt or dt < since:
+                    if not dt or dt < frm:
                         continue
                     disp = (e.get("createdBy") or {}).get("display") or ""
                     m = _match_courier(disp)
@@ -5483,16 +5480,10 @@ async def run_slackers_job():
                     rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
                     rec["disp"] = disp
                     rec["d"][dt] = rec["d"].get(dt, 0) + h
-                sid = headers.get("X-Scroll-Id"); stok = headers.get("X-Scroll-Token")
-                _slk_status["msg"] = f"worklog: {len(seen_ids)} записей…"
-                _slk_status["pct"] = min(95, 5 + steps)
-                if not chunk or new == 0 or not sid or not stok:
+                if len(chunk) < 100 or new == 0:
                     break
+                page += 1
                 await asyncio.sleep(0.1)
-        if not seen_ids:
-            _slk_status = {"running": False, "pct": 0, "msg": "", "error": "worklog/_search вернул пусто"}
-            return
-        wdays = _prev_working_days(today, 2)
         people = []
         for surn, team in _COURIER_HOME.items():
             rec = by_person.get(surn)
@@ -5506,36 +5497,13 @@ async def run_slackers_job():
                            "last2": last2, "perDay": {d: round(days.get(d, 0), 1) for d in wdays},
                            "lastLog": last_log, "daysSince": days_since})
         computed = datetime.now(MSK).strftime("%Y-%m-%d %H:%M")
-        await turso_execute([stmt(
-            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
-            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
-            [SLACKERS_CK, json.dumps({"people": people, "days": wdays, "computedAt": computed}, ensure_ascii=False)])])
-        _slk_status = {"running": False, "pct": 100, "msg": "Готово", "error": ""}
-    except Exception as e:
-        _slk_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
-
-@app.get("/slackers/status")
-async def slackers_status():
-    return JSONResponse(_slk_status)
-
-@app.get("/slackers")
-async def slackers(refresh: bool = Query(False)):
-    """Кто недосписал часы: за 2 прошлых рабочих дня < 8ч (учёт списаний во ВСЕХ
-    очередях). Тяжёлый сбор worklog идёт фоном (run_slackers_job) — фронт поллит."""
-    if not TRACKER_TOKEN:
-        return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
-    cached = await _osp_snap(SLACKERS_CK)
-    # нет кэша — запускаем фоновый сбор и отдаём «строится»
-    if not cached or cached.get("people") is None:
-        if not _slk_status["running"]:
-            asyncio.create_task(run_slackers_job())
-        return JSONResponse({"ok": True, "building": True, "status": _slk_status,
-                             "days": [], "rosterSize": len(_COURIER_HOME), "slackers": [], "onLeave": [],
-                             "timesheet": "https://timesheet.svc.vkusvill.ru/", "computedAt": ""})
-    # есть кэш — по refresh пересобираем фоном, но сразу отдаём текущее
-    if refresh and not _slk_status["running"]:
-        asyncio.create_task(run_slackers_job())
-    people, wdays, computed = cached["people"], cached["days"], cached["computedAt"]
+        try:
+            await turso_execute([stmt(
+                "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+                "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+                [SLACKERS_CK, json.dumps({"people": people, "days": wdays, "computedAt": computed}, ensure_ascii=False)])])
+        except Exception as e:
+            print(f"[slackers save] {e}")
     leave = await _slacker_leave()
     on_leave, slack = [], []
     for p in people:
@@ -5545,8 +5513,7 @@ async def slackers(refresh: bool = Query(False)):
             slack.append(p)
     slack.sort(key=lambda p: (p["last2"], -(p["daysSince"] or 99)))
     on_leave.sort(key=lambda p: p["name"])
-    return JSONResponse({"ok": True, "building": _slk_status["running"], "status": _slk_status,
-                         "days": wdays, "rosterSize": len(people),
+    return JSONResponse({"ok": True, "days": wdays, "rosterSize": len(people),
                          "slackers": slack, "onLeave": on_leave,
                          "timesheet": "https://timesheet.svc.vkusvill.ru/", "computedAt": computed})
 
