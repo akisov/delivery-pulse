@@ -2228,6 +2228,50 @@ async def fetch_sle_tasks(which: str) -> dict:
         except Exception:
             pass
 
+    # Подзадачи вне курьерских очередей (PUTKURERA / SRE / …) синк блокировок НЕ покрывает —
+    # тянем их блокировки вживую, иначе блок на такой подзадаче не виден в Анализе SLE.
+    _COURIER_Q = ("POOLING", "UDOSTAVKA", "DOSTAVKAPIKO")
+    live_keys = [k for k in sub_keys if k.split("-")[0] not in _COURIER_Q]
+    if live_keys:
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                B = 5
+                for i in range(0, len(live_keys), B):
+                    chunk = live_keys[i:i + B]
+                    links_list = await asyncio.gather(
+                        *[fetch_issue_links(client, k) for k in chunk], return_exceptions=True)
+                    await asyncio.sleep(0.4)
+                    pairs = []  # (sub_key, blocking_key)
+                    for sk, links in zip(chunk, links_list):
+                        if isinstance(links, Exception):
+                            continue
+                        for link in links:
+                            obj = link.get("object", {}) or {}
+                            ok, od = obj.get("key", ""), obj.get("display", "")
+                            if ok and ("(БЛОК)" in od.upper() or "БЛОК" in od[:10].upper()):
+                                pairs.append((sk, ok))
+                    for j in range(0, len(pairs), 3):
+                        bchunk = pairs[j:j + 3]
+                        bissues = await asyncio.gather(
+                            *[fetch_issue(client, bk) for _, bk in bchunk], return_exceptions=True)
+                        await asyncio.sleep(0.3)
+                        for (sk, bk), biss in zip(bchunk, bissues):
+                            if isinstance(biss, Exception) or not biss:
+                                continue
+                            if (biss.get("type", {}) or {}).get("key") != "blokirovka":
+                                continue
+                            reasons = biss.get("reasonForBlocking", []) or []
+                            status = (biss.get("status", {}) or {}).get("key", "")
+                            sd = biss.get("start", "") or (biss.get("createdAt", "") or "")[:10]
+                            ed = biss.get("end", "") if status == "closed" else ""
+                            sub_blockings.setdefault(sk, []).append({
+                                "reason": (reasons[0] if reasons else "Не указана"),
+                                "status": status,
+                                "startDate": (sd or "")[:10], "endDate": (ed or "")[:10],
+                            })
+        except Exception as e:
+            print(f"[sle live sub-blockings] {e}")
+
     tasks = []
     for p in parents:
         pk = p["key"]
