@@ -1122,6 +1122,23 @@ async def _copy_capacity(src_id: int, dst_id: int):
 
 _sync_status: dict = {"running": False, "pct": 0, "msg": "", "error": ""}
 
+# Ключи в osp_snapshot, которые НЕЛЬЗЯ удалять (пользовательские настройки, не кэш)
+CONFIG_SNAPSHOTS = ("est-settings-v1", "osp-settings-v1")
+
+async def _invalidate_caches():
+    """Сбрасываем все кэш-снапшоты (кроме пользовательских настроек), чтобы после синка
+    разделы пересчитывались на свежих данных Трекера. Конфиги (пороги SLE/категории, настройки ОСП)
+    сохраняются."""
+    ph = ",".join("?" * len(CONFIG_SNAPSHOTS))
+    try:
+        await turso_execute([
+            stmt(f"DELETE FROM osp_snapshot WHERE which NOT IN ({ph})", list(CONFIG_SNAPSHOTS)),
+            stmt("DELETE FROM sle_snapshot"),
+        ])
+        print("[cache] кэш-снапшоты сброшены (кроме конфигов)")
+    except Exception as e:
+        print(f"[cache invalidate] {e}")
+
 async def run_sync_job(selected: list[str], full: bool):
     global _sync_status
     _sync_status = {"running": True, "pct": 2, "msg": "Подключаемся к Трекеру…", "error": ""}
@@ -1165,6 +1182,8 @@ async def run_sync_job(selected: list[str], full: bool):
 
                 await _sync_arch_queue(client, queue, a_from, arch_send)
 
+        _sync_status["msg"] = "Обновляем кэш разделов…"
+        await _invalidate_caches()
         _sync_status = {"running": False, "pct": 100, "msg": "Синк завершён", "error": ""}
     except Exception as e:
         _sync_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
@@ -1280,17 +1299,7 @@ async def _daily_scheduler():
             await asyncio.sleep(max(60, (target - now).total_seconds()))
             if TRACKER_TOKEN and not _sync_status["running"]:
                 print("[scheduler] ежедневный синк блокировок")
-                await run_sync_job(list(QUEUES), False)
-                # сбрасываем SLE-кэш, чтобы при заходе подхватились свежие статусы блоков
-                try:
-                    await turso_execute([stmt("DELETE FROM sle_snapshot")])
-                except Exception as e:
-                    print(f"[scheduler] sle invalidate: {e}")
-                # сбрасываем кэш «Завершено по месяцам» (Поток E2E), иначе график замораживается
-                try:
-                    await turso_execute([stmt("DELETE FROM osp_snapshot WHERE which LIKE 'flowdone-%'")])
-                except Exception as e:
-                    print(f"[scheduler] flowdone invalidate: {e}")
+                await run_sync_job(list(QUEUES), False)   # внутри уже сбрасывает кэш всех разделов
                 # догружаем worklog текущего месяца из API
                 try:
                     if not _wl_status["running"]:
