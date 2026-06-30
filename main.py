@@ -2928,6 +2928,72 @@ OSP_CATEGORIES = [
 ]
 _RU_MON = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
 
+# Состав команд курьеров (без руководителей) — дом-команда сотрудника для разбивки
+# worklog по людям. Матч по фамилии (токен в display из Трекера, ё→е, регистр игнор).
+COURIER_TEAM_MEMBERS = {
+    "POOLING":      ["Туралиева", "Перевезенцева", "Доронин", "Егоров", "Подлинов"],
+    "UDOSTAVKA":    ["Гусев", "Драгун", "Источников", "Ким", "Спиридонов", "Степин",
+                     "Корякин", "Копосов", "Резенова", "Асотикова", "Яцушко"],
+    "DOSTAVKAPIKO": ["Памшев", "Исабаев", "Борискин", "Разумова", "Рогова", "Киреев",
+                     "Шестопалов", "Ву", "Мартынов", "Махмутова"],
+}
+def _cnorm(s: str) -> str:
+    return str(s or "").replace("ё", "е").replace("Ё", "Е").strip().lower()
+_COURIER_HOME = {}
+for _t, _ns in COURIER_TEAM_MEMBERS.items():
+    for _n in _ns:
+        _COURIER_HOME[_cnorm(_n)] = _t
+def _courier_home(display: str):
+    """Дом-команда сотрудника (очередь) по фамилии из display, иначе None (вне команд)."""
+    toks = set(_cnorm(display).split())
+    for surn, team in _COURIER_HOME.items():
+        if surn in toks:
+            return team
+    return None
+
+def _build_people(pa: dict) -> tuple:
+    """pa[month][person][queue] = {type: hours} → (employees, crossOut, crossIn)
+    в форме, которую ждёт фронт (OSPTime). Часы раскладываются по ДОМ-команде из
+    ростера: employees = свои в своей очереди; crossOut = свои в чужих; crossIn =
+    чужие/внешние в нашей очереди."""
+    employees, cross_out, cross_in = {}, {}, {}
+    for m, pers in pa.items():
+        emp_m = {q: [] for q in OSP_QUEUES}
+        cin_m = {q: [] for q in OSP_QUEUES}
+        co_tmp = {q: {} for q in OSP_QUEUES}   # team → {person: {qlabel: hours}}
+        for person, qmap in pers.items():
+            home = _courier_home(person)
+            for q, bytype in qmap.items():
+                tot = round(sum(bytype.values()), 2)
+                if tot <= 0:
+                    continue
+                if q == home:                  # свой в своей очереди
+                    emp_m[q].append({"name": person, "total": tot,
+                                     "by": {k: round(v, 2) for k, v in bytype.items()}})
+                else:                          # списал в очереди q, но его дом ≠ q
+                    if q in cin_m:
+                        cin_m[q].append({"name": person,
+                                         "team": OSP_QUEUES.get(home, "вне команд"),
+                                         "hours": tot})
+                    if home in co_tmp:
+                        lbl = OSP_QUEUES.get(q, q)
+                        co_tmp[home].setdefault(person, {})
+                        co_tmp[home][person][lbl] = co_tmp[home][person].get(lbl, 0) + tot
+        for q in OSP_QUEUES:
+            lst = sorted(emp_m[q], key=lambda e: -e["total"])
+            qtot = sum(e["total"] for e in lst) or 1
+            for e in lst:
+                e["pct"] = round(e["total"] / qtot * 100)
+            emp_m[q] = lst
+            cin_m[q] = sorted(cin_m[q], key=lambda r: -r["hours"])
+        co_m = {}
+        for team, pmap in co_tmp.items():
+            rows = [{"name": p, "cols": {k: round(v, 2) for k, v in cols.items()},
+                     "total": round(sum(cols.values()), 2)} for p, cols in pmap.items()]
+            co_m[team] = sorted(rows, key=lambda r: -r["total"])
+        employees[m], cross_out[m], cross_in[m] = emp_m, co_m, cin_m
+    return employees, cross_out, cross_in
+
 def _osp_category(type_key: str | None, type_display: str | None) -> str | None:
     """Категория задачи по типу Трекера. Сопоставляем и по ключу, и по названию —
     устойчиво к тому, какой именно ключ у типа в очередях курьеров."""
@@ -3100,7 +3166,8 @@ def _wl_type_label(display: str | None) -> str | None:
     return None
 
 async def run_osp_worklog_current(year: int):
-    """Догружает worklog ТЕКУЩЕГО месяца из API и подмешивает в снапшот (прошлые месяцы из Excel не трогаем)."""
+    """Догружает worklog ТЕКУЩЕГО месяца из API и подмешивает в снапшот (прошлые месяцы не трогаем).
+    Заодно пересобирает разбивку по людям (employees/crossOut/crossIn) за текущий месяц."""
     global _wl_status
     _wl_status = {"running": True, "pct": 2, "msg": "Текущий месяц: ищем списания…", "error": ""}
     try:
@@ -3108,6 +3175,7 @@ async def run_osp_worklog_current(year: int):
         cm = f"{year}-{today.month:02d}"
         m0 = f"{cm}-01"
         agg: dict = {q: {} for q in OSP_QUEUES}
+        pa: dict = {cm: {}}      # pa[cm][person][q] = {type: hours}
         async with httpx.AsyncClient(timeout=60) as client:
             todo: list[tuple] = []
             for q in OSP_QUEUES:
@@ -3142,6 +3210,10 @@ async def run_osp_worklog_current(year: int):
                         hrs = _iso_dur_hours(e.get("duration"))
                         if hrs > 0:
                             agg[q][tp] = agg[q].get(tp, 0.0) + hrs
+                            person = (e.get("createdBy") or {}).get("display") or ""
+                            if person:
+                                pq = pa[cm].setdefault(person, {}).setdefault(q, {})
+                                pq[tp] = pq.get(tp, 0.0) + hrs
                 done += len(chunk)
                 await asyncio.sleep(0.3)
                 _wl_status["pct"] = 5 + round(done / max(total, 1) * 92)
@@ -3157,6 +3229,11 @@ async def run_osp_worklog_current(year: int):
         for q in agg:
             ts |= set(agg[q].keys())
         snap["types"] = sorted(ts)
+        # разбивка по людям за текущий месяц (прошлые месяцы оставляем как есть)
+        emp_cm, co_cm, cin_cm = _build_people(pa)
+        snap.setdefault("employees", {})[cm] = emp_cm.get(cm, {})
+        snap.setdefault("crossOut", {})[cm] = co_cm.get(cm, {})
+        snap.setdefault("crossIn", {})[cm] = cin_cm.get(cm, {})
         await turso_execute([stmt(
             "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
             "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
@@ -3179,6 +3256,7 @@ async def run_osp_worklog_job(year: int):
         last_m = today.month if year == today.year else 12
         months = [f"{year}-{m:02d}" for m in range(1, last_m + 1)]
         agg = {mo: {q: {} for q in OSP_QUEUES} for mo in months}
+        pa: dict = {}            # pa[mo][person][q] = {type: hours} — для разбивки по людям
         seen_types: set = set()
         async with httpx.AsyncClient(timeout=60) as client:
             # 1. задачи трёх очередей, обновлённые в этом году, со списанным временем
@@ -3224,6 +3302,10 @@ async def run_osp_worklog_job(year: int):
                             continue
                         seen_types.add(tp)
                         agg[mo][q][tp] = agg[mo][q].get(tp, 0.0) + hrs
+                        person = (e.get("createdBy") or {}).get("display") or ""
+                        if person:
+                            pq = pa.setdefault(mo, {}).setdefault(person, {}).setdefault(q, {})
+                            pq[tp] = pq.get(tp, 0.0) + hrs
                 done += len(chunk)
                 await asyncio.sleep(0.3)
                 _wl_status["pct"] = 5 + round(done / max(total, 1) * 92)
@@ -3232,8 +3314,10 @@ async def run_osp_worklog_job(year: int):
             for q in agg[mo]:
                 for tp in list(agg[mo][q]):
                     agg[mo][q][tp] = round(agg[mo][q][tp], 2)
+        employees, cross_out, cross_in = _build_people(pa)
         payload = {"ok": True, "year": year, "months": months, "queues": OSP_QUEUES,
-                   "types": sorted(seen_types), "data": agg}
+                   "types": sorted(seen_types), "data": agg,
+                   "employees": employees, "crossOut": cross_out, "crossIn": cross_in}
         await turso_execute([stmt(
             "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
             "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
@@ -5328,20 +5412,18 @@ async def flow_teams_sync_status():
     return JSONResponse(_flow_status)
 
 # ── «Негодяи»: кто мало вносит часы ─────────────────────────────────────────────
-# Ростер курьерских людей: норм-фамилия → (фамилия, метка-стек/команда)
-SLACKER_ROSTER: dict = {}
-for _st, _names in EST_STACK_MEMBERS.items():
-    for _n in _names:
-        SLACKER_ROSTER[_sprint_norm(_n)] = (_n, _st)
-for _tm, _names in EST_TEAM_MEMBERS.items():
-    for _n in _names:
-        SLACKER_ROSTER.setdefault(_sprint_norm(_n), (_n, f"Курьеры {_tm}"))
+# Ростер — состав курьерских команд (COURIER_TEAM_MEMBERS); команда = X/U/R.
+SLACKER_NAMES = {}   # норм-фамилия → фамилия (фолбэк-имя, если человек ничего не списал)
+for _t, _ns in COURIER_TEAM_MEMBERS.items():
+    for _n in _ns:
+        SLACKER_NAMES[_cnorm(_n)] = _n
 
-def _match_roster(display: str):
-    toks = set(_sprint_norm(display).split())
-    for norm, val in SLACKER_ROSTER.items():
-        if norm in toks:
-            return val
+def _match_courier(display: str):
+    """display из Трекера → (норм-фамилия, очередь-команда) или None."""
+    toks = set(_cnorm(display).split())
+    for surn, team in _COURIER_HOME.items():
+        if surn in toks:
+            return surn, team
     return None
 
 def _prev_working_days(today, n: int):
@@ -5359,15 +5441,14 @@ async def slackers(refresh: bool = Query(False)):
     (включая тех, кто не вносил вовсе). Часы — из worklog курьерских очередей."""
     if not TRACKER_TOKEN:
         return JSONResponse({"ok": False, "error": "TRACKER_TOKEN не задан в секретах Space"})
-    ck = "slackers-v1"
+    ck = "slackers-v2"
     if not refresh:
         snap = await _osp_snap(ck)
         if snap:
             return JSONResponse({"ok": True, **snap})
     today = datetime.now(MSK).date()
     since = (today - timedelta(days=14)).isoformat()
-    by_person: dict = {}      # фамилия → {дата: часы}
-    labels: dict = {}
+    by_person: dict = {}      # норм-фамилия → {"team","disp","d":{дата:часы}}
     async with httpx.AsyncClient(timeout=90) as client:
         todo: list = []
         for q in OSP_QUEUES:
@@ -5396,27 +5477,31 @@ async def slackers(refresh: bool = Query(False)):
                     dt = (e.get("start") or e.get("createdAt") or "")[:10]
                     if not dt or dt < since:
                         continue
-                    m = _match_roster((e.get("createdBy") or {}).get("display") or "")
+                    disp = (e.get("createdBy") or {}).get("display") or ""
+                    m = _match_courier(disp)
                     if not m:
                         continue
-                    name, label = m
-                    labels[name] = label
-                    by_person.setdefault(name, {})[dt] = by_person.get(name, {}).get(dt, 0) + h
+                    surn, team = m
+                    rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
+                    rec["disp"] = disp
+                    rec["d"][dt] = rec["d"].get(dt, 0) + h
             await asyncio.sleep(0.3)
     wdays = _prev_working_days(today, 2)
     people = []
-    for norm, (name, label) in SLACKER_ROSTER.items():
-        days = by_person.get(name, {})
+    for surn, team in _COURIER_HOME.items():
+        rec = by_person.get(surn)
+        days = rec["d"] if rec else {}
+        name = rec["disp"] if rec else SLACKER_NAMES.get(surn, surn)
         last2 = round(sum(days.get(d, 0) for d in wdays), 1)
         logged = sorted([d for d, h in days.items() if h > 0])
         last_log = logged[-1] if logged else None
         days_since = (today - date.fromisoformat(last_log)).days if last_log else None
-        people.append({"name": name, "label": labels.get(name, label), "last2": last2,
-                       "perDay": {d: round(days.get(d, 0), 1) for d in wdays},
+        people.append({"name": name, "team": team, "label": OSP_QUEUES.get(team, team),
+                       "last2": last2, "perDay": {d: round(days.get(d, 0), 1) for d in wdays},
                        "lastLog": last_log, "daysSince": days_since})
     slack = sorted([p for p in people if p["last2"] < 8],
                    key=lambda p: (p["last2"], -(p["daysSince"] or 99)))
-    payload = {"days": wdays, "rosterSize": len(SLACKER_ROSTER), "slackers": slack,
+    payload = {"days": wdays, "rosterSize": len(_COURIER_HOME), "slackers": slack,
                "timesheet": "https://timesheet.svc.vkusvill.ru/",
                "computedAt": datetime.now(MSK).strftime("%Y-%m-%d %H:%M")}
     try:

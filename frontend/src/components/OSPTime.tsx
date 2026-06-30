@@ -75,6 +75,18 @@ function TeamTables({ resp, month, q }: { resp: Resp; month: string; q: string }
   const leadStory = top(emps, e => e.by?.["Story"] || 0)
   const leadTech = top(emps, e => (e.by?.["ТехДолг"] || 0) + (e.by?.["Тех. улучшение"] || 0))
   const fireman = top(emps, e => e.by?.["Инцидент"] || 0)
+  const leadAnalytics = top(emps, e => e.by?.["Аналитика"] || 0)
+  const ntypes = (e: Emp) => Object.values(e.by || {}).filter(v => v > 0).length
+  const versatile = top(emps, ntypes)
+  // «лазер-фокус»: ≥80% часов в одном типе (среди тех, у кого набралось ≥16 ч)
+  let focus: { e: Emp; share: number; type: string } | null = null
+  for (const e of emps) {
+    if (e.total < 16) continue
+    for (const [t, h] of Object.entries(e.by || {})) {
+      const sh = h / e.total
+      if (sh > (focus?.share ?? 0)) focus = { e, share: sh, type: t }
+    }
+  }
   const outside = top(cout, r => r.total)
   const outsideTop = outside ? Object.entries(outside.cols || {}).sort((a, b) => b[1] - a[1])[0] : null
   const helper = top(cin, r => r.hours)
@@ -83,6 +95,9 @@ function TeamTables({ resp, month, q }: { resp: Resp; month: string; q: string }
   if (leadStory) metrics.push({ icon: "📦", label: "Лидер по Story", who: leadStory.name, detail: `${Math.round(leadStory.by?.["Story"] || 0)} ч` })
   if (leadTech) metrics.push({ icon: "🛠", label: "Лидер по тех. долгу", who: leadTech.name, detail: `${Math.round((leadTech.by?.["ТехДолг"] || 0) + (leadTech.by?.["Тех. улучшение"] || 0))} ч` })
   if (fireman) metrics.push({ icon: "🚒", label: "Главный «пожарный»", who: fireman.name, detail: `${Math.round(fireman.by?.["Инцидент"] || 0)} ч на инциденты` })
+  if (leadAnalytics && (leadAnalytics.by?.["Аналитика"] || 0) > 0) metrics.push({ icon: "🔬", label: "Аналитик-гуру", who: leadAnalytics.name, detail: `${Math.round(leadAnalytics.by?.["Аналитика"] || 0)} ч аналитики` })
+  if (versatile && ntypes(versatile) >= 2) metrics.push({ icon: "🎯", label: "Мастер на все руки", who: versatile.name, detail: `работал по ${ntypes(versatile)} типам задач` })
+  if (focus && focus.share >= 0.8) metrics.push({ icon: "🦄", label: "Лазер-фокус", who: focus.e.name, detail: `${Math.round(focus.share * 100)}% часов — ${focus.type}` })
   if (outside) metrics.push({ icon: "↗", label: "Работа вне своей очереди", who: outside.name, detail: `${Math.round(outside.total)} ч${outsideTop ? ` · ${outsideTop[0]}` : ""}` })
   if (helper) metrics.push({ icon: "🤝", label: "Кто помогал снаружи", who: helper.name, detail: `${Math.round(helper.hours)} ч · ${helper.team}` })
 
