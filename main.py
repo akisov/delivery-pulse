@@ -1122,22 +1122,31 @@ async def _copy_capacity(src_id: int, dst_id: int):
 
 _sync_status: dict = {"running": False, "pct": 0, "msg": "", "error": ""}
 
-# Ключи в osp_snapshot, которые НЕЛЬЗЯ удалять (пользовательские настройки, не кэш)
-CONFIG_SNAPSHOTS = ("est-settings-v1", "osp-settings-v1")
-
-async def _invalidate_caches():
-    """Сбрасываем все кэш-снапшоты (кроме пользовательских настроек), чтобы после синка
-    разделы пересчитывались на свежих данных Трекера. Конфиги (пороги SLE/категории, настройки ОСП)
-    сохраняются."""
-    ph = ",".join("?" * len(CONFIG_SNAPSHOTS))
+async def _warm_caches():
+    """После синка ПРОГРЕВАЕМ кэш ключевых разделов свежими данными (refresh=True) — чтобы
+    заход был и быстрым, и актуальным (не «холодный» пересчёт на первом открытии).
+    Тяжёлые/редкие разделы (Оценка НВ) не трогаем — у них своя кнопка «Обновить»."""
+    jobs = [
+        ("incidents",      lambda: incidents(12, True)),
+        ("flow-completed", lambda: flow_completed(8, True)),
+        ("osp-delivery",   lambda: osp_delivery(6, True)),
+        ("osp-incidents",  lambda: osp_incidents(8, True)),
+        ("osp-sle",        lambda: osp_sle(6, True)),
+        ("flowteam-U",     lambda: query_flow_team("U", True)),
+        ("flowteam-X",     lambda: query_flow_team("X", True)),
+        ("flowteam-R",     lambda: query_flow_team("R", True)),
+    ]
+    for name, fn in jobs:
+        try:
+            await fn()
+        except Exception as e:
+            print(f"[warm {name}] {e}")
+    # SLE-анализ кэшируется в sle_snapshot — сбрасываем, пересчёт при заходе (один быстрый запрос)
     try:
-        await turso_execute([
-            stmt(f"DELETE FROM osp_snapshot WHERE which NOT IN ({ph})", list(CONFIG_SNAPSHOTS)),
-            stmt("DELETE FROM sle_snapshot"),
-        ])
-        print("[cache] кэш-снапшоты сброшены (кроме конфигов)")
+        await turso_execute([stmt("DELETE FROM sle_snapshot")])
     except Exception as e:
-        print(f"[cache invalidate] {e}")
+        print(f"[warm sle] {e}")
+    print("[cache] прогрев ключевых разделов завершён")
 
 async def run_sync_job(selected: list[str], full: bool):
     global _sync_status
@@ -1183,7 +1192,7 @@ async def run_sync_job(selected: list[str], full: bool):
                 await _sync_arch_queue(client, queue, a_from, arch_send)
 
         _sync_status["msg"] = "Обновляем кэш разделов…"
-        await _invalidate_caches()
+        await _warm_caches()
         _sync_status = {"running": False, "pct": 100, "msg": "Синк завершён", "error": ""}
     except Exception as e:
         _sync_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
