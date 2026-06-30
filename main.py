@@ -1135,17 +1135,16 @@ async def _warm_caches():
         ("flowteam-U",     lambda: query_flow_team("U", True)),
         ("flowteam-X",     lambda: query_flow_team("X", True)),
         ("flowteam-R",     lambda: query_flow_team("R", True)),
+        # SLE активно ПЕРЕСЧИТЫВАЕМ (а не просто чистим) — иначе закрытые задачи
+        # висят в снапшоте, пока кто-то не откроет раздел.
+        ("sle-current",    lambda: sle_clusters("current", True)),
+        ("sle-historical", lambda: sle_clusters("historical", True)),
     ]
     for name, fn in jobs:
         try:
             await fn()
         except Exception as e:
             print(f"[warm {name}] {e}")
-    # SLE-анализ кэшируется в sle_snapshot — сбрасываем, пересчёт при заходе (один быстрый запрос)
-    try:
-        await turso_execute([stmt("DELETE FROM sle_snapshot")])
-    except Exception as e:
-        print(f"[warm sle] {e}")
     print("[cache] прогрев ключевых разделов завершён")
 
 async def run_sync_job(selected: list[str], full: bool):
