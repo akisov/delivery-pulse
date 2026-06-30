@@ -3134,7 +3134,10 @@ async def run_osp_worklog_job(year: int):
                     for iss in chunk:
                         if not iss.get("spent"):
                             continue  # без списаний worklog пустой
-                        todo.append((iss["key"], q, (iss.get("type") or {}).get("display") or "—"))
+                        tp = _wl_type_label((iss.get("type") or {}).get("display"))
+                        if not tp:   # только отчётные типы (как в ОСП): Delivery/SUB-TASK/Эпик не учитываем
+                            continue
+                        todo.append((iss["key"], q, tp))
                     if len(chunk) < 100:
                         break
                     page += 1
