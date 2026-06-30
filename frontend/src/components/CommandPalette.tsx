@@ -1,10 +1,10 @@
 import { useEffect } from "react"
 import { createPortal } from "react-dom"
 import { Command } from "cmdk"
-import { Home, Lock, AlertTriangle, Landmark, Gauge, Lightbulb, Target, Workflow, Truck, Activity, RefreshCw, Search } from "lucide-react"
+import { Home, Lock, AlertTriangle, Landmark, Gauge, Lightbulb, Target, Workflow, Truck, Activity, AlertOctagon, RefreshCw, Search } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
-export type Section = "home" | "blockings" | "incidents" | "arch" | "est" | "sle" | "flow" | "osp" | "feat" | "flowt"
+export type Section = "home" | "blockings" | "incidents" | "arch" | "est" | "sle" | "flow" | "osp" | "feat" | "flowt" | "slackers"
 
 const ITEMS: { section: Section; label: string; icon: LucideIcon; hint: string }[] = [
   { section: "home",      label: "Главная",     icon: Home,          hint: "обзор · релиз-ноты" },
@@ -12,6 +12,7 @@ const ITEMS: { section: Section; label: string; icon: LucideIcon; hint: string }
   { section: "incidents", label: "Инциденты",   icon: AlertTriangle, hint: "по месяцам · причины · топы" },
   { section: "arch",      label: "Арх. комитет", icon: Landmark,      hint: "возвраты · воронка · цикл" },
   { section: "est",       label: "Спринты",     icon: Gauge,         hint: "план-факт спринта · SP" },
+  { section: "slackers",  label: "Негодяи",     icon: AlertOctagon,  hint: "кто не вносит часы" },
   { section: "sle",       label: "Анализ SLE",  icon: Target,        hint: "риски · кластеры причин" },
   { section: "flow",      label: "Поток E2E",   icon: Workflow,      hint: "WIP Age · лимиты" },
   { section: "flowt",     label: "Поток команд", icon: Activity,     hint: "CFD · WIP Age по командам" },

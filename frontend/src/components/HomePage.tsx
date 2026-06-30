@@ -1,13 +1,22 @@
 import { useEffect, useState } from "react"
-import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, ChevronLeft, ChevronRight } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, AlertOctagon, ChevronLeft, ChevronRight } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StathamBro } from "@/components/StathamBro"
 
 interface Props {
-  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat" | "flowt") => void
+  onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat" | "flowt" | "slackers") => void
 }
 
 const RELEASES: { date: string; title: string; items: string[] }[] = [
+  {
+    date: "Июнь 2026",
+    title: "Раздел «Негодяи» (учёт часов)",
+    items: [
+      "Единый список тех, кто за 2 прошлых рабочих дня списал в Трекер меньше 8 ч (или не вносил часы вовсе).",
+      "Часы берутся из worklog трёх очередей курьеров; выходные не учитываются, сегодняшний день в окно не входит.",
+      "По каждому — сумма за 2 дня, разбивка по дням и дата последнего списания; справка-ссылка на timesheet.",
+    ],
+  },
   {
     date: "Июнь 2026",
     title: "Раздел «Поток команд» (Команды)",
@@ -148,6 +157,8 @@ const NAV_CARDS = [
     title: "Поток команд", desc: "CFD по статусам и динамика WIP Age (P90 дней в работе) по командам курьеров (X · U · R), WIP-лимиты." },
   { section: "feat" as const, icon: Lightbulb, color: "#FBBF24",
     title: "Оценка НВ", desc: "Новые возможности: AI-категория (S/M/L), effort и MMF-проверка + эталоны по командам и категориям." },
+  { section: "slackers" as const, icon: AlertOctagon, color: "#F43F5E",
+    title: "Негодяи", desc: "Кто не вносит часы: за 2 прошлых рабочих дня списал меньше 8 ч (или не вносил вовсе) по worklog Трекера." },
   { section: "osp" as const, icon: Truck, color: "#F59E0B",
     title: "ОСП", desc: "Обзор сервиса поставки: сколько сделали по месяцам (Story, тех. долг, инциденты) по командам курьеров." },
 ]
@@ -158,6 +169,7 @@ const TIPS: { lead: string; text: string; section?: Section }[] = [
   { lead: "Поток команд", text: "кликни по плитке WIP — откроется список задач с исполнителем, статусом и днями в работе.", section: "flowt" },
   { lead: "Оценка НВ", text: "вставь ссылку на задачу — AI прикинет категорию (S/M/L) и effort по реальным эталонам, плюс проверит на MMF.", section: "feat" },
   { lead: "Спринты", text: "факт считается из worklog Трекера в реальном времени: затрекал часы — они уже в спринте.", section: "est" },
+  { lead: "Негодяи", text: "видно, кто за 2 прошлых рабочих дня списал меньше 8 ч — повод напомнить про timesheet.", section: "slackers" },
   { lead: "Поток команд", text: "красная линия на CFD — WIP-лимит команды. Стек выше неё = работы в потоке больше, чем тянет команда.", section: "flowt" },
   { lead: "Арх. комитет", text: "смотри возвраты (АрхКом · ТА) и кто засиделся в комитете ≥ 7 дней — подсвечивается.", section: "arch" },
   { lead: "Анализ SLE", text: "AI кластеризует причины нарушений: внешние зависимости, не-MMF, тех. блокировки, ошибки оценки.", section: "sle" },

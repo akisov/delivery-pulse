@@ -1,4 +1,4 @@
-import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks, FeatureRefInfo, FlowTeamData, FlowSyncStatus } from "./types"
+import type { DashboardData, SyncInfo, ArchDashboardData, ArchTask, Sprint, SprintPlanFact, FeatureRefs, FeatureAnalysis, FeatureCategory, WorklogStacks, FeatureRefInfo, FlowTeamData, FlowSyncStatus, SlackersData } from "./types"
 
 export async function fetchFlowTeam(team: string): Promise<FlowTeamData> {
   const r = await fetch(`/flow-teams?team=${encodeURIComponent(team)}`)
@@ -11,6 +11,11 @@ export async function startFlowSync(full = false): Promise<{ ok: boolean; error?
 }
 export async function fetchFlowSyncStatus(): Promise<FlowSyncStatus> {
   const r = await fetch("/flow-teams/sync-status")
+  return r.json()
+}
+export async function fetchSlackers(refresh = false): Promise<SlackersData> {
+  const r = await fetch(`/slackers${refresh ? "?refresh=true" : ""}`)
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.json()
 }
 

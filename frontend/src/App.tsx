@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, lazy, Suspense } from "react"
-import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, Command as CommandIcon } from "lucide-react"
+import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, AlertOctagon, Command as CommandIcon } from "lucide-react"
 import { Toaster, toast } from "sonner"
 import { CommandPalette } from "@/components/CommandPalette"
 import { SimpleTooltip } from "@/components/ui/tooltip"
@@ -16,6 +16,7 @@ const NAV_HINT: Record<string, string> = {
   osp: "Обзор сервиса поставки",
   est: "План-факт спринта · SP",
   feat: "Оценка возможностей · S/M/L · эталоны",
+  slackers: "Кто не вносит часы",
 }
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
@@ -39,6 +40,7 @@ const ArchPage = lazy(() => import("@/components/ArchPage").then(m => ({ default
 const EstimationPage = lazy(() => import("@/components/EstimationPage").then(m => ({ default: m.EstimationPage })))
 const FeatureEstPage = lazy(() => import("@/components/FeatureEstPage").then(m => ({ default: m.FeatureEstPage })))
 const FlowTeamsPage = lazy(() => import("@/components/FlowTeamsPage").then(m => ({ default: m.FlowTeamsPage })))
+const SlackersPage = lazy(() => import("@/components/SlackersPage").then(m => ({ default: m.SlackersPage })))
 const InsightsPanel = lazy(() => import("@/components/InsightsPanel").then(m => ({ default: m.InsightsPanel })))
 import { TaskDetailModal } from "@/components/TaskDetailModal"
 import { TaskListModal, type StatFilter } from "@/components/TaskListModal"
@@ -75,7 +77,7 @@ export default function App() {
   const [activePreset, setActivePreset] = useState("")
   const [activeReasons, setActiveReasons] = useState<Set<string> | null>(null)
   const [view, setView] = useState<"chart" | "table">("chart")
-  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat" | "flowt">("home")
+  const [section, setSection] = useState<"home" | "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat" | "flowt" | "slackers">("home")
   const [sleReloadKey, setSleReloadKey] = useState(0)  // пересбор SLE после синка
 
   const [data, setData] = useState<DashboardData | null>(null)
@@ -313,7 +315,7 @@ export default function App() {
             )}
             {([
               { items: [["home", Home, "Главная"]] },
-              { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["flowt", Activity, "Поток команд"], ["est", Gauge, "Спринты"], ["osp", Truck, "ОСП"]] },
+              { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["flowt", Activity, "Поток команд"], ["est", Gauge, "Спринты"], ["slackers", AlertOctagon, "Негодяи"], ["osp", Truck, "ОСП"]] },
               { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["sle", Target, "Анализ SLE"], ["feat", Lightbulb, "Оценка НВ"]] },
             ] as const).map((grp, gi) => (
               <div key={gi} className={gi ? "mt-2" : ""}>
@@ -349,6 +351,7 @@ export default function App() {
          section === "feat" ? <FeatureEstPage /> :
          section === "flow" ? <FlowPage /> :
          section === "flowt" ? <FlowTeamsPage /> :
+         section === "slackers" ? <SlackersPage /> :
          section === "sle" ? <SLEPage reloadKey={sleReloadKey} /> : (
         <>
         <PageHeader icon={Lock} title="Время разрешения блокировок" info="blockings"
