@@ -62,7 +62,7 @@ function SubBreakdown({ t }: { t: SleTask }) {
 }
 interface SleTask {
   key: string; summary: string; url: string; assignee: string; status: string
-  sleRisk: string; sle: number | null; p70: number | null; effort: number | null
+  sleRisk: string; sle: number | null; p70: number | null; effort: number | null; effortFact: number | null
   jobCategory: string | null; deadline: string | null; daysInWork: number | null; end?: string | null
   subCount: number; activeSubCount: number; hiddenBlocked: boolean
   doneSubCount?: number; workingSubCount?: number; notStartedSubCount?: number
@@ -306,6 +306,11 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
                 style={{ background: RISK_COLOR[riskKey(t.sleRisk)] }}
                 title="Дней в работе / допустимый порог SLE (P85)">
                 в работе {t.daysInWork}{t.sle != null ? `/${t.sle}` : ""} дн.
+              </span>
+            )}
+            {(t.effort != null || t.effortFact != null) && (
+              <span className="inline-flex items-center rounded-md border border-border bg-secondary/60 px-1.5 py-px text-[10px] font-semibold text-muted-foreground" title="Effort: план / факт (дни)">
+                Effort: план {t.effort ?? "—"}{t.effortFact != null ? ` · факт ${t.effortFact}` : ""} дн.
               </span>
             )}
             {t.hiddenBlocked && (
