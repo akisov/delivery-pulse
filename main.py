@@ -143,6 +143,9 @@ ARCH_STATUSES = {
     "175": "Доработка",
 }
 _ARCH_TEST_RE = re.compile(r"\b(?:test|тест|тестов\w*)\b", re.IGNORECASE)
+# Возвраты как ПОДЗАДАЧИ (n8n создаёт подзадачу на каждый возврат с тегом и причиной)
+ARCH_TAG_V1 = "возврат_арх-ком"   # возврат от Арх. комитета
+ARCH_TAG_V2 = "возврат_ТА"        # возврат от ТА (тех. архитектора)
 
 def arch_is_test_task(title: str) -> bool:
     """Тестовые задачи: слово «тест»/«test» или «тестовый/тестовая/тестовое»."""
@@ -4368,6 +4371,26 @@ async def diag_issue(key: str = Query(...)):
         return JSONResponse(r)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
+
+@app.get("/diag/arch-returns")
+async def diag_arch_returns(queue: str = Query("POOLING")):
+    """Отладка: подзадачи-возвраты (теги возврат_арх-ком/возврат_ТА) в очереди —
+    родитель, тип, тег, причина (--reasonForTheRefund), дата создания."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    async with httpx.AsyncClient(timeout=60) as client:
+        data = await tracker_request(client, "POST", "/v2/issues/_search?perPage=100",
+            {"filter": {"queue": queue, "tags": [ARCH_TAG_V1, ARCH_TAG_V2]}})
+    out = []
+    for iss in (data if isinstance(data, list) else []):
+        tags = iss.get("tags") or []
+        out.append({
+            "key": iss.get("key"), "parent": (iss.get("parent") or {}).get("key"),
+            "tags": tags, "type": (iss.get("type") or {}).get("display"),
+            "created": iss.get("createdAt"),
+            "reason": _field(iss, "--reasonForTheRefund"),
+        })
+    return JSONResponse({"ok": True, "queue": queue, "count": len(out), "items": out[:40]})
 
 @app.get("/diag/links")
 async def diag_links(key: str = Query(...)):
