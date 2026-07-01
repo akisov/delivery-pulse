@@ -1141,6 +1141,8 @@ async def _warm_caches():
         ("sle-current",    lambda: sle_clusters("current", True)),
         ("sle-historical", lambda: sle_clusters("historical", True)),
         ("slackers",       _compute_slackers),   # учёт часов: ~1-2 мин, считаем тут (не на клик)
+        # worklog за текущий+предыдущий месяц — чтобы ОСП-часы были свежими при любом синке
+        ("osp-worklog",    lambda: run_osp_worklog_current(date.today().year)),
     ]
     for name, fn in jobs:
         try:
@@ -1309,13 +1311,7 @@ async def _daily_scheduler():
             await asyncio.sleep(max(60, (target - now).total_seconds()))
             if TRACKER_TOKEN and not _sync_status["running"]:
                 print("[scheduler] ежедневный синк блокировок")
-                await run_sync_job(list(QUEUES), False)   # внутри уже сбрасывает кэш всех разделов
-                # догружаем worklog текущего месяца из API
-                try:
-                    if not _wl_status["running"]:
-                        await run_osp_worklog_current(date.today().year)
-                except Exception as e:
-                    print(f"[scheduler] worklog current: {e}")
+                await run_sync_job(list(QUEUES), False)   # внутри _warm_caches прогревает все разделы + worklog (2 мес)
         except Exception as e:
             print(f"[scheduler] {e}")
             await asyncio.sleep(3600)
@@ -3201,24 +3197,30 @@ def _wl_type_label(display: str | None) -> str | None:
     return None
 
 async def run_osp_worklog_current(year: int):
-    """Догружает worklog ТЕКУЩЕГО месяца из API и подмешивает в снапшот (прошлые месяцы не трогаем).
-    Заодно пересобирает разбивку по людям (employees/crossOut/crossIn) за текущий месяц."""
+    """Пересобирает worklog за ТЕКУЩИЙ и ПРЕДЫДУЩИЙ месяц (списания прошлого месяца
+    дозаносят в начале следующего — иначе после рубежа месяца данные недобирают).
+    Прочие месяцы не трогаем. Пересобирает и разбивку по людям для этих 2 месяцев."""
     global _wl_status
-    _wl_status = {"running": True, "pct": 2, "msg": "Текущий месяц: ищем списания…", "error": ""}
+    _wl_status = {"running": True, "pct": 2, "msg": "Пересобираем worklog (2 мес)…", "error": ""}
     try:
         today = date.today()
         cm = f"{year}-{today.month:02d}"
-        m0 = f"{cm}-01"
-        agg: dict = {q: {} for q in OSP_QUEUES}
-        pa: dict = {cm: {}}      # pa[cm][person][q] = {type: hours}
-        async with httpx.AsyncClient(timeout=60) as client:
+        pm = _prev_month(cm)
+        targets = {cm}
+        if pm.startswith(str(year)):        # предыдущий месяц того же года (не трогаем прошлый год)
+            targets.add(pm)
+        from_mo = min(targets)
+        from0 = f"{from_mo}-01"
+        agg = {mo: {q: {} for q in OSP_QUEUES} for mo in targets}
+        pa = {mo: {} for mo in targets}     # pa[mo][person][q] = {type: hours}
+        async with httpx.AsyncClient(timeout=90) as client:
             todo: list[tuple] = []
             for q in OSP_QUEUES:
                 page = 1
                 while True:
                     data = await tracker_request(client, "POST",
                         f"/v2/issues/_search?perPage=100&page={page}",
-                        {"filter": {"queue": q, "updatedAt": {"from": f"{m0}T00:00:00", "to": "2099-01-01T00:00:00"}}})
+                        {"filter": {"queue": q, "updatedAt": {"from": f"{from0}T00:00:00", "to": "2099-01-01T00:00:00"}}})
                     chunk = data if isinstance(data, list) else []
                     for iss in chunk:
                         if not iss.get("spent"):
@@ -3230,9 +3232,9 @@ async def run_osp_worklog_current(year: int):
                     if len(chunk) < 100:
                         break
                     page += 1
-                    await asyncio.sleep(0.4)
+                    await asyncio.sleep(0.3)
             total, done, B = len(todo), 0, 3
-            _wl_status["msg"] = f"Текущий месяц: задач {total}, тянем worklog…"
+            _wl_status["msg"] = f"Задач {total} (2 мес), тянем worklog…"
             for i in range(0, total, B):
                 chunk = todo[i:i + B]
                 wls = await asyncio.gather(*[_wl_fetch(client, k) for (k, _, _) in chunk], return_exceptions=True)
@@ -3240,35 +3242,38 @@ async def run_osp_worklog_current(year: int):
                     if not isinstance(wl, list):
                         continue
                     for e in wl:
-                        if (e.get("start") or "")[:7] != cm:
+                        mo = (e.get("start") or "")[:7]
+                        if mo not in targets:
                             continue
                         hrs = _iso_dur_hours(e.get("duration"))
-                        if hrs > 0:
-                            agg[q][tp] = agg[q].get(tp, 0.0) + hrs
-                            person = (e.get("createdBy") or {}).get("display") or ""
-                            if person:
-                                pq = pa[cm].setdefault(person, {}).setdefault(q, {})
-                                pq[tp] = pq.get(tp, 0.0) + hrs
+                        if hrs <= 0:
+                            continue
+                        agg[mo][q][tp] = agg[mo][q].get(tp, 0.0) + hrs
+                        person = (e.get("createdBy") or {}).get("display") or ""
+                        if person:
+                            pq = pa[mo].setdefault(person, {}).setdefault(q, {})
+                            pq[tp] = pq.get(tp, 0.0) + hrs
                 done += len(chunk)
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.25)
                 _wl_status["pct"] = 5 + round(done / max(total, 1) * 92)
                 _wl_status["msg"] = f"worklog {done}/{total}"
-        for q in agg:
-            for tp in list(agg[q]):
-                agg[q][tp] = round(agg[q][tp], 2)
         key = f"wl-{year}-v{OSP_WL_VERSION}"
         snap = await _osp_snap(key) or {"ok": True, "year": year, "months": [], "queues": OSP_QUEUES, "types": [], "data": {}}
-        snap.setdefault("data", {})[cm] = agg
-        snap["months"] = sorted(set((snap.get("months") or []) + [cm]))
+        emp, co, cin = _build_people(pa)
+        for mo in targets:
+            for q in agg[mo]:
+                for tp in list(agg[mo][q]):
+                    agg[mo][q][tp] = round(agg[mo][q][tp], 2)
+            snap.setdefault("data", {})[mo] = agg[mo]
+            snap.setdefault("employees", {})[mo] = emp.get(mo, {})
+            snap.setdefault("crossOut", {})[mo] = co.get(mo, {})
+            snap.setdefault("crossIn", {})[mo] = cin.get(mo, {})
+        snap["months"] = sorted(set((snap.get("months") or []) + list(targets)))
         ts = set(snap.get("types") or [])
-        for q in agg:
-            ts |= set(agg[q].keys())
+        for mo in targets:
+            for q in agg[mo]:
+                ts |= set(agg[mo][q].keys())
         snap["types"] = sorted(ts)
-        # разбивка по людям за текущий месяц (прошлые месяцы оставляем как есть)
-        emp_cm, co_cm, cin_cm = _build_people(pa)
-        snap.setdefault("employees", {})[cm] = emp_cm.get(cm, {})
-        snap.setdefault("crossOut", {})[cm] = co_cm.get(cm, {})
-        snap.setdefault("crossIn", {})[cm] = cin_cm.get(cm, {})
         await turso_execute([stmt(
             "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
             "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
