@@ -3416,8 +3416,9 @@ async def osp_delivery(months: int = Query(6), refresh: bool = Query(False)):
             cat = _osp_category(t.get("key"), t.get("display"))
             if not cat:
                 continue
-            # для всех типов — только «Решён» и «Отменено с часами»
-            if not _osp_resolution_ok(res):
+            # инциденты — считаем ВСЕ закрытые (чтобы сходилось с разделом «Инциденты»);
+            # остальные типы — только «Решён» и «Отменено с часами»
+            if cat != "incident" and not _osp_resolution_ok(res):
                 continue
             buckets[mo][q][cat] += 1
             buckets[mo][q]["total"] += 1
