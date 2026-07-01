@@ -3147,19 +3147,20 @@ async def _wl_fetch(client, key):
     try:
         out: list = []
         seen: set = set()
-        page = 1
-        while page <= 50:
-            r = await tracker_request(client, "GET", f"/v2/issues/{key}/worklog?perPage=100&page={page}")
+        last = None                       # курсор: id последней записи (page у /worklog не работает)
+        for _ in range(50):
+            q = "?perPage=100" + (f"&id={last}" if last else "")
+            r = await tracker_request(client, "GET", f"/v2/issues/{key}/worklog{q}")
             chunk = r if isinstance(r, list) else []
             new = 0
             for e in chunk:
                 eid = e.get("id")
-                if eid in seen:          # page может игнорироваться → защита от задвоения
+                if eid in seen:           # защита от задвоения на границе курсора
                     continue
                 seen.add(eid); out.append(e); new += 1
             if len(chunk) < 100 or new == 0:
                 break
-            page += 1
+            last = chunk[-1].get("id")
         return out
     except Exception:
         return []
