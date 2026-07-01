@@ -3142,10 +3142,36 @@ def _iso_dur_hours(s) -> float:
             + int(mi or 0) / 60 + float(sec or 0) / 3600)
 
 async def _wl_fetch(client, key):
+    """Все записи worklog задачи. ВАЖНО: пагинируем — дефолтный ответ Трекера
+    обрезан (~50 записей), у «тяжёлых» задач часы иначе теряются."""
     try:
-        return await tracker_request(client, "GET", f"/v2/issues/{key}/worklog")
+        out: list = []
+        page = 1
+        while page <= 50:
+            r = await tracker_request(client, "GET", f"/v2/issues/{key}/worklog?perPage=100&page={page}")
+            chunk = r if isinstance(r, list) else []
+            out += chunk
+            if len(chunk) < 100:
+                break
+            page += 1
+        return out
     except Exception:
         return []
+
+@app.get("/diag/issue-wl")
+async def diag_issue_wl(key: str = Query(...)):
+    """Отладка: сумма worklog задачи за июнь — все страницы vs дефолтная (без пагинации)."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    def jsum(entries):
+        return round(sum(_iso_dur_hours(e.get("duration")) for e in entries
+                         if (e.get("start") or "")[:7] == "2026-06"), 2)
+    async with httpx.AsyncClient(timeout=30) as client:
+        full = await _wl_fetch(client, key)
+        deflt = await tracker_request(client, "GET", f"/v2/issues/{key}/worklog")
+        deflt = deflt if isinstance(deflt, list) else []
+    return JSONResponse({"ok": True, "key": key, "entriesFull": len(full), "entriesDefault": len(deflt),
+                         "juneFull": jsum(full), "juneDefault": jsum(deflt)})
 
 def _wl_type_label(display: str | None) -> str | None:
     """Приводим тип задачи к меткам отчёта. Прочие типы (Деливери, Тестирование и т.п.)
