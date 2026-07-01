@@ -37,6 +37,7 @@ export interface SyncInfo {
 }
 
 // ── Арх. комитет (возвраты) ────────────────────────────────────────────────────
+export interface ArchReturn { kind: "v1" | "v2"; reason: string; date: string }
 export interface ArchReturnTask {
   key: string
   title: string
@@ -53,6 +54,8 @@ export interface ArchReturnTask {
   v2n: number
   total: number
   cycleDays?: number | null // дней от входа до выхода из комитета (null — ещё внутри)
+  returns?: ArchReturn[]     // возвраты-подзадачи с причинами (если считается по подзадачам)
+  hasSubReturns?: boolean
 }
 
 export interface ArchDashboardData {
@@ -60,6 +63,7 @@ export interface ArchDashboardData {
   queues: Record<string, { tasks: ArchReturnTask[] }>
   dateFrom: string
   dateTo: string
+  reasons?: { v1: { reason: string; count: number }[]; v2: { reason: string; count: number }[] }
 }
 
 // ── Оценка (план-факт спринта) ─────────────────────────────────────────────────
@@ -161,6 +165,7 @@ export interface ArchTask {
   daysInStatus: number
   v1n: number  // возвратов от АрхКома (на ревью аналитики)
   v2n: number  // возвратов от ТА (на доработку)
+  returns?: ArchReturn[]   // возвраты-подзадачи с причинами
 }
 
 // ── Поток по командам (CFD + WIP Age) ───────────────────────────────────────────

@@ -317,6 +317,12 @@ async def init_db():
         stmt("CREATE INDEX IF NOT EXISTS idx_arch_trans_key ON arch_transitions(issue_key)"),
         stmt("CREATE INDEX IF NOT EXISTS idx_arch_trans_ts  ON arch_transitions(ts)"),
         stmt("CREATE INDEX IF NOT EXISTS idx_arch_trans_to  ON arch_transitions(to_status)"),
+        # Возвраты как подзадачи (n8n): каждая подзадача = один возврат + причина
+        stmt("""CREATE TABLE IF NOT EXISTS arch_returns (
+            sub_key TEXT PRIMARY KEY, parent_key TEXT, kind TEXT, reason TEXT,
+            created TEXT, queue TEXT)"""),
+        stmt("CREATE INDEX IF NOT EXISTS idx_arch_ret_parent ON arch_returns(parent_key)"),
+        stmt("CREATE INDEX IF NOT EXISTS idx_arch_ret_created ON arch_returns(created)"),
         # Отдельный журнал синка арх.кома — НЕ мешаем с sync_log блокировок
         stmt("""CREATE TABLE IF NOT EXISTS arch_sync_log (
             queue TEXT PRIMARY KEY, last_synced TEXT)"""),
@@ -758,10 +764,47 @@ async def _sync_arch_queue(client, queue, updated_from, send):
         pct = 15 + round(done / max(len(issues), 1) * 75)
         await send({"type": "progress", "msg": f"АрхКом {queue}: {done}/{len(issues)}", "pct": pct})
 
+    # подзадачи-возвраты (теги) → arch_returns (причины + честный счётчик возвратов)
+    try:
+        await _sync_arch_returns(client, queue)
+    except Exception as e:
+        print(f"  [arch returns] {queue}: {e}")
+
     await turso_execute([stmt(
         "INSERT INTO arch_sync_log(queue,last_synced) VALUES(?,?) "
         "ON CONFLICT(queue) DO UPDATE SET last_synced=excluded.last_synced",
         [queue, datetime.now(MSK).strftime("%Y-%m-%dT%H:%M:%S")])])
+
+async def _sync_arch_returns(client, queue):
+    """Подзадачи-возвраты очереди (теги возврат_арх-ком/возврат_ТА) → таблица arch_returns.
+    Каждая такая подзадача = один возврат с причиной (--reasonForTheRefund)."""
+    subs: list = []
+    page = 1
+    while True:
+        data = await tracker_request(client, "POST", f"/v2/issues/_search?perPage=100&page={page}",
+            {"filter": {"queue": queue, "tags": [ARCH_TAG_V1, ARCH_TAG_V2]}})
+        chunk = data if isinstance(data, list) else []
+        subs.extend(chunk)
+        if len(chunk) < 100:
+            break
+        page += 1
+        await asyncio.sleep(0.4)
+    stmts = []
+    for iss in subs:
+        tags = iss.get("tags") or []
+        kind = "v1" if ARCH_TAG_V1 in tags else ("v2" if ARCH_TAG_V2 in tags else None)
+        if not kind:
+            continue
+        rv = _field(iss, "--reasonForTheRefund")
+        reason = "; ".join(str(x) for x in rv if x) if isinstance(rv, list) else str(rv or "")
+        stmts.append(stmt(
+            "INSERT INTO arch_returns(sub_key,parent_key,kind,reason,created,queue) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(sub_key) DO UPDATE SET parent_key=excluded.parent_key, kind=excluded.kind, "
+            "reason=excluded.reason, created=excluded.created, queue=excluded.queue",
+            [iss.get("key"), (iss.get("parent") or {}).get("key") or "", kind, reason,
+             _msk_date(iss.get("createdAt") or ""), queue]))
+    if stmts:
+        await turso_execute(stmts)
 
 async def _arch_tables():
     """Источник данных арх.кома: наши arch_tasks/arch_transitions, либо — если они ещё
@@ -855,21 +898,64 @@ async def query_arch_dashboard(date_from: str, date_to: str, queues: list[str]):
         except ValueError:
             return None
 
+    # ── Возвраты-подзадачи за период (честный счётчик по кол-ву подзадач + причины) ──
+    ret = await turso_execute([stmt(f"""
+        SELECT parent_key, kind, reason, created FROM arch_returns
+        WHERE queue IN ({q_ph}) AND created >= ? AND created <= ?
+    """, [*queues, date_from, date_to])])
+    ret_by_parent: dict = {}
+    for r in (rows_to_dicts(ret[0]) if ret else []):
+        ret_by_parent.setdefault(r["parent_key"], []).append(r)
+    # родители с возвратами-подзадачами в периоде, которых нет в changelog-выборке — добавим
+    missing = [p for p in ret_by_parent if p and p not in tmap]
+    if missing:
+        mp = ",".join("?" * len(missing))
+        mr = await turso_execute([stmt(
+            f"SELECT key,title,queue,issue_type,issue_type_display FROM {tk_tbl} WHERE key IN ({mp})", missing)])
+        for r in (rows_to_dicts(mr[0]) if mr else []):
+            if arch_is_test_task(r.get("title")) or r["queue"] not in queues:
+                continue
+            tmap[r["key"]] = {
+                "key": r["key"], "title": r["title"] or "—",
+                "url": f"https://tracker.yandex.ru/{r['key']}", "queue": r["queue"],
+                "issueType": r.get("issue_type") or "story",
+                "issueTypeDisplay": r.get("issue_type_display") or "Story",
+                "entryDates": [], "v1Dates": [], "v2Dates": [],
+            }
+
     tasks, queues_out = [], {q: {"tasks": []} for q in queues}
+    reason_stats = {"v1": {}, "v2": {}}
     for k, t in tmap.items():
-        v1n, v2n = len(t["v1Dates"]), len(t["v2Dates"])
+        subs = ret_by_parent.get(k) or []
+        if subs:
+            # честный источник — подзадачи (арх.ком может возвращать много раз)
+            v1n = sum(1 for s in subs if s["kind"] == "v1")
+            v2n = sum(1 for s in subs if s["kind"] == "v2")
+            returns_list = [{"kind": s["kind"], "reason": s["reason"] or "—", "date": s["created"]}
+                            for s in sorted(subs, key=lambda x: x["created"] or "")]
+            for s in subs:
+                if s.get("reason"):
+                    reason_stats[s["kind"]][s["reason"]] = reason_stats[s["kind"]].get(s["reason"], 0) + 1
+        else:
+            v1n, v2n = len(t["v1Dates"]), len(t["v2Dates"])   # legacy: по changelog (история)
+            returns_list = []
         entered = len(t["entryDates"]) > 0
         task = {
             **t, "entered": entered,
             "entryDate": sorted(t["entryDates"])[0] if entered else None,
             "v1n": v1n, "v2n": v2n, "total": v1n + v2n,
+            "returns": returns_list, "hasSubReturns": bool(subs),
             "cycleDays": cycle_days(k),
         }
         tasks.append(task)
         if t["queue"] in queues_out:
             queues_out[t["queue"]]["tasks"].append(task)
 
-    return {"tasks": tasks, "queues": queues_out, "dateFrom": date_from, "dateTo": date_to}
+    # топ причин возвратов (для сводки на фронте)
+    reasons_out = {kind: sorted([{"reason": r, "count": c} for r, c in d.items()],
+                                key=lambda x: -x["count"]) for kind, d in reason_stats.items()}
+    return {"tasks": tasks, "queues": queues_out, "dateFrom": date_from, "dateTo": date_to,
+            "reasons": reasons_out}
 
 async def query_arch_current(queues: list[str]):
     """Задачи, которые сейчас находятся в одном из статусов Арх. комитета."""
@@ -905,6 +991,12 @@ async def query_arch_current(queues: list[str]):
     """, [ARCH_V1_FROM, ARCH_V1_TO, ARCH_V2_FROM, ARCH_V2_TO, *keys_all])])
     cuts = {r["issue_key"]: (int(r["v1n"] or 0), int(r["v2n"] or 0))
             for r in rows_to_dicts(cut_results[0])} if cut_results else {}
+    # возвраты-подзадачи (все, честный счётчик + причины)
+    retc = await turso_execute([stmt(
+        f"SELECT parent_key,kind,reason,created FROM arch_returns WHERE parent_key IN ({key_ph})", keys_all)])
+    subret: dict = {}
+    for r in (rows_to_dicts(retc[0]) if retc else []):
+        subret.setdefault(r["parent_key"], []).append(r)
 
     # Живое обогащение из Трекера: исполнитель, актуальный статус и дата входа
     live: dict = {}
@@ -948,7 +1040,15 @@ async def query_arch_current(queues: list[str]):
             except ValueError:
                 days = 0
 
-        v1n, v2n = cuts.get(key, (0, 0))
+        subs = subret.get(key) or []
+        if subs:
+            v1n = sum(1 for s in subs if s["kind"] == "v1")
+            v2n = sum(1 for s in subs if s["kind"] == "v2")
+            returns_list = [{"kind": s["kind"], "reason": s["reason"] or "—", "date": s["created"]}
+                            for s in sorted(subs, key=lambda x: x["created"] or "")]
+        else:
+            v1n, v2n = cuts.get(key, (0, 0))
+            returns_list = []
         out.append({
             "key": key, "title": r["title"] or "—",
             "url": f"https://tracker.yandex.ru/{key}", "queue": r["queue"],
@@ -956,7 +1056,7 @@ async def query_arch_current(queues: list[str]):
             "issueTypeDisplay": r.get("issue_type_display") or "Story",
             "status": status_disp, "statusKey": status_key,
             "assignee": assignee, "since": started, "daysInStatus": days,
-            "v1n": v1n, "v2n": v2n,
+            "v1n": v1n, "v2n": v2n, "returns": returns_list,
         })
     out.sort(key=lambda t: t["daysInStatus"], reverse=True)
     return out

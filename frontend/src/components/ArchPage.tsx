@@ -22,6 +22,52 @@ import type { ArchReturnTask, ArchTask } from "@/lib/types"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
+// Причины возвратов из подзадач (тег + поле «Причина»), раздельно АрхКом / ТА
+function ReturnReasonsCard({ tasks }: { tasks: ArchReturnTask[] }) {
+  const { v1, v2 } = useMemo(() => {
+    const m1 = new Map<string, number>(), m2 = new Map<string, number>()
+    tasks.forEach(t => (t.returns || []).forEach(r => {
+      const m = r.kind === "v1" ? m1 : m2
+      const key = r.reason || "—"
+      m.set(key, (m.get(key) || 0) + 1)
+    }))
+    const top = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1])
+    return { v1: top(m1), v2: top(m2) }
+  }, [tasks])
+  if (!v1.length && !v2.length) return null
+  const max1 = Math.max(1, ...v1.map(x => x[1])), max2 = Math.max(1, ...v2.map(x => x[1]))
+  const col = (title: string, color: string, rows: [string, number][], mx: number) => (
+    <div className="flex-1 min-w-0">
+      <p className="text-xs font-bold mb-2" style={{ color }}>{title} · {rows.reduce((s, r) => s + r[1], 0)}</p>
+      {rows.length === 0 ? <p className="text-xs text-muted-foreground">нет возвратов</p> : (
+        <div className="space-y-1.5">
+          {rows.map(([reason, n]) => (
+            <div key={reason} className="text-xs">
+              <div className="flex justify-between gap-2">
+                <span className="text-foreground truncate" title={reason}>{reason}</span>
+                <span className="font-bold tabular-nums shrink-0" style={{ color }}>{n}</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-secondary mt-0.5">
+                <div className="h-full rounded-full" style={{ width: `${n / mx * 100}%`, background: color }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <h3 className="text-sm font-black text-foreground mb-1">Причины возвратов</h3>
+      <p className="text-xs text-muted-foreground mb-3">Из подзадач-возвратов (тег + поле «Причина возврата»). Отдельно АрхКом и ТА. Считается по кол-ву подзадач.</p>
+      <div className="flex gap-6 flex-col sm:flex-row">
+        {col("🔄 АрхКом", "#14b8a6", v1, max1)}
+        {col("↩️ ТА", "#f43f5e", v2, max2)}
+      </div>
+    </div>
+  )
+}
+
 const QUEUES = ["ALL", "POOLING", "UDOSTAVKA", "DOSTAVKAPIKO"] as const
 type Queue = typeof QUEUES[number]
 const QUEUE_LABEL: Record<Queue, string> = {
@@ -265,6 +311,13 @@ export function ArchPage() {
             <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-4 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
               <FunnelChart tasks={view} onShowTasks={setTaskModal} />
               <ReturnsCard tasks={view} totalTasks={total} onShowTasks={setTaskModal} />
+            </div>
+          )}
+
+          {/* Причины возвратов (из подзадач) */}
+          {ready && (
+            <div className="animate-fade-in-up" style={{ animationDelay: "0.22s" }}>
+              <ReturnReasonsCard tasks={view} />
             </div>
           )}
 
