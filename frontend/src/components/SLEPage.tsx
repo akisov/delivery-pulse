@@ -231,6 +231,11 @@ function RiskTasksModal({ riskK, which, tasks, onClose }: { riskK: string | null
                         {t.cluster}
                       </span>
                     )}
+                    {(t.blockedDetails || []).length > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/15 px-1.5 py-px text-[10px] font-bold text-destructive" title="Висит открытый блок в активной подзадаче">
+                        <Lock className="w-3 h-3" /> в блоке
+                      </span>
+                    )}
                     {t.hiddenBlocked && (
                       <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-px text-[10px] font-bold text-amber-500" title="Есть подзадачи, но активных нет — работа не спланирована">
                         <EyeOff className="w-3 h-3" /> скрытая блокировка
@@ -241,6 +246,12 @@ function RiskTasksModal({ riskK, which, tasks, onClose }: { riskK: string | null
                   <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
                     <Avatar name={t.assignee} size={14} /> {t.assignee} · <SubBreakdown t={t} />
                   </p>
+                  {(t.blockedDetails || []).map((b, i) => (
+                    <p key={i} className="text-[11px] text-destructive mt-0.5 flex items-center gap-1">
+                      <Lock className="w-3 h-3 shrink-0" /> Блок в{" "}
+                      <a href={b.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary hover:underline">{b.key}</a>: {b.reason}
+                    </p>
+                  ))}
                 </div>
               </div>
             </div>
