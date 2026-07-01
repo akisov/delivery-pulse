@@ -163,7 +163,6 @@ export function SlackersPage() {
                     <span className="text-sm font-semibold text-foreground">{s.name}</span>
                     <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-secondary text-muted-foreground">{s.label}</span>
                     {s.kind && <span className="ml-2 text-[11px] capitalize text-muted-foreground">{s.kind}</span>}
-                    {s.since && <span className="ml-1 text-[11px] text-muted-foreground/70">с {fmtDay(s.since)}</span>}
                   </div>
                   <button onClick={() => toggleLeave(s, false)} disabled={busy === s.id} title="Вернуть в общий учёт"
                     className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 h-8 text-xs font-semibold text-muted-foreground hover:text-primary hover:border-primary/50 transition-all disabled:opacity-50">
