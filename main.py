@@ -5460,22 +5460,28 @@ async def _compute_slackers() -> dict:
     риска лимита и scroll), матч по фамилии автора (ловит и тех, у кого несколько
     учёток). ~1-2 мин — потому считается на синке и кэшируется (slackers-v4)."""
     today = datetime.now(MSK).date()
-    wdays = _prev_working_days(today, 2)             # ['2026-06-29','2026-06-26']
+    wdays = _prev_working_days(today, 2)             # ['2026-06-30','2026-06-29'] (МСК)
+    wset = set(wdays)
     by_person: dict = {}                             # норм-фамилия → {"team","disp","d":{дата:часы}}
+    # День относим по МСК (_msk_date), как timesheet/остальной дашборд. Тянем с запасом
+    # ±1 день (запись из МСК-дня может по UTC попасть на соседние сутки на границе).
+    lo = date.fromisoformat(min(wdays)) - timedelta(days=1)
+    hi = date.fromisoformat(max(wdays)) + timedelta(days=1)
     async with httpx.AsyncClient(timeout=120) as client:
-        for d in wdays:
-            nxt = (date.fromisoformat(d) + timedelta(days=1)).isoformat()
+        dd = lo
+        while dd <= hi:
+            nxt = dd + timedelta(days=1)
             page = 1
             while page <= 100:                       # один день < 10000 записей
                 data = await tracker_request(client, "POST", f"/v2/worklog/_search?perPage=100&page={page}",
-                    {"start": {"from": f"{d}T00:00:00", "to": f"{nxt}T00:00:00"}})
+                    {"start": {"from": f"{dd.isoformat()}T00:00:00", "to": f"{nxt.isoformat()}T00:00:00"}})
                 chunk = data if isinstance(data, list) else []
                 for e in chunk:
                     h = _iso_dur_hours(e.get("duration"))
                     if h <= 0:
                         continue
-                    dt = (e.get("start") or e.get("createdAt") or "")[:10]
-                    if dt != d:
+                    msk = _msk_date(e.get("start") or e.get("createdAt") or "")
+                    if msk not in wset:              # оставляем только 2 рабочих дня (по МСК)
                         continue
                     disp = (e.get("createdBy") or {}).get("display") or ""
                     m = _match_courier(disp)
@@ -5484,11 +5490,12 @@ async def _compute_slackers() -> dict:
                     surn, team = m
                     rec = by_person.setdefault(surn, {"team": team, "disp": disp, "d": {}})
                     rec["disp"] = disp
-                    rec["d"][d] = rec["d"].get(d, 0) + h
+                    rec["d"][msk] = rec["d"].get(msk, 0) + h
                 if len(chunk) < 100:
                     break
                 page += 1
                 await asyncio.sleep(0.05)
+            dd = nxt
     people = []
     for surn, team in _COURIER_HOME.items():
         rec = by_person.get(surn)
@@ -5565,6 +5572,38 @@ async def slackers_leave(request: Request):
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
     return JSONResponse({"ok": True, "onLeave": sorted(leave.keys())})
+
+@app.get("/diag/wl-person")
+async def diag_wl_person(surname: str = Query(...), frm: str = Query(...), to: str = Query(...)):
+    """Отладка: worklog сотрудника за окно [frm,to] — issue, сырой start, МСК-дата, часы."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    snorm = _cnorm(surname)
+    out, by_msk = [], {}
+    async with httpx.AsyncClient(timeout=90) as client:
+        dd = date.fromisoformat(frm)
+        end = date.fromisoformat(to)
+        while dd <= end:
+            nxt = dd + timedelta(days=1)
+            page = 1
+            while page <= 50:
+                data = await tracker_request(client, "POST", f"/v2/worklog/_search?perPage=100&page={page}",
+                    {"start": {"from": f"{dd.isoformat()}T00:00:00", "to": f"{nxt.isoformat()}T00:00:00"}})
+                chunk = data if isinstance(data, list) else []
+                for e in chunk:
+                    disp = (e.get("createdBy") or {}).get("display") or ""
+                    if snorm not in set(_cnorm(disp).split()):
+                        continue
+                    h = round(_iso_dur_hours(e.get("duration")), 3)
+                    msk = _msk_date(e.get("start") or "")
+                    out.append({"issue": (e.get("issue") or {}).get("key"), "startRaw": e.get("start"),
+                                "rawDate": (e.get("start") or "")[:10], "mskDate": msk, "hours": h, "disp": disp})
+                    by_msk[msk] = round(by_msk.get(msk, 0) + h, 2)
+                if len(chunk) < 100:
+                    break
+                page += 1
+            dd = nxt
+    return JSONResponse({"ok": True, "surname": surname, "byMskDate": by_msk, "entries": out})
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 
