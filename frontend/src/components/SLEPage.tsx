@@ -308,11 +308,15 @@ function TaskCard({ t, options, onOverride }: { t: SleTask; options: string[]; o
                 в работе {t.daysInWork}{t.sle != null ? `/${t.sle}` : ""} дн.
               </span>
             )}
-            {(t.effort != null || t.effortFact != null) && (
-              <span className="inline-flex items-center rounded-md border border-border bg-secondary/60 px-1.5 py-px text-[10px] font-semibold text-muted-foreground" title="Effort: план / факт (дни)">
-                Effort: план {t.effort ?? "—"}{t.effortFact != null ? ` · факт ${t.effortFact}` : ""} дн.
-              </span>
-            )}
+            {(() => {
+              const ok = (v: number | null | undefined) => v != null && v > 0 && v <= 1000
+              if (!ok(t.effort) && !ok(t.effortFact)) return null
+              return (
+                <span className="inline-flex items-center rounded-md border border-border bg-secondary/60 px-1.5 py-px text-[10px] font-semibold text-muted-foreground" title="Effort: план / факт (дни)">
+                  Effort: план {ok(t.effort) ? t.effort : "—"} · факт {ok(t.effortFact) ? t.effortFact : "—"} дн.
+                </span>
+              )
+            })()}
             {t.hiddenBlocked && (
               <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-px text-[10px] font-bold text-amber-500" title="Есть подзадачи, но активных нет — работа не спланирована">
                 <EyeOff className="w-3 h-3" /> скрытая блокировка
