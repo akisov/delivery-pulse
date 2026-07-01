@@ -179,21 +179,26 @@ FLOW_WIP_SET = set(FLOW_WIP_STATUSES)
 SP_HOURS = 8  # 1 SP = 8 часов
 SPRINT_ROLES = ["SA", "GO", "Front", "QA", "1С", "AQA"]  # порядок в отчёте
 SPRINT_ROLE_LABEL = {"SA": "SA", "GO": "GO", "Front": "FE", "QA": "QA", "1С": "1C", "AQA": "AQA"}
-# роль → варианты имён в worklog Трекера (с отчеством и без — суммируем оба)
+# фамилия → роль в команде U (матч по фамилии в display — устойчиво к вариантам имени/отчества).
+# Полный состав U (Курьеры U), роли по должностям.
 SPRINT_ROLE_MEMBERS = {
-    "SA":    ["Полина Алексеевна Резенова"],
-    "GO":    ["Роман Олегович Источников", "Андрей Дмитриевич Ким"],
-    "Front": ["Евгений Сергеевич Копосов", "Светлана Асотикова", "Светлана Валерьевна Асотикова"],
-    "QA":    ["Олег Олегович Степин", "Олег Степин", "Владислав Игоревич Корякин"],
-    "1С":    ["Максим Валерьевич Яцушко", "Гусев Алексеевич Иван"],
-    "AQA":   ["Юлия Сергеевна Драгун"],
+    "SA":    ["Резенова"],
+    "GO":    ["Источников", "Ким", "Спиридонов"],
+    "Front": ["Копосов", "Асотикова"],
+    "QA":    ["Степин", "Корякин"],
+    "1С":    ["Яцушко", "Гусев"],
+    "AQA":   ["Драгун"],
 }
 def _sprint_norm(s: str) -> str:
     return str(s or "").replace("ё", "е").replace("Ё", "Е").strip().lower()
-_SPRINT_NAME_ROLE = {_sprint_norm(n): r for r, names in SPRINT_ROLE_MEMBERS.items() for n in names}
+_SPRINT_SURNAME_ROLE = {_sprint_norm(n): r for r, names in SPRINT_ROLE_MEMBERS.items() for n in names}
 def _person_role(display: str):
-    """Имя из worklog → роль (или None, если сотрудник не из команды U)."""
-    return _SPRINT_NAME_ROLE.get(_sprint_norm(display))
+    """Имя из worklog → роль по ФАМИЛИИ (или None, если не из команды U)."""
+    toks = set(_sprint_norm(display).split())
+    for surn, role in _SPRINT_SURNAME_ROLE.items():
+        if surn in toks:
+            return role
+    return None
 
 # ── Turso HTTP client ─────────────────────────────────────────────────────────
 
