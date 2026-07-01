@@ -3146,12 +3146,18 @@ async def _wl_fetch(client, key):
     обрезан (~50 записей), у «тяжёлых» задач часы иначе теряются."""
     try:
         out: list = []
+        seen: set = set()
         page = 1
         while page <= 50:
             r = await tracker_request(client, "GET", f"/v2/issues/{key}/worklog?perPage=100&page={page}")
             chunk = r if isinstance(r, list) else []
-            out += chunk
-            if len(chunk) < 100:
+            new = 0
+            for e in chunk:
+                eid = e.get("id")
+                if eid in seen:          # page может игнорироваться → защита от задвоения
+                    continue
+                seen.add(eid); out.append(e); new += 1
+            if len(chunk) < 100 or new == 0:
                 break
             page += 1
         return out
