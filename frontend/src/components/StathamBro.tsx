@@ -35,6 +35,17 @@ const QUOTES = [
   "Ошибся раз — я запомнил. Ошибся дважды — тебя запомнил дашборд.",
   "Нет слова «невозможно». Есть «ещё не при мне».",
   "Задачи не закрывают. Задачи сдаются.",
+  // — свежая пачка
+  "Мой пульс — это и есть пульс доставки.",
+  "Понедельник — не день, а проверка на прочность. Я прохожу её до будильника.",
+  "Кофе не будит меня. Это я бужу кофе.",
+  "Ретро? Я не оглядываюсь. Оглядываются на меня.",
+  "Дейли короткое: я сказал «сделано» — все разошлись.",
+  "Дедлайн — это когда я решил, а не когда в календаре.",
+  "Не бывает горящих задач. Бывает, что я ещё не подошёл потушить.",
+  "Скоуп не растёт, когда я в комнате.",
+  "Оценка в стори-поинтах? Я измеряю в «сделал».",
+  "Курьер не опаздывает. Маршрут выезжает, когда я разрешил.",
 ]
 
 // Оригинальная SVG-иллюстрация: суровый лысый бородач в смокинге (action-типаж, без копирайта)
@@ -135,13 +146,14 @@ export function StathamBro() {
         <p className="text-xs font-semibold text-foreground leading-snug">«{QUOTES[i]}»</p>
         <span className="absolute -right-1.5 bottom-3 h-3 w-3 rotate-45 border-b border-r border-border bg-card" />
       </div>
-      {/* аватарка — крупная, без круга; своё фото из public/ или SVG-фолбэк */}
-      <div className="relative shrink-0 w-[92px] h-[116px] -mb-1">
+      {/* аватарка — крупная, без круга; клик = следующая цитата; своё фото или SVG-фолбэк */}
+      <div onClick={() => setI(v => (v + 1) % QUOTES.length)} title="Ещё цитату"
+        className="relative shrink-0 w-[92px] h-[116px] -mb-1 cursor-pointer transition-transform hover:-translate-y-0.5 active:scale-95">
         {srcIdx < AVATAR_SRCS.length
           ? <img src={AVATAR_SRCS[srcIdx]} alt="" onError={() => setSrcIdx(n => n + 1)}
               className="h-full w-full rounded-2xl object-cover object-top" />
           : <BroAvatar />}
-        <button onClick={() => setHidden(true)} title="Скрыть"
+        <button onClick={(e) => { e.stopPropagation(); setHidden(true) }} title="Скрыть"
           className="absolute top-0 right-0 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground shadow">
           <X className="h-3 w-3" />
         </button>
