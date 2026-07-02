@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, lazy, Suspense } from "react"
-import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, Clock4, Command as CommandIcon } from "lucide-react"
+import { RefreshCw, Home, Lock, Target, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, Clock4, SlidersHorizontal, Eye, EyeOff, ChevronUp, ChevronDown, Check, Command as CommandIcon } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import { Toaster, toast } from "sonner"
 import { CommandPalette } from "@/components/CommandPalette"
 import { SimpleTooltip } from "@/components/ui/tooltip"
@@ -18,6 +19,14 @@ const NAV_HINT: Record<string, string> = {
   feat: "Оценка возможностей · S/M/L · эталоны",
   slackers: "Кто недосписал часы",
 }
+
+// Разделы меню (для настраиваемого меню: скрытие + порядок). Группа top («Главная») фиксирована.
+type NavItem = readonly [string, LucideIcon, string]
+const NAV_GROUPS: { key: string; title: string; items: NavItem[]; fixed?: boolean }[] = [
+  { key: "top", title: "", fixed: true, items: [["home", Home, "Главная"]] },
+  { key: "teams", title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["flowt", Activity, "Поток команд"], ["est", Gauge, "Спринты"], ["slackers", Clock4, "Учёт часов"], ["osp", Truck, "ОСП"]] },
+  { key: "e2e", title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["sle", Target, "Анализ SLE"], ["feat", Lightbulb, "Оценка НВ"]] },
+]
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -91,6 +100,32 @@ export default function App() {
   const [selectedTask, setSelectedTask] = useState<BlockedTask | null>(null)
   const [statModal, setStatModal] = useState<StatFilter | null>(null)
   const [cmdOpen, setCmdOpen] = useState(false)
+  const [editMenu, setEditMenu] = useState(false)
+  const [menuCfg, setMenuCfg] = useState<{ hidden: string[]; order: Record<string, string[]> }>(() => {
+    try { const s = localStorage.getItem("menuCfg-v1"); if (s) return JSON.parse(s) } catch {} // eslint-disable-line
+    return { hidden: [], order: {} }
+  })
+  useEffect(() => { try { localStorage.setItem("menuCfg-v1", JSON.stringify(menuCfg)) } catch {} }, [menuCfg])
+  const orderedItems = (grp: typeof NAV_GROUPS[number]) => {
+    const ord = menuCfg.order[grp.key]
+    const items = [...grp.items]
+    if (ord && ord.length) items.sort((a, b) => {
+      const ia = ord.indexOf(a[0]), ib = ord.indexOf(b[0])
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+    })
+    return items
+  }
+  const moveItem = (grp: typeof NAV_GROUPS[number], key: string, dir: number) => {
+    const base = menuCfg.order[grp.key]?.length ? menuCfg.order[grp.key] : orderedItems(grp).map(i => i[0])
+    const ord = base.slice()
+    const i = ord.indexOf(key), j = i + dir
+    if (i < 0 || j < 0 || j >= ord.length) return
+    ;[ord[i], ord[j]] = [ord[j], ord[i]]
+    setMenuCfg(c => ({ ...c, order: { ...c.order, [grp.key]: ord } }))
+  }
+  const toggleHide = (key: string) => setMenuCfg(c => ({
+    ...c, hidden: c.hidden.includes(key) ? c.hidden.filter(x => x !== key) : [...c.hidden, key],
+  }))
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { theme } = useTheme()
 
@@ -304,40 +339,70 @@ export default function App() {
         {/* Боковое меню */}
         <aside className="hidden md:block w-52 shrink-0 py-8 sticky top-14 self-start">
           <nav ref={navRef} className="relative rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-card)]">
-            {/* Плавный индикатор активного раздела */}
-            {ind && (
+            {/* Плавный индикатор активного раздела (прячем в режиме настройки) */}
+            {!editMenu && ind && (
               <span aria-hidden className="pointer-events-none absolute left-1.5 right-1.5 rounded-xl bg-gradient-to-r from-primary/20 to-primary/5 shadow-[inset_0_0_0_1px_rgba(108,99,255,0.22)] transition-all duration-300 ease-out"
                 style={{ top: ind.top, height: ind.height }} />
             )}
-            {ind && (
+            {!editMenu && ind && (
               <span aria-hidden className="pointer-events-none absolute left-0 w-1 rounded-r-full transition-all duration-300 ease-out"
                 style={{ top: ind.top + 8, height: Math.max(0, ind.height - 16), background: "linear-gradient(180deg,#6C63FF,#EC4899)" }} />
             )}
-            {([
-              { items: [["home", Home, "Главная"]] },
-              { title: "Команды", items: [["blockings", Lock, "Блокировки"], ["incidents", AlertTriangle, "Инциденты"], ["arch", Landmark, "Арх. комитет"], ["flowt", Activity, "Поток команд"], ["est", Gauge, "Спринты"], ["slackers", Clock4, "Учёт часов"], ["osp", Truck, "ОСП"]] },
-              { title: "E2E", items: [["flow", Workflow, "Поток E2E"], ["sle", Target, "Анализ SLE"], ["feat", Lightbulb, "Оценка НВ"]] },
-            ] as const).map((grp, gi) => (
-              <div key={gi} className={gi ? "mt-2" : ""}>
-                {"title" in grp && grp.title && (
-                  <p className="px-3 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">{grp.title}</p>
-                )}
-                {grp.items.map(([v, Icon, label]) => {
-                  const active = section === v
-                  return (
-                    <SimpleTooltip key={v} side="right" label={NAV_HINT[v]}>
-                      <button data-section={v} onClick={() => setSection(v)}
-                        className={cn(
-                          "relative z-10 w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left mb-0.5",
-                          active ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                        )}>
-                        <Icon className="w-4 h-4 shrink-0" /> {label}
-                      </button>
-                    </SimpleTooltip>
-                  )
-                })}
-              </div>
-            ))}
+            {NAV_GROUPS.map((grp, gi) => {
+              const items = orderedItems(grp)
+              const visible = editMenu ? items : items.filter(([v]) => grp.fixed || !menuCfg.hidden.includes(v))
+              if (!visible.length) return null
+              return (
+                <div key={grp.key} className={gi ? "mt-2" : ""}>
+                  {grp.title && (
+                    <p className="px-3 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">{grp.title}</p>
+                  )}
+                  {visible.map(([v, Icon, label]) => {
+                    const hidden = menuCfg.hidden.includes(v)
+                    if (editMenu) {
+                      return (
+                        <div key={v} className="flex items-center gap-1 px-2 py-1.5 rounded-xl">
+                          <Icon className={cn("w-4 h-4 shrink-0", hidden && "opacity-40")} />
+                          <span className={cn("flex-1 text-sm truncate", hidden ? "text-muted-foreground/50 line-through" : "text-foreground")}>{label}</span>
+                          {!grp.fixed && (
+                            <>
+                              <button onClick={() => moveItem(grp, v, -1)} title="Выше" className="p-0.5 text-muted-foreground/60 hover:text-primary"><ChevronUp className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => moveItem(grp, v, 1)} title="Ниже" className="p-0.5 text-muted-foreground/60 hover:text-primary"><ChevronDown className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => toggleHide(v)} title={hidden ? "Показать" : "Скрыть"} className="p-0.5 text-muted-foreground/60 hover:text-primary">
+                                {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )
+                    }
+                    const active = section === v
+                    return (
+                      <SimpleTooltip key={v} side="right" label={NAV_HINT[v]}>
+                        <button data-section={v} onClick={() => setSection(v)}
+                          className={cn(
+                            "relative z-10 w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors text-left mb-0.5",
+                            active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                          )}>
+                          <Icon className="w-4 h-4 shrink-0" /> {label}
+                        </button>
+                      </SimpleTooltip>
+                    )
+                  })}
+                </div>
+              )
+            })}
+            {/* Настройка меню */}
+            <div className="mt-2 border-t border-border pt-2">
+              <button onClick={() => setEditMenu(e => !e)}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-primary hover:bg-secondary/50 transition-colors">
+                {editMenu ? <><Check className="w-4 h-4" /> Готово</> : <><SlidersHorizontal className="w-4 h-4" /> Настроить меню</>}
+              </button>
+              {editMenu && (menuCfg.hidden.length > 0 || Object.keys(menuCfg.order).length > 0) && (
+                <button onClick={() => setMenuCfg({ hidden: [], order: {} })}
+                  className="w-full text-[11px] text-muted-foreground/70 hover:text-primary mt-0.5 py-1">Сбросить по умолчанию</button>
+              )}
+            </div>
           </nav>
         </aside>
 
