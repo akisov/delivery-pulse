@@ -14,7 +14,6 @@ export function FunnelChart({ tasks, onShowTasks }: FunnelChartProps) {
   const total = entrants.length
   const akTasks = entrants.filter(t => t.v1n > 0)
   const taTasks = entrants.filter(t => t.v2n > 0)
-  const noAk = entrants.filter(t => t.v1n === 0)
   const okTasks = entrants.filter(t => t.total === 0)
   const akTrans = akTasks.reduce((s, t) => s + t.v1n, 0)
   const taTrans = taTasks.reduce((s, t) => s + t.v2n, 0)
@@ -23,12 +22,11 @@ export function FunnelChart({ tasks, onShowTasks }: FunnelChartProps) {
 
   const stages = [
     { key: "in", label: "Пришло в АрхКом", short: "Пришло", val: total, color: "#6C63FF", tasks: entrants },
-    { key: "noak", label: "Прошли ревью АрхКома", short: "Прошли ревью", val: noAk.length, color: "#06B6D4", tasks: noAk },
-    { key: "ok", label: "С первого раза", short: "С первого раза", val: okTasks.length, color: "#10B981", tasks: okTasks },
+    { key: "ok", label: "С первого раза (без возвратов)", short: "С первого раза", val: okTasks.length, color: "#10B981", tasks: okTasks },
   ]
 
   // геометрия конуса
-  const W = 300, CX = 175, PADY = 10, BAND = 82, VBW = 350
+  const W = 300, CX = 175, PADY = 10, BAND = 104, VBW = 350
   const maxV = Math.max(1, total)
   const wOf = (v: number) => Math.max(30, (v / maxV) * W)
   const widths = stages.map(s => wOf(s.val))
@@ -96,12 +94,6 @@ export function FunnelChart({ tasks, onShowTasks }: FunnelChartProps) {
                     <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-foreground transition-colors shrink-0" />
                   </button>
                 ))}
-                <div className="flex items-center gap-2 rounded-lg px-2 py-1">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-emerald-500" />
-                  <span className="text-xs text-muted-foreground flex-1">Прошли без замечаний</span>
-                  <span className="text-sm font-black text-emerald-500 tabular-nums">{okTasks.length}</span>
-                  <span className="text-xs text-muted-foreground">({pct(okTasks.length)}%)</span>
-                </div>
               </div>
 
               {/* возвраты */}
