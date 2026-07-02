@@ -122,9 +122,11 @@ PRACTICES = [
     {"n": "Автоматизация rollback-сценариев", "ctx": ["incidents"],               "b": "быстрый откат релиза — сократить время инцидента"},
 ]
 
-def _practices_prompt(ctx: str) -> str:
-    """Блок с релевантными практиками для AI-промпта: советовать по названию, вести на радар."""
-    rel = [p for p in PRACTICES if ctx in p["ctx"]]
+def _practices_prompt(ctx) -> str:
+    """Блок с релевантными практиками для AI-промпта: советовать по названию, вести на радар.
+    ctx — строка или список контекстов (blockings/incidents/sle/arch/flow/est)."""
+    ctxs = ctx if isinstance(ctx, (list, tuple, set)) else [ctx]
+    rel = [p for p in PRACTICES if any(c in p["ctx"] for c in ctxs)]
     if not rel:
         return ""
     lines = "\n".join(f"- {p['n']}: {p['b']}" for p in rel)
@@ -4454,9 +4456,11 @@ async def _osp_ai_summary_build(team: str, month: str) -> str | None:
         "⚠️ риск, ✅ хорошо, 🧱 блокировки, 🐌 медленно, 🐞 инциденты/баги.\n"
         "— После эмодзи — короткая суть; ключевые числа оборачивай в **двойные звёздочки** (жирный).\n"
         "— 2–4 пункта, каждый одно живое предложение, по-человечески, без канцелярита и без вступления.\n"
+        "— ПОСЛЕДНИМ пунктом добавь 📌 с рекомендацией 1 подходящей практики из списка ниже (точным названием).\n"
         "Только на основе чисел, ничего не выдумывай. Если данных мало — скажи одним пунктом."
+        + _practices_prompt(["blockings", "incidents", "flow"])
     )
-    return await ai_complete(system, facts, max_tokens=320, temperature=0.3)
+    return await ai_complete(system, facts, max_tokens=380, temperature=0.3)
 
 @app.get("/osp-ai-summary")
 async def osp_ai_summary(team: str = Query(...), month: str = Query(...), refresh: bool = Query(False)):
@@ -5933,6 +5937,7 @@ async def home_weekly_ai(refresh: bool = Query(False)):
             return JSONResponse({"ok": True, **snap})
     today = datetime.now(MSK).date()
     tf = (today - timedelta(days=7)).isoformat()
+    pf = (today - timedelta(days=14)).isoformat()   # начало прошлой недели (для динамики)
     team_facts, e2e_facts = [], []
     # учёт часов
     try:
@@ -5945,27 +5950,31 @@ async def home_weekly_ai(refresh: bool = Query(False)):
                                   + ", ".join(p["name"].split()[-1] for p in low[:6]) + ".")
     except Exception as e:
         print(f"[weekly slackers] {e}")
-    # арх.комитет за 7 дней
+    # арх.комитет за 7 дней (+ динамика к прошлой неделе)
     try:
         arch = await query_arch_dashboard(tf, today.isoformat(), QUEUES)
-        ts = arch.get("tasks", [])
-        ent = sum(1 for t in ts if t.get("entered"))
+        prev = await query_arch_dashboard(pf, tf, QUEUES)
+        ts, pts = arch.get("tasks", []), prev.get("tasks", [])
+        ent = sum(1 for t in ts if t.get("entered")); pent = sum(1 for t in pts if t.get("entered"))
         v1 = sum(t.get("v1n", 0) for t in ts); v2 = sum(t.get("v2n", 0) for t in ts)
+        pv = sum(t.get("v1n", 0) + t.get("v2n", 0) for t in pts)
         top = ((arch.get("reasons") or {}).get("v1", []) + (arch.get("reasons") or {}).get("v2", []))[:2]
         rtxt = ("; причины возвратов: " + ", ".join(r["reason"] for r in top)) if top else ""
-        team_facts.append(f"Арх.комитет за 7 дней: пришло {ent}, вернул АрхКом {v1}, ТА {v2}{rtxt}.")
+        team_facts.append(f"Арх.комитет за 7 дней: пришло {ent} (прошлая неделя {pent}), возвратов {v1+v2} "
+                          f"(прошлая {pv}); из них АрхКом {v1}, ТА {v2}{rtxt}.")
     except Exception as e:
         print(f"[weekly arch] {e}")
-    # инциденты за 7 дней (из снапшота)
+    # инциденты за 7 дней (из снапшота) + динамика к прошлой неделе
     try:
         inc = await _osp_snap(f"incidents-{12}-v{INCIDENTS_VERSION}")
         items = (inc or {}).get("items", []) or []
         recent = [it for it in items if (it.get("created") or "") >= tf]
-        if recent:
+        prevw = [it for it in items if pf <= (it.get("created") or "") < tf]
+        if recent or prevw:
             cz = Counter((it.get("cause") or "").strip() for it in recent
                          if (it.get("cause") or "").strip() and "не указан" not in (it.get("cause") or "").lower())
             ctxt = ("; топ-причина: " + cz.most_common(1)[0][0]) if cz else ""
-            team_facts.append(f"Инцидентов создано за 7 дней: {len(recent)}{ctxt}.")
+            team_facts.append(f"Инцидентов создано за 7 дней: {len(recent)} (прошлая неделя {len(prevw)}){ctxt}.")
     except Exception as e:
         print(f"[weekly inc] {e}")
     # поток команд — превышение WIP
@@ -5996,6 +6005,7 @@ async def home_weekly_ai(refresh: bool = Query(False)):
         "Ты — руководитель разработки сервиса доставки ВкусВилл. На вход — сигналы за последнюю неделю по двум контурам: "
         "КОМАНДЫ (курьеры X/U/R: учёт часов, арх.комитет/возвраты, инциденты, поток) и E2E (очередь PUTKURERA: риски SLE, поток). "
         "Сделай короткую сводку-ВЫВОДЫ для руководителя: что важно, где риск, что предпринять. По каждому контуру 2-4 пункта. "
+        "Где в фактах есть сравнение с прошлой неделей — обязательно отметь ДИНАМИКУ (📈 рост / 📉 спад / ≈ без изменений). "
         "Каждый пункт — одно живое предложение с эмодзи в начале (📈/📉/🔥/⚠️/✅/🔒/🧱/🐞/⏱), ключевые числа и имена — в **двойных звёздочках**. "
         "Где уместно — порекомендуй практику из списка ниже (точным названием). Только по фактам, ничего не выдумывай, без воды. "
         "Верни СТРОГО JSON без пояснений: {\"teams\":[\"...\"],\"e2e\":[\"...\"]}.\n\nПРАКТИКИ ВкусВилл:\n" + practices_all
