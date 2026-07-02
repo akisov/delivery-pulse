@@ -1275,11 +1275,25 @@ async def _warm_caches():
         # worklog за текущий+предыдущий месяц — чтобы ОСП-часы были свежими при любом синке
         ("osp-worklog",    lambda: run_osp_worklog_current(date.today().year)),
     ]
+    report = []
     for name, fn in jobs:
+        t0 = datetime.now(MSK)
         try:
             await fn()
+            status, err = "ok", ""
         except Exception as e:
+            status, err = "error", str(e)[:200]
             print(f"[warm {name}] {e}")
+        ms = int((datetime.now(MSK) - t0).total_seconds() * 1000)
+        report.append({"section": name, "status": status, "error": err, "ms": ms})
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            ["_warm_report", json.dumps(
+                {"at": datetime.now(MSK).strftime("%Y-%m-%d %H:%M"), "items": report}, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[warm report] {e}")
     print("[cache] прогрев ключевых разделов завершён")
 
 async def run_sync_job(selected: list[str], full: bool):
@@ -5794,6 +5808,60 @@ async def diag_wl_person(surname: str = Query(...), frm: str = Query(...), to: s
                 page += 1
             dd = nxt
     return JSONResponse({"ok": True, "surname": surname, "byMskDate": by_msk, "entries": out})
+
+@app.get("/health/data")
+async def health_data():
+    """Аудит данных: отчёт последнего прогрева, свежесть всех снапшотов, счётчики
+    таблиц и время последнего синка. Чтобы одним взглядом видеть, что где недосчиталось."""
+    def _stale(ts):
+        try:
+            return (date.today() - date.fromisoformat((ts or "")[:10])).days > 2
+        except Exception:
+            return None
+    out: dict = {"ok": True, "now": datetime.now(MSK).strftime("%Y-%m-%d %H:%M")}
+    out["warm"] = await _osp_snap("_warm_report")
+    # все снапшоты: свежесть + размер (без хардкода ключей)
+    snaps = []
+    for tbl in ("osp_snapshot", "sle_snapshot"):
+        try:
+            r = await turso_execute([stmt(f"SELECT which, updated_at, length(data) AS sz FROM {tbl}")])
+            for row in rows_to_dicts(r[0]):
+                if row["which"] == "_warm_report":
+                    continue
+                bytes_ = int(row.get("sz") or 0)
+                snaps.append({"table": tbl, "which": row["which"], "updatedAt": row.get("updated_at"),
+                              "bytes": bytes_, "empty": bytes_ < 40, "stale": _stale(row.get("updated_at"))})
+        except Exception as e:
+            snaps.append({"table": tbl, "error": str(e)})
+    out["snapshots"] = sorted(snaps, key=lambda x: x.get("updatedAt") or "")
+    # счётчики таблиц
+    counts = {}
+    for t in ("blockings", "arch_tasks", "arch_transitions", "arch_returns", "flow_tasks", "flow_transitions", "sprints"):
+        try:
+            r = await turso_execute([stmt(f"SELECT COUNT(*) AS c FROM {t}")])
+            counts[t] = int(rows_to_dicts(r[0])[0]["c"])
+        except Exception as e:
+            counts[t] = f"err: {str(e)[:60]}"
+    out["tables"] = counts
+    # логи синка
+    for name, tbl in (("syncLog", "sync_log"), ("archSyncLog", "arch_sync_log")):
+        try:
+            r = await turso_execute([stmt(f"SELECT queue, last_synced FROM {tbl}")])
+            out[name] = {row["queue"]: row.get("last_synced") for row in rows_to_dicts(r[0])}
+        except Exception:
+            out[name] = {}
+    # сводка проблем
+    problems = []
+    for s in out["snapshots"]:
+        if s.get("empty"):
+            problems.append(f"пусто: {s['which']}")
+        elif s.get("stale"):
+            problems.append(f"устарело (>2дн): {s['which']} — {s.get('updatedAt')}")
+    for it in (out.get("warm") or {}).get("items", []):
+        if it.get("status") != "ok":
+            problems.append(f"ошибка прогрева: {it['section']} — {it.get('error')}")
+    out["problems"] = problems
+    return JSONResponse(out)
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 

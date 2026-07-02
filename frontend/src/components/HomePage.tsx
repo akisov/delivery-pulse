@@ -2,6 +2,8 @@ import { useEffect, useState } from "react"
 import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, Clock4, ChevronLeft, ChevronRight } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StathamBro } from "@/components/StathamBro"
+import { fetchDataHealth, type DataHealth } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 interface Props {
   onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat" | "flowt" | "slackers") => void
@@ -220,6 +222,73 @@ function TipOfDay({ onGo }: { onGo: Props["onGo"] }) {
   )
 }
 
+// Здоровье данных: свежесть снапшотов, прогрев при синке, счётчики таблиц
+function DataHealthCard() {
+  const [h, setH] = useState<DataHealth | null>(null)
+  const [open, setOpen] = useState(false)
+  const [err, setErr] = useState(false)
+  useEffect(() => { fetchDataHealth().then(setH).catch(() => setErr(true)) }, [])
+  if (err) return null
+  const problems = h?.problems ?? []
+  const ok = h != null && problems.length === 0
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 text-left">
+        <Activity className="w-4 h-4 text-primary shrink-0" />
+        <span className="text-sm font-black text-foreground">Здоровье данных</span>
+        {!h ? <span className="ml-auto text-xs text-muted-foreground">проверяем…</span>
+          : ok ? <span className="ml-auto text-xs font-bold text-emerald-500">🟢 всё считается</span>
+               : <span className="ml-auto text-xs font-bold text-rose-500">🔴 проблем: {problems.length}</span>}
+        <ChevronRight className={cn("w-4 h-4 text-muted-foreground transition-transform", open && "rotate-90")} />
+      </button>
+      {h?.warm?.at && <p className="text-[11px] text-muted-foreground mt-1">Прогрев при синке: {h.warm.at}</p>}
+      {problems.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {problems.map((p, i) => (
+            <li key={i} className="text-xs text-rose-500 flex gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />{p}</li>
+          ))}
+        </ul>
+      )}
+      {open && h && (
+        <div className="mt-3 space-y-3 text-xs border-t border-border pt-3">
+          <div>
+            <p className="font-bold text-muted-foreground mb-1">Прогрев секций при синке</p>
+            <div className="flex flex-wrap gap-1">
+              {(h.warm?.items ?? []).map(it => (
+                <span key={it.section} title={it.error || `${it.ms} мс`}
+                  className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                    it.status === "ok" ? "bg-emerald-500/15 text-emerald-600" : "bg-rose-500/15 text-rose-500")}>
+                  {it.section}
+                </span>
+              ))}
+              {!(h.warm?.items ?? []).length && <span className="text-muted-foreground">синк ещё не прогревал</span>}
+            </div>
+          </div>
+          <div>
+            <p className="font-bold text-muted-foreground mb-1">Таблицы</p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+              {Object.entries(h.tables).map(([t, c]) => <span key={t}>{t}: <b className="text-foreground">{String(c)}</b></span>)}
+            </div>
+          </div>
+          <div>
+            <p className="font-bold text-muted-foreground mb-1">Снапшоты · {h.snapshots.length}</p>
+            <div className="max-h-52 overflow-y-auto space-y-0.5 pr-1">
+              {h.snapshots.map(s => (
+                <div key={s.table + s.which} className="flex justify-between gap-2">
+                  <span className={cn(s.empty ? "text-rose-500 font-semibold" : s.stale ? "text-amber-500" : "text-foreground")}>
+                    {s.which}{s.empty ? " · пусто" : s.stale ? " · устарел" : ""}
+                  </span>
+                  <span className="text-muted-foreground shrink-0 tabular-nums">{(s.updatedAt || "").slice(5, 16)} · {Math.round(s.bytes / 1024)}кб</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function HomePage({ onGo }: Props) {
   return (
     <div className="space-y-8">
@@ -237,6 +306,9 @@ export function HomePage({ onGo }: Props) {
 
       {/* Совет дня */}
       <TipOfDay onGo={onGo} />
+
+      {/* Здоровье данных */}
+      <DataHealthCard />
 
       {/* Карточки разделов */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

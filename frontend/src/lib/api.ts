@@ -18,6 +18,19 @@ export async function fetchSlackers(refresh = false): Promise<SlackersData> {
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.json()
 }
+export interface DataHealth {
+  ok: boolean; now: string
+  warm?: { at: string; items: { section: string; status: string; error: string; ms: number }[] }
+  snapshots: { table: string; which: string; updatedAt: string; bytes: number; empty: boolean; stale: boolean }[]
+  tables: Record<string, number | string>
+  syncLog: Record<string, string>; archSyncLog: Record<string, string>
+  problems: string[]
+}
+export async function fetchDataHealth(): Promise<DataHealth> {
+  const r = await fetch("/health/data")
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.json()
+}
 export async function fetchSlackersStatus(): Promise<{ running: boolean; pct: number; msg: string; error: string }> {
   const r = await fetch("/slackers/status")
   return r.json()
