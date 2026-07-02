@@ -1,9 +1,61 @@
 import { useEffect, useState } from "react"
-import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, Clock4, ChevronLeft, ChevronRight } from "lucide-react"
+import { Lock, Target, Sparkles, BarChart3, Workflow, Truck, AlertTriangle, Landmark, Gauge, Lightbulb, Activity, Clock4, ChevronLeft, ChevronRight, RefreshCw, ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StathamBro } from "@/components/StathamBro"
-import { fetchDataHealth, type DataHealth } from "@/lib/api"
+import { fetchDataHealth, type DataHealth, fetchWeeklyAI, type WeeklyAI } from "@/lib/api"
 import { cn } from "@/lib/utils"
+
+// рендер **жирного**
+function md(s: string) {
+  return s.split(/\*\*/).map((p, i) => i % 2 === 1 ? <b key={i} className="font-bold text-foreground">{p}</b> : <span key={i}>{p}</span>)
+}
+
+// AI-сводка за неделю: два контура — Команды и E2E
+function WeeklyAI() {
+  const [d, setD] = useState<WeeklyAI | null>(null)
+  const [loading, setLoading] = useState(true)
+  const load = (r = false) => { setLoading(true); fetchWeeklyAI(r).then(setD).catch(() => {}).finally(() => setLoading(false)) }
+  useEffect(() => { load() }, [])
+  const col = (title: string, dot: string, items: string[]) => (
+    <div className="flex-1 min-w-0">
+      <p className="text-xs font-black uppercase tracking-widest mb-2 flex items-center gap-1.5" style={{ color: dot }}>
+        <span className="w-2 h-2 rounded-full" style={{ background: dot }} /> {title}
+      </p>
+      {items.length === 0 ? <p className="text-xs text-muted-foreground">нет заметных сигналов</p> : (
+        <ul className="space-y-1.5">
+          {items.map((s, i) => <li key={i} className="text-sm leading-snug text-muted-foreground">{md(s)}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+  return (
+    <div className="rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/5 via-card to-card p-5 shadow-[0_0_28px_rgba(108,99,255,0.10)]">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/20"><Sparkles className="h-4 w-4 text-primary" /></span>
+        <h3 className="text-base font-black text-foreground">AI-сводка за неделю</h3>
+        <span className="text-[11px] text-muted-foreground">Команды · E2E</span>
+        {d?.computedAt && <span className="text-[11px] text-muted-foreground/60">· {d.computedAt}</span>}
+        <button onClick={() => load(true)} disabled={loading} title="Пересобрать" className="ml-auto text-muted-foreground/60 hover:text-primary transition-colors">
+          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+        </button>
+      </div>
+      {loading ? (
+        <div className="space-y-2"><div className="h-3.5 w-2/3 rounded bg-muted animate-pulse" /><div className="h-3.5 w-1/2 rounded bg-muted animate-pulse" /></div>
+      ) : !d || (d.teams.length === 0 && d.e2e.length === 0) ? (
+        <p className="text-sm text-muted-foreground">Сводка появится после синка (или нажми ↻).</p>
+      ) : (
+        <div className="flex flex-col sm:flex-row gap-6">
+          {col("Команды", "#6C63FF", d.teams)}
+          {col("E2E", "#10B981", d.e2e)}
+        </div>
+      )}
+      <a href={d?.radar || "https://practice-radar.svc.vkusvill.ru/"} target="_blank" rel="noreferrer"
+        className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
+        📌 Практики — Радар практик ВкусВилл <ExternalLink className="w-3 h-3" />
+      </a>
+    </div>
+  )
+}
 
 interface Props {
   onGo: (section: "blockings" | "sle" | "flow" | "osp" | "incidents" | "arch" | "est" | "feat" | "flowt" | "slackers") => void
@@ -303,6 +355,9 @@ export function HomePage({ onGo }: Props) {
           и AI-оценкой.
         </p>
       </div>
+
+      {/* AI-сводка за неделю */}
+      <WeeklyAI />
 
       {/* Совет дня */}
       <TipOfDay onGo={onGo} />

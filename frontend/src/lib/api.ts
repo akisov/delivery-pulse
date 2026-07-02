@@ -31,6 +31,12 @@ export async function fetchDataHealth(): Promise<DataHealth> {
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.json()
 }
+export interface WeeklyAI { ok: boolean; teams: string[]; e2e: string[]; radar: string; computedAt: string }
+export async function fetchWeeklyAI(refresh = false): Promise<WeeklyAI> {
+  const r = await fetch(`/home/weekly-ai${refresh ? "?refresh=true" : ""}`)
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.json()
+}
 export async function fetchSlackersStatus(): Promise<{ running: boolean; pct: number; msg: string; error: string }> {
   const r = await fetch("/slackers/status")
   return r.json()

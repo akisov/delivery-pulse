@@ -1312,6 +1312,8 @@ async def _warm_caches():
         ("sle-current",    lambda: sle_clusters("current", True)),
         ("sle-historical", lambda: sle_clusters("historical", True)),
         ("slackers",       _compute_slackers),   # учёт часов: ~1-2 мин, считаем тут (не на клик)
+        # недельная AI-сводка на главной — ПОСЛЕДНЕЙ, чтобы читать уже свежие снапшоты
+        ("home-weekly",    lambda: home_weekly_ai(True)),
         # osp-worklog (2 мес, ~12 мин) НЕ здесь — гоняем в ФОНЕ после синка, чтобы не блокировать
     ]
     # чистим устаревшие версии снапшотов, чтобы аудит /health/data не флагал мусор
@@ -5917,6 +5919,107 @@ async def health_data():
             problems.append(f"ошибка прогрева: {it['section']} — {it.get('error')}")
     out["problems"] = problems
     return JSONResponse(out)
+
+@app.get("/home/weekly-ai")
+async def home_weekly_ai(refresh: bool = Query(False)):
+    """AI-сводка за неделю на главной: два контура — КОМАНДЫ (курьеры) и E2E (PUTKURERA).
+    Сигналы берём из уже посчитанных снапшотов + арх.ком живьём. Кэш home-weekly-v1."""
+    if not TRACKER_TOKEN:
+        return JSONResponse({"ok": False, "error": "no token"})
+    ck = "home-weekly-v1"
+    if not refresh:
+        snap = await _osp_snap(ck)
+        if snap and snap.get("teams") is not None:
+            return JSONResponse({"ok": True, **snap})
+    today = datetime.now(MSK).date()
+    tf = (today - timedelta(days=7)).isoformat()
+    team_facts, e2e_facts = [], []
+    # учёт часов
+    try:
+        sl = await _osp_snap("slackers-v4")
+        if sl and sl.get("people"):
+            leave = await _slacker_leave()
+            low = [p for p in sl["people"] if p["id"] not in leave and (p.get("last2") or 0) < 8]
+            if low:
+                team_facts.append(f"Учёт часов: {len(low)} из {len(sl['people'])} курьерских сотрудников недосписали (<8ч за 2 раб. дня): "
+                                  + ", ".join(p["name"].split()[-1] for p in low[:6]) + ".")
+    except Exception as e:
+        print(f"[weekly slackers] {e}")
+    # арх.комитет за 7 дней
+    try:
+        arch = await query_arch_dashboard(tf, today.isoformat(), QUEUES)
+        ts = arch.get("tasks", [])
+        ent = sum(1 for t in ts if t.get("entered"))
+        v1 = sum(t.get("v1n", 0) for t in ts); v2 = sum(t.get("v2n", 0) for t in ts)
+        top = ((arch.get("reasons") or {}).get("v1", []) + (arch.get("reasons") or {}).get("v2", []))[:2]
+        rtxt = ("; причины возвратов: " + ", ".join(r["reason"] for r in top)) if top else ""
+        team_facts.append(f"Арх.комитет за 7 дней: пришло {ent}, вернул АрхКом {v1}, ТА {v2}{rtxt}.")
+    except Exception as e:
+        print(f"[weekly arch] {e}")
+    # инциденты за 7 дней (из снапшота)
+    try:
+        inc = await _osp_snap(f"incidents-{12}-v{INCIDENTS_VERSION}")
+        items = (inc or {}).get("items", []) or []
+        recent = [it for it in items if (it.get("created") or "") >= tf]
+        if recent:
+            cz = Counter((it.get("cause") or "").strip() for it in recent
+                         if (it.get("cause") or "").strip() and "не указан" not in (it.get("cause") or "").lower())
+            ctxt = ("; топ-причина: " + cz.most_common(1)[0][0]) if cz else ""
+            team_facts.append(f"Инцидентов создано за 7 дней: {len(recent)}{ctxt}.")
+    except Exception as e:
+        print(f"[weekly inc] {e}")
+    # поток команд — превышение WIP
+    for tm in ["X", "U", "R"]:
+        try:
+            ft = await _osp_snap(f"flowteam-{tm}-v4")
+            reg = ((ft or {}).get("limits") or {}).get("regular") or {}
+            c, lim = reg.get("count"), reg.get("limit")
+            if lim and c and c > lim:
+                team_facts.append(f"Поток команды {tm}: в работе {c} задач при лимите {lim} — WIP превышен.")
+        except Exception:
+            pass
+    # SLE (E2E) — из снапшота current
+    try:
+        res = await turso_execute([stmt("SELECT data FROM sle_snapshot WHERE which=?", ["current"])])
+        rows = rows_to_dicts(res[0]) if res else []
+        if rows and rows[0].get("data"):
+            tasks = (json.loads(rows[0]["data"]) or {}).get("tasks", [])
+            nar = sum(1 for t in tasks if "наруш" in (t.get("sleRisk") or "").lower())
+            vys = sum(1 for t in tasks if "высок" in (t.get("sleRisk") or "").lower())
+            att = sum(1 for t in tasks if t.get("needsAttention"))
+            e2e_facts.append(f"SLE PUTKURERA (сейчас в работе): нарушен {nar}, высокий риск {vys}, требуют действий {att}.")
+    except Exception as e:
+        print(f"[weekly sle] {e}")
+
+    practices_all = "\n".join(f"- {p['n']}: {p['b']}" for p in PRACTICES)
+    system = (
+        "Ты — руководитель разработки сервиса доставки ВкусВилл. На вход — сигналы за последнюю неделю по двум контурам: "
+        "КОМАНДЫ (курьеры X/U/R: учёт часов, арх.комитет/возвраты, инциденты, поток) и E2E (очередь PUTKURERA: риски SLE, поток). "
+        "Сделай короткую сводку-ВЫВОДЫ для руководителя: что важно, где риск, что предпринять. По каждому контуру 2-4 пункта. "
+        "Каждый пункт — одно живое предложение с эмодзи в начале (📈/📉/🔥/⚠️/✅/🔒/🧱/🐞/⏱), ключевые числа и имена — в **двойных звёздочках**. "
+        "Где уместно — порекомендуй практику из списка ниже (точным названием). Только по фактам, ничего не выдумывай, без воды. "
+        "Верни СТРОГО JSON без пояснений: {\"teams\":[\"...\"],\"e2e\":[\"...\"]}.\n\nПРАКТИКИ ВкусВилл:\n" + practices_all
+    )
+    facts = ("КОМАНДЫ:\n" + ("\n".join(team_facts) if team_facts else "нет заметных сигналов")
+             + "\n\nE2E:\n" + ("\n".join(e2e_facts) if e2e_facts else "нет заметных сигналов"))
+    raw = await ai_complete(system, facts, max_tokens=800, temperature=0.3)
+    teams_out, e2e_out = [], []
+    try:
+        j = json.loads(re.sub(r"^```(?:json)?|```$", "", (raw or "").strip(), flags=re.MULTILINE).strip())
+        teams_out = [str(x) for x in (j.get("teams") or [])][:5]
+        e2e_out = [str(x) for x in (j.get("e2e") or [])][:5]
+    except Exception as e:
+        print(f"[weekly parse] {e}")
+    payload = {"teams": teams_out, "e2e": e2e_out, "radar": RADAR_URL,
+               "computedAt": datetime.now(MSK).strftime("%Y-%m-%d %H:%M")}
+    try:
+        await turso_execute([stmt(
+            "INSERT INTO osp_snapshot(which,data,updated_at) VALUES(?,?,datetime('now')) "
+            "ON CONFLICT(which) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+            [ck, json.dumps(payload, ensure_ascii=False)])])
+    except Exception as e:
+        print(f"[weekly save] {e}")
+    return JSONResponse({"ok": True, **payload})
 
 # ── Static (React build) ──────────────────────────────────────────────────────
 
