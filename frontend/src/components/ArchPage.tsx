@@ -21,28 +21,30 @@ import { cn } from "@/lib/utils"
 
 // Причины возвратов из подзадач (тег + поле «Причина»), раздельно АрхКом / ТА
 function ReturnReasonsCard({ tasks }: { tasks: ArchReturnTask[] }) {
-  const { v1, v2, totV1, totV2 } = useMemo(() => {
+  const { v1, v2, totV1, totV2, wr1, wr2 } = useMemo(() => {
     const m1 = new Map<string, number>(), m2 = new Map<string, number>()
-    let t1 = 0, t2 = 0
+    let t1 = 0, t2 = 0, r1 = 0, r2 = 0   // t = всего возвратов, r = возвратов С причиной
     tasks.forEach(t => {
       t1 += t.v1n || 0; t2 += t.v2n || 0
       ;(t.returns || []).forEach(r => {
+        // одна подзадача = один возврат; причин может быть несколько — считаем КАЖДУЮ
+        const parts = (r.reason || "").split(";").map(s => s.trim()).filter(Boolean)
+        if (!parts.length) return
+        if (r.kind === "v1") r1++; else r2++
         const m = r.kind === "v1" ? m1 : m2
-        const key = r.reason || "—"
-        m.set(key, (m.get(key) || 0) + 1)
+        parts.forEach(p => m.set(p, (m.get(p) || 0) + 1))
       })
     })
     const top = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1])
-    return { v1: top(m1), v2: top(m2), totV1: t1, totV2: t2 }
+    return { v1: top(m1), v2: top(m2), totV1: t1, totV2: t2, wr1: r1, wr2: r2 }
   }, [tasks])
   if (!v1.length && !v2.length && totV1 === 0 && totV2 === 0) return null
   const max1 = Math.max(1, ...v1.map(x => x[1])), max2 = Math.max(1, ...v2.map(x => x[1]))
-  const col = (title: string, color: string, rows: [string, number][], mx: number, tot: number) => {
-    const withReason = rows.reduce((s, r) => s + r[1], 0)
+  const col = (title: string, color: string, rows: [string, number][], mx: number, tot: number, withReason: number) => {
     return (
     <div className="flex-1 min-w-0">
       <p className="text-xs font-bold mb-2" style={{ color }}>
-        {title} · {tot}
+        {title} · {tot} <span className="font-normal text-muted-foreground">возвратов</span>
         {tot > withReason && <span className="font-normal text-muted-foreground"> ({withReason} с причиной)</span>}
       </p>
       {rows.length === 0 ? <p className="text-xs text-muted-foreground">{tot > 0 ? "причины не заполнены (старые возвраты)" : "нет возвратов"}</p> : (
@@ -66,10 +68,10 @@ function ReturnReasonsCard({ tasks }: { tasks: ArchReturnTask[] }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4">
       <h3 className="text-sm font-black text-foreground mb-1">Причины возвратов</h3>
-      <p className="text-xs text-muted-foreground mb-3">Счёт — по всем возвратам (АрхКом · ТА). Причина есть у возвратов-подзадач (новый процесс); у старых возвратов (по истории статусов) причина не заполнена.</p>
+      <p className="text-xs text-muted-foreground mb-3">Один возврат (подзадача) = 1, даже если в нём несколько причин — но каждая причина учитывается в списке отдельно. Причина есть у возвратов-подзадач (новый процесс); у старых (по истории статусов) — нет.</p>
       <div className="flex gap-6 flex-col sm:flex-row">
-        {col("🔄 АрхКом", "#14b8a6", v1, max1, totV1)}
-        {col("↩️ ТА", "#f43f5e", v2, max2, totV2)}
+        {col("🔄 АрхКом", "#14b8a6", v1, max1, totV1, wr1)}
+        {col("↩️ ТА", "#f43f5e", v2, max2, totV2, wr2)}
       </div>
     </div>
   )
