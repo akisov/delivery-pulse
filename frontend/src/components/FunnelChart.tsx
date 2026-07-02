@@ -1,5 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card"
-import { ArrowRight } from "lucide-react"
+import { ArrowRight, ChevronRight, ListFilter } from "lucide-react"
 import type { ArchReturnTask as Task } from "@/lib/types"
 import type { ArchModalData as TaskModalData } from "@/components/ArchTaskListModal"
 
@@ -87,12 +87,13 @@ export function FunnelChart({ tasks, onShowTasks }: FunnelChartProps) {
               {/* этапы */}
               <div className="space-y-1">
                 {stages.map(s => (
-                  <button key={s.key} onClick={() => click(s.label, s.tasks)} disabled={!s.val}
-                    className="w-full flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-secondary/50 transition-colors disabled:cursor-default disabled:opacity-60 text-left">
+                  <button key={s.key} onClick={() => click(s.label, s.tasks)} disabled={!s.val} title={s.val ? "Показать задачи" : undefined}
+                    className="group w-full flex items-center gap-2 rounded-lg px-2 py-1 cursor-pointer hover:bg-secondary/60 transition-colors disabled:cursor-default disabled:opacity-60 text-left">
                     <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
-                    <span className="text-xs text-foreground flex-1">{s.label}</span>
+                    <span className="text-xs text-foreground flex-1 group-hover:underline decoration-dotted underline-offset-4">{s.label}</span>
                     <span className="text-xs text-muted-foreground tabular-nums">{pct(s.val)}%</span>
                     <span className="text-sm font-black tabular-nums w-7 text-right" style={{ color: s.color }}>{s.val}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-foreground transition-colors shrink-0" />
                   </button>
                 ))}
                 <div className="flex items-center gap-2 rounded-lg px-2 py-1">
@@ -105,14 +106,14 @@ export function FunnelChart({ tasks, onShowTasks }: FunnelChartProps) {
 
               {/* возвраты */}
               <div className="pt-3 border-t border-border">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Возвраты на доработку</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Возвраты на доработку · клик — задачи</p>
                 <div className="space-y-2.5">
                   {returns.map(r => (
                     <button key={r.key} onClick={() => click(r.title, r.tasks, `${r.n} задач · ${r.trans} возвратов суммарно`)}
-                      disabled={!r.n}
-                      className="w-full text-left rounded-lg p-2 hover:bg-secondary/40 transition-colors disabled:cursor-default disabled:opacity-60">
+                      disabled={!r.n} title={r.n ? "Показать задачи" : undefined}
+                      className="group w-full text-left rounded-lg border border-transparent p-2 cursor-pointer hover:bg-secondary/40 hover:border-border transition-colors disabled:cursor-default disabled:opacity-60">
                       <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-sm font-bold" style={{ color: r.color }}>{r.short}</span>
+                        <span className="text-sm font-bold group-hover:underline decoration-dotted underline-offset-4" style={{ color: r.color }}>{r.short}</span>
                         <span className="ml-auto text-lg font-black tabular-nums" style={{ color: r.color }}>{r.n}</span>
                         <span className="text-[11px] text-muted-foreground">{pct(r.n)}%</span>
                       </div>
@@ -122,6 +123,11 @@ export function FunnelChart({ tasks, onShowTasks }: FunnelChartProps) {
                         <span className="rounded-md px-1.5 py-0.5 border" style={{ background: `${r.color}14`, borderColor: `${r.color}44`, color: r.color }}>{r.tIcon} {r.to}</span>
                         {r.trans > r.n && <span className="ml-auto text-muted-foreground">{r.trans} переходов</span>}
                       </div>
+                      {r.n > 0 && (
+                        <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: r.color }}>
+                          <ListFilter className="w-3 h-3" /> смотреть {r.n} задач
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>

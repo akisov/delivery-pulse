@@ -85,6 +85,19 @@ export function ArchTaskListModal({ open, onClose, data }: Props) {
               <p className="text-xs text-muted-foreground mt-0.5 truncate">
                 {t.issueTypeDisplay} · {t.queue} · {fmtDate(t.entryDate)}
               </p>
+              {t.returns && t.returns.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {t.returns.flatMap((r, i) =>
+                    (r.reason || "").split(";").map(s => s.trim()).filter(Boolean).map((p, j) => (
+                      <span key={`${i}-${j}`} className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+                        style={{ background: `${r.kind === "v1" ? "#0d9488" : "#f43f5e"}1a`, color: r.kind === "v1" ? "#0d9488" : "#f43f5e" }}
+                        title={`${r.kind === "v1" ? "Возврат АрхКома" : "Возврат ТА"} · ${p}`}>
+                        {r.kind === "v1" ? "🔄" : "↩️"} {p}
+                      </span>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-end gap-2">
               {badge(t)}
