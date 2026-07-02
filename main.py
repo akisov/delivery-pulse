@@ -1278,8 +1278,7 @@ async def _warm_caches():
         ("sle-current",    lambda: sle_clusters("current", True)),
         ("sle-historical", lambda: sle_clusters("historical", True)),
         ("slackers",       _compute_slackers),   # учёт часов: ~1-2 мин, считаем тут (не на клик)
-        # worklog за текущий+предыдущий месяц — чтобы ОСП-часы были свежими при любом синке
-        ("osp-worklog",    lambda: run_osp_worklog_current(date.today().year)),
+        # osp-worklog (2 мес, ~12 мин) НЕ здесь — гоняем в ФОНЕ после синка, чтобы не блокировать
     ]
     # чистим устаревшие версии снапшотов, чтобы аудит /health/data не флагал мусор
     try:
@@ -1354,6 +1353,10 @@ async def run_sync_job(selected: list[str], full: bool):
         _sync_status["msg"] = "Обновляем кэш разделов…"
         await _warm_caches()
         _sync_status = {"running": False, "pct": 100, "msg": "Синк завершён", "error": ""}
+        # тяжёлую пересборку worklog (2 мес) гоняем В ФОНЕ — не держим синк ~12 мин.
+        # У неё свой статус (_wl_status) и прогресс в разделе ОСП.
+        if not _wl_status["running"]:
+            asyncio.create_task(run_osp_worklog_current(date.today().year))
     except Exception as e:
         _sync_status = {"running": False, "pct": 0, "msg": "", "error": str(e)}
 
