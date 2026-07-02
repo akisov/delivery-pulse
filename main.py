@@ -1275,6 +1275,12 @@ async def _warm_caches():
         # worklog за текущий+предыдущий месяц — чтобы ОСП-часы были свежими при любом синке
         ("osp-worklog",    lambda: run_osp_worklog_current(date.today().year)),
     ]
+    # чистим устаревшие версии снапшотов, чтобы аудит /health/data не флагал мусор
+    try:
+        await turso_execute([stmt("DELETE FROM osp_snapshot WHERE which IN "
+                                  "('slackers-v1','slackers-v2','slackers-v3')")])
+    except Exception as e:
+        print(f"[warm cleanup] {e}")
     report = []
     for name, fn in jobs:
         t0 = datetime.now(MSK)
@@ -5850,13 +5856,16 @@ async def health_data():
             out[name] = {row["queue"]: row.get("last_synced") for row in rows_to_dicts(r[0])}
         except Exception:
             out[name] = {}
-    # сводка проблем
+    # сводка проблем (AI-кэши aic-/ai- — контентные, по расписанию не обновляются → не флагуем)
     problems = []
     for s in out["snapshots"]:
+        w = s.get("which") or ""
+        if w.startswith("aic-") or w.startswith("ai-"):
+            continue
         if s.get("empty"):
-            problems.append(f"пусто: {s['which']}")
+            problems.append(f"пусто: {w}")
         elif s.get("stale"):
-            problems.append(f"устарело (>2дн): {s['which']} — {s.get('updatedAt')}")
+            problems.append(f"устарело (>2дн): {w} — {s.get('updatedAt')}")
     for it in (out.get("warm") or {}).get("items", []):
         if it.get("status") != "ok":
             problems.append(f"ошибка прогрева: {it['section']} — {it.get('error')}")
