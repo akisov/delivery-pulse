@@ -7,111 +7,105 @@ interface FunnelChartProps {
   onShowTasks?: (data: TaskModalData) => void
 }
 
+// Настоящая воронка: сверху вниз сужается. Этапы монотонно убывают —
+// на каждом отсекаются возвраты.
 export function FunnelChart({ tasks, onShowTasks }: FunnelChartProps) {
   const entrants = tasks.filter(t => t.entered)
   const total = entrants.length
-  const akTasks = tasks.filter(t => t.v1n > 0)
-  const taTasks = tasks.filter(t => t.v2n > 0)
-  const okTasks = entrants.filter(t => t.total === 0)
-  const akCount = akTasks.length
-  const taCount = taTasks.length
+  const akTasks = tasks.filter(t => t.entered && t.v1n > 0)
+  const noAk = entrants.filter(t => t.v1n === 0)          // прошли ревью АрхКома
+  const okTasks = entrants.filter(t => t.total === 0)     // с первого раза
+  const taDropTasks = noAk.filter(t => t.total > 0)       // прошли АрхКом, но вернул ТА/прочее
 
-  const pctAk = total > 0 ? Math.round(akCount / total * 100) : 0
-  const pctTa = total > 0 ? Math.round(taCount / total * 100) : 0
-
-  const rows = [
-    {
-      label: "Пришло в АрхКом",
-      count: total,
-      pct: 100,
-      color: "bg-[hsl(var(--chart-1))]",
-      textColor: "text-[hsl(var(--chart-1))]",
-      icon: "📋",
-      desc: "Задач перешли в «Аналит. проработка готово»",
-      modalTasks: entrants,
-    },
-    {
-      label: "АрхКом вернул",
-      count: akCount,
-      pct: pctAk,
-      color: "bg-[hsl(var(--chart-2))]",
-      textColor: "text-[hsl(var(--chart-2))]",
-      icon: "🔄",
-      desc: "Отправлено на ревью аналитики арх. комитетом",
-      modalTasks: akTasks,
-    },
-    {
-      label: "ТА вернул",
-      count: taCount,
-      pct: pctTa,
-      color: "bg-[hsl(var(--chart-3))]",
-      textColor: "text-[hsl(var(--chart-3))]",
-      icon: "↩️",
-      desc: "Возвращено на доработку техническим архитектором",
-      modalTasks: taTasks,
-    },
+  const stages = [
+    { key: "in", label: "Пришло в АрхКом", val: total, color: "#7C6FF7", tasks: entrants },
+    { key: "noak", label: "Прошли ревью АрхКома", val: noAk.length, color: "#06B6D4", tasks: noAk },
+    { key: "ok", label: "С первого раза", val: okTasks.length, color: "#10B981", tasks: okTasks },
+  ]
+  const drops = [
+    { after: 0, label: "АрхКом вернул", icon: "🔄", count: akTasks.length, color: "#f59e0b", tasks: akTasks },
+    { after: 1, label: "Вернул ТА / прочее", icon: "↩️", count: taDropTasks.length, color: "#f43f5e", tasks: taDropTasks },
   ]
 
+  // геометрия воронки
+  const W = 300, CX = 175, PAD = 8, BAND = 74
+  const maxV = Math.max(1, total)
+  const wOf = (v: number) => Math.max(26, (v / maxV) * W)     // ширина на уровне значения
+  const widths = stages.map(s => wOf(s.val))
+  const tipW = widths[widths.length - 1] * 0.55
+  const H = BAND * stages.length + PAD * 2
+  const VBW = 360
+
+  const click = (title: string, ts: Task[]) => { if (ts.length) onShowTasks?.({ title, tasks: ts }) }
+
   return (
-    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
-      <CardContent className="p-6">
-        <p className="text-sm font-bold text-foreground mb-1">Воронка отсечек</p>
-        <p className="text-xs text-muted-foreground mb-6">
-          Из {total} задач, пришедших к техархам за период · нажмите на строку
+    <Card>
+      <CardContent className="p-5">
+        <h3 className="text-sm font-black text-foreground">Воронка прохождения</h3>
+        <p className="text-xs text-muted-foreground mt-0.5 mb-3">
+          {total} задач пришло к техархам за период · на каждом этапе отсекаются возвраты · клик — список
         </p>
 
-        <div className="space-y-4">
-          {rows.map((row, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => row.count > 0 && onShowTasks?.({ title: row.label, tasks: row.modalTasks })}
-              disabled={row.count === 0}
-              className="w-full text-left group rounded-lg -mx-2 px-2 py-1 transition-colors hover:bg-secondary/50 disabled:cursor-default disabled:hover:bg-transparent"
-            >
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">{row.icon}</span>
-                  <span className="text-sm font-semibold text-foreground group-hover:underline decoration-dotted underline-offset-4">{row.label}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs font-bold ${row.textColor}`}>{row.pct}%</span>
-                  <span className={`text-lg font-black tabular-nums ${row.textColor} min-w-[2rem] text-right`}>
-                    {row.count}
-                  </span>
-                </div>
-              </div>
+        {total === 0 ? (
+          <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">Нет задач за период</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_150px] gap-4 items-center">
+            {/* SVG-воронка */}
+            <svg viewBox={`0 0 ${VBW} ${H}`} className="w-full" style={{ maxHeight: 300 }}>
+              <defs>
+                {stages.map(s => (
+                  <linearGradient key={s.key} id={`fn-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stopColor={s.color} stopOpacity="0.95" />
+                    <stop offset="1" stopColor={s.color} stopOpacity="0.7" />
+                  </linearGradient>
+                ))}
+              </defs>
+              {stages.map((s, i) => {
+                const topW = widths[i]
+                const botW = i < stages.length - 1 ? widths[i + 1] : tipW
+                const y0 = PAD + i * BAND, y1 = y0 + BAND - 10
+                const pts = [
+                  [CX - topW / 2, y0], [CX + topW / 2, y0],
+                  [CX + botW / 2, y1], [CX - botW / 2, y1],
+                ].map(p => p.join(",")).join(" ")
+                const pct = Math.round(s.val / maxV * 100)
+                return (
+                  <g key={s.key} onClick={() => click(s.label, s.tasks)}
+                    style={{ cursor: s.val ? "pointer" : "default" }} className="transition-opacity hover:opacity-90">
+                    <polygon points={pts} fill={`url(#fn-${s.key})`} />
+                    <text x={CX} y={y0 + (BAND - 10) / 2 - 6} textAnchor="middle" fill="#fff"
+                      fontSize="13" fontWeight="800">{s.val}</text>
+                    <text x={CX} y={y0 + (BAND - 10) / 2 + 11} textAnchor="middle" fill="#fff"
+                      fontSize="10" fontWeight="600" opacity="0.9">{pct}%</text>
+                  </g>
+                )
+              })}
+            </svg>
 
-              {/* Bar */}
-              <div className="relative h-6 rounded-lg bg-secondary overflow-hidden">
-                <div
-                  className={`absolute inset-y-0 left-0 rounded-lg transition-all duration-700 ease-out ${row.color} opacity-80 group-hover:opacity-100`}
-                  style={{ width: `${Math.min(100, Math.max(row.pct, row.count > 0 ? 3 : 0))}%` }}
-                />
+            {/* Легенда этапов + отсев */}
+            <div className="space-y-2">
+              {stages.map(s => (
+                <button key={s.key} onClick={() => click(s.label, s.tasks)} disabled={!s.val}
+                  className="w-full text-left flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-secondary/50 transition-colors disabled:cursor-default disabled:opacity-60">
+                  <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
+                  <span className="text-[11px] text-foreground leading-tight flex-1">{s.label}</span>
+                  <span className="text-xs font-black tabular-nums" style={{ color: s.color }}>{s.val}</span>
+                </button>
+              ))}
+              <div className="pt-2 mt-1 border-t border-border space-y-1.5">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Отсеялось</p>
+                {drops.map(d => (
+                  <button key={d.after} onClick={() => click(d.label, d.tasks)} disabled={!d.count}
+                    className="w-full text-left flex items-center gap-1.5 rounded-lg px-2 py-1 hover:bg-secondary/50 transition-colors disabled:cursor-default disabled:opacity-50">
+                    <span className="text-xs">{d.icon}</span>
+                    <span className="text-[11px] text-muted-foreground leading-tight flex-1">{d.label}</span>
+                    <span className="text-xs font-bold tabular-nums" style={{ color: d.color }}>−{d.count}</span>
+                  </button>
+                ))}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">{row.desc}</p>
-            </button>
-          ))}
-        </div>
-
-        {/* Pass rate */}
-        <button
-          type="button"
-          onClick={() => okTasks.length > 0 && onShowTasks?.({ title: "Прошли без замечаний", tasks: okTasks })}
-          disabled={okTasks.length === 0}
-          className="w-full mt-6 pt-4 border-t border-border flex items-center justify-between transition-colors hover:bg-secondary/40 disabled:hover:bg-transparent rounded-b-lg -mx-2 px-2 disabled:cursor-default group"
-        >
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">Прошли без замечаний</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-black text-emerald-500">{okTasks.length}</span>
-            <span className="text-xs text-muted-foreground">
-              ({total > 0 ? Math.round(okTasks.length / total * 100) : 0}%)
-            </span>
-          </div>
-        </button>
+        )}
       </CardContent>
     </Card>
   )
