@@ -1568,6 +1568,66 @@ async def arch_current(queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
     selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
     return JSONResponse(await query_arch_current(selected))
 
+@app.get("/arch-ai-summary")
+async def arch_ai_summary(date_from: str = Query(None), date_to: str = Query(None),
+                          queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA"),
+                          refresh: bool = Query(False)):
+    """AI-итоги по арх.комитету за период: прохождение, возвраты, причины отказа, динамика."""
+    if not AI_ENABLED:
+        return JSONResponse({"ok": False, "error": "AI-ключ не задан"})
+    if not date_from:
+        date_from = (date.today() - timedelta(days=30)).isoformat()
+    if not date_to:
+        date_to = date.today().isoformat()
+    qs = [q for q in queues.split(",") if q in QUEUES] or QUEUES
+    df, dt = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    days = max(1, (dt - df).days + 1)
+    pdt, pdf = df - timedelta(days=1), df - timedelta(days=days)
+    cur = await query_arch_dashboard(date_from, date_to, qs)
+    prev = await query_arch_dashboard(pdf.isoformat(), pdt.isoformat(), qs)
+
+    def agg(d):
+        ts = d.get("tasks", [])
+        ent = sum(1 for t in ts if t.get("entered"))
+        ok = sum(1 for t in ts if t.get("entered") and (t.get("total") or 0) == 0)
+        v1 = sum(t.get("v1n", 0) for t in ts); v2 = sum(t.get("v2n", 0) for t in ts)
+        cyc = [t["cycleDays"] for t in ts if t.get("cycleDays") is not None]
+        return ent, ok, v1, v2, (round(sum(cyc) / len(cyc)) if cyc else None)
+    e, o, v1, v2, cyc = agg(cur)
+    pe, po, pv1, pv2, pcyc = agg(prev)
+    okpct = round(o / e * 100) if e else 0
+    rz = cur.get("reasons", {}) or {}
+    r1 = "; ".join(f"{x['reason']} ({x['count']})" for x in (rz.get("v1") or [])[:4]) or "нет данных"
+    r2 = "; ".join(f"{x['reason']} ({x['count']})" for x in (rz.get("v2") or [])[:4]) or "нет данных"
+    byq = []
+    for q in qs:
+        qts = [t for t in cur.get("tasks", []) if t.get("queue") == q]
+        byq.append(f"{OSP_QUEUES.get(q, q)}: пришло {sum(1 for t in qts if t.get('entered'))}, "
+                   f"возвраты АрхКом {sum(t.get('v1n',0) for t in qts)}/ТА {sum(t.get('v2n',0) for t in qts)}")
+    facts = "\n".join([
+        f"Период: {date_from}–{date_to} (предыдущий равный: {pdf.isoformat()}–{pdt.isoformat()}).",
+        f"Пришло в АрхКом: {e} (было {pe}).",
+        f"Прошли с первого раза (без возвратов): {o} = {okpct}% (было {po}).",
+        f"Возвратов от АрхКома (на ревью аналитики): {v1} (было {pv1}).",
+        f"Возвратов от ТА (на доработку): {v2} (было {pv2}).",
+        f"Среднее время прохождения комитета: {cyc if cyc is not None else '—'} дн (было {pcyc if pcyc is not None else '—'}).",
+        "По командам: " + "; ".join(byq),
+        f"ГЛАВНЫЕ причины возвратов АрхКома: {r1}.",
+        f"ГЛАВНЫЕ причины возвратов ТА: {r2}.",
+    ])
+    system = (
+        "Ты — аналитик процесса архитектурного комитета (задачи проходят: пришло → ревью АрхКома → согласование ТА; "
+        "возвраты = отправили на доработку). На вход — метрики за период и сравнение с предыдущим равным периодом. "
+        "Сделай короткий разбор-выводы для тимлида/архитектора: что важно, где риск, что предпринять.\n"
+        "ОБЯЗАТЕЛЬНО назови ГЛАВНЫЕ причины возвратов (за что чаще отклоняют) — это самое ценное.\n"
+        "Сравнивай с предыдущим РАВНЫМ периодом (не 'текущий месяц с прошлым').\n"
+        "ФОРМАТ СТРОГО: 2–4 пункта, каждый с новой строки с эмодзи (📈 рост / 📉 спад / ✅ хорошо / ⚠️ риск / 🔄 АрхКом / ↩️ ТА / ⏱ время / 🎯 качество), "
+        "одно живое предложение, ключевые числа и причины — в **двойных звёздочках**. Без вступления и воды."
+        + _practices_prompt(["arch", "sle"]) + AI_BALANCE_NOTE
+    )
+    summary = await ai_cached("arch", system, facts, max_tokens=450, temperature=0.3, refresh=refresh)
+    return JSONResponse({"ok": True, "summary": summary or ""})
+
 # ── Оценка: спринты (план-факт) ─────────────────────────────────────────────────
 @app.get("/sprints")
 async def sprints_list(team: str = Query("U")):

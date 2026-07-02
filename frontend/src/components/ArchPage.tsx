@@ -11,6 +11,7 @@ import { TypeFilter } from "@/components/TypeFilter"
 import { MonthlyChart } from "@/components/MonthlyChart"
 import { CycleTrendChart } from "@/components/CycleTrendChart"
 import { ArchCommitteeReport } from "@/components/ArchCommitteeReport"
+import { ArchAiSummary } from "@/components/ArchAiSummary"
 import { HealthStrip } from "@/components/HealthStrip"
 import { InsightBar } from "@/components/InsightBar"
 import { ArchTaskListModal, type ArchModalData } from "@/components/ArchTaskListModal"
@@ -293,6 +294,14 @@ export function ArchPage() {
               <div className="animate-fade-in-up stagger-3 h-full"><ArchStatCard label="ТА"              value={m.v2}      sub="вернули на уточнение"  icon="↩️" color="rose" delta={dlt(m.v2, pm?.v2)} invert onClick={() => setTaskModal({ title: "Вернул ТА", tasks: view.filter(t => t.v2n > 0) })} /></div>
               <div className="animate-fade-in-up stagger-4 h-full"><ArchStatCard label="Оба типа"        value={m.both}    sub="вернули и АрхКом, и ТА" icon="⚡" color="amber" delta={dlt(m.both, pm?.both)} invert onClick={() => setTaskModal({ title: "Вернули и АрхКом, и ТА", tasks: view.filter(t => t.v1n > 0 && t.v2n > 0) })} /></div>
               <div className="animate-fade-in-up stagger-5 h-full"><ArchStatCard label="Всего возвратов" value={m.cuts}    sub="суммарно переходов"    icon="🔁" color="sky" delta={dlt(m.cuts, pm?.cuts)} invert onClick={() => setTaskModal({ title: "Задачи с возвратами", tasks: view.filter(t => t.total > 0) })} /></div>
+            </div>
+          )}
+
+          {/* AI-итоги */}
+          {ready && (
+            <div className="animate-fade-in-up" style={{ animationDelay: "0.08s" }}>
+              <ArchAiSummary dateFrom={dates.from} dateTo={dates.to}
+                queues={queue === "ALL" ? "POOLING,DOSTAVKAPIKO,UDOSTAVKA" : queue} />
             </div>
           )}
 
