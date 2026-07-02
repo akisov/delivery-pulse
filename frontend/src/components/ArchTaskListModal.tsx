@@ -75,24 +75,23 @@ export function ArchTaskListModal({ open, onClose, data }: Props) {
         {sorted.length === 0 ? (
           <p className="text-center text-muted-foreground text-sm py-8">Нет задач</p>
         ) : sorted.map(t => (
-          <div key={t.key} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-border hover:bg-secondary/40 hover:border-primary/30 transition-colors">
+          <div key={t.key} className="grid grid-cols-[110px_1fr_auto] sm:grid-cols-[160px_1fr_150px] items-center gap-3 px-4 py-3 rounded-xl border border-border hover:bg-secondary/40 hover:border-primary/30 transition-colors">
             <a href={t.url} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 text-primary font-mono text-xs font-bold hover:underline whitespace-nowrap shrink-0">
-              {t.key}<ExternalLink className="w-3 h-3 opacity-40" />
+              className="inline-flex items-center gap-1 text-primary font-mono text-xs font-bold hover:underline min-w-0">
+              <span className="truncate">{t.key}</span><ExternalLink className="w-3 h-3 opacity-40 shrink-0" />
             </a>
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0">
               <p className="text-sm text-foreground truncate">{t.title}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">
                 {t.issueTypeDisplay} · {t.queue} · {fmtDate(t.entryDate)}
               </p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center justify-end gap-2">
               {badge(t)}
-              {t.total > 0 && (
-                <span className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-black flex items-center justify-center">
-                  {t.total}
-                </span>
-              )}
+              <span className={cn("w-6 h-6 rounded-full text-xs font-black flex items-center justify-center shrink-0",
+                t.total > 0 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "opacity-0")}>
+                {t.total > 0 ? t.total : "0"}
+              </span>
             </div>
           </div>
         ))}
