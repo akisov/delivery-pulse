@@ -1568,6 +1568,18 @@ async def arch_current(queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA")):
     selected = [q for q in queues.split(",") if q in QUEUES] or QUEUES
     return JSONResponse(await query_arch_current(selected))
 
+@app.get("/diag/flow-statuses")
+async def diag_flow_statuses():
+    """Отладка: какие to_display в flow_transitions по очередям + очереди в flow_tasks."""
+    r1 = await turso_execute([stmt(
+        "SELECT ft.queue AS q, tr.to_display AS s, COUNT(*) AS c FROM flow_transitions tr "
+        "JOIN flow_tasks ft ON ft.key = tr.issue_key GROUP BY ft.queue, tr.to_display ORDER BY ft.queue, c DESC")])
+    rows = rows_to_dicts(r1[0]) if r1 else []
+    by_q: dict = {}
+    for r in rows:
+        by_q.setdefault(r["q"], []).append(f"{r['s']} ({r['c']})")
+    return JSONResponse({"ok": True, "byQueue": by_q})
+
 @app.get("/arch-ai-summary")
 async def arch_ai_summary(date_from: str = Query(None), date_to: str = Query(None),
                           queues: str = Query("POOLING,DOSTAVKAPIKO,UDOSTAVKA"),
