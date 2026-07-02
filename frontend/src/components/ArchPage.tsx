@@ -3,7 +3,6 @@ import { Landmark } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageHeader } from "@/components/PageHeader"
 import { ArchStatCard } from "@/components/ArchStatCard"
-import { ReturnsCard } from "@/components/ReturnsCard"
 import { DonutChart } from "@/components/DonutChart"
 import { FunnelChart } from "@/components/FunnelChart"
 import { TimelineChart } from "@/components/TimelineChart"
@@ -303,14 +302,9 @@ export function ArchPage() {
           )}
 
           {/* Funnel + Returns */}
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Skeleton className="h-64 rounded-xl" /><Skeleton className="h-64 rounded-xl" />
-            </div>
-          ) : ready && (
-            <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-4 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
+          {loading ? <Skeleton className="h-72 rounded-xl" /> : ready && (
+            <div className="animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
               <FunnelChart tasks={view} onShowTasks={setTaskModal} />
-              <ReturnsCard tasks={view} totalTasks={total} onShowTasks={setTaskModal} />
             </div>
           )}
 
