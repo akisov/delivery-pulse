@@ -51,7 +51,7 @@ function WeeklyAI() {
       )}
       <a href={d?.radar || "https://practice-radar.svc.vkusvill.ru/"} target="_blank" rel="noreferrer"
         className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
-        📌 Практики — Радар практик ВкусВилл <ExternalLink className="w-3 h-3" />
+        📌 Практики — Радар практик ТехВилл <ExternalLink className="w-3 h-3" />
       </a>
     </div>
   )

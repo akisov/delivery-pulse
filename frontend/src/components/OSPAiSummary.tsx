@@ -75,7 +75,7 @@ export function OSPAiSummary({ queue, month, monthLabel, refreshKey }: {
           {resp?.summary && (
             <a href="https://practice-radar.svc.vkusvill.ru/" target="_blank" rel="noreferrer"
               className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
-              📌 Практики — Радар практик ВкусВилл →
+              📌 Практики — Радар практик ТехВилл →
             </a>
           )}
         </div>
