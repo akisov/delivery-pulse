@@ -800,6 +800,12 @@ async def _sync_arch_returns(client, queue):
         kind = "v1" if ARCH_TAG_V1 in tags else ("v2" if ARCH_TAG_V2 in tags else None)
         if not kind:
             continue
+        # возврат = подзадача типа «Ошибка» (bug) с тегом (как в схеме n8n)
+        tp = (iss.get("type") or {})
+        td = (tp.get("display") or "").lower()
+        tk = (tp.get("key") or "").lower()
+        if "bug" not in tk and "ошибк" not in td:
+            continue
         rv = _field(iss, "--reasonForTheRefund")
         reason = "; ".join(str(x) for x in rv if x) if isinstance(rv, list) else str(rv or "")
         stmts.append(stmt(

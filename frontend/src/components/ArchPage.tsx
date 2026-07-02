@@ -3,7 +3,6 @@ import { Landmark } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageHeader } from "@/components/PageHeader"
 import { ArchStatCard } from "@/components/ArchStatCard"
-import { DonutChart } from "@/components/DonutChart"
 import { FunnelChart } from "@/components/FunnelChart"
 import { TimelineChart } from "@/components/TimelineChart"
 import { QueueBreakdown } from "@/components/QueueBreakdown"
@@ -11,7 +10,6 @@ import { TypeBreakdown } from "@/components/TypeBreakdown"
 import { TypeFilter } from "@/components/TypeFilter"
 import { MonthlyChart } from "@/components/MonthlyChart"
 import { CycleTrendChart } from "@/components/CycleTrendChart"
-import { TaskTable } from "@/components/TaskTable"
 import { ArchCommitteeReport } from "@/components/ArchCommitteeReport"
 import { HealthStrip } from "@/components/HealthStrip"
 import { InsightBar } from "@/components/InsightBar"
@@ -341,23 +339,15 @@ export function ArchPage() {
             </div>
           )}
 
-          {/* Breakdown + Donut */}
+          {/* Разбивки: по очередям + качество по типам (donut убрал — дублировал воронку) */}
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Skeleton className="h-72 rounded-xl" /><Skeleton className="h-72 rounded-xl" />
             </div>
           ) : ready && (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 animate-fade-in-up" style={{ animationDelay: "0.4s" }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in-up" style={{ animationDelay: "0.4s" }}>
               <QueueBreakdown tasks={view} onShowTasks={setTaskModal} />
               <TypeBreakdown tasks={view} onShowTasks={setTaskModal} />
-              <DonutChart tasks={view} onShowTasks={setTaskModal} />
-            </div>
-          )}
-
-          {/* Таблица */}
-          {loading ? <Skeleton className="h-72 rounded-xl" /> : ready && (
-            <div className="animate-fade-in-up" style={{ animationDelay: "0.45s" }}>
-              <TaskTable tasks={view} activeFilter="all" onFilter={() => {}} />
             </div>
           )}
         </>
