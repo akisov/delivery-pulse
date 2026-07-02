@@ -66,7 +66,7 @@ function ReturnReasonsCard({ tasks }: { tasks: ArchReturnTask[] }) {
     )
   }
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <h3 className="text-sm font-black text-foreground mb-1">Причины возвратов</h3>
       <p className="text-xs text-muted-foreground mb-3">Один возврат (подзадача) = 1, даже если в нём несколько причин — но каждая причина учитывается в списке отдельно. Причина есть у возвратов-подзадач (новый процесс); у старых (по истории статусов) — нет.</p>
       <div className="flex gap-6 flex-col sm:flex-row">

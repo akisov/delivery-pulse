@@ -41,7 +41,7 @@ export function FunnelChart({ tasks, onShowTasks }: FunnelChartProps) {
   ]
 
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_8px_30px_rgba(108,99,255,0.12)]">
       <CardContent className="p-5">
         <h3 className="text-sm font-black text-foreground">Воронка прохождения арх. комитета</h3>
         <p className="text-xs text-muted-foreground mt-0.5 mb-4">
