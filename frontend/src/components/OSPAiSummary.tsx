@@ -51,7 +51,7 @@ export function OSPAiSummary({ queue, month, monthLabel, refreshKey }: {
               <RefreshCw className={loading ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
             </button>
           </div>
-          <p className="text-[11px] text-muted-foreground mb-2">Узкие места и тревожные тренды относительно прошлого месяца — по числам дашборда</p>
+          <p className="text-[11px] text-muted-foreground mb-2">Главные изменения относительно прошлого месяца — и хорошее, и тревожное, по числам дашборда</p>
 
           {loading ? (
             <div className="space-y-2 py-0.5">
